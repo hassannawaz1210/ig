@@ -76,6 +76,7 @@ Opening batches avoid the previous batch’s opening account when another accoun
 - **N**: mark this reel as not interesting and move on.
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
+- **R**: remove the current account from all saved feeds (does not block it).
 - **A**: open the feed picker for the current account, even if it is already saved elsewhere.
 - **P**: open the current account's profile in a new tab.
 - **B**: block the current account permanently.

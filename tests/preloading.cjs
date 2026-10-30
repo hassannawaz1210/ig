@@ -9,6 +9,8 @@ function element(id) {
   if (id === 'feed-picker' || id === 'shortcut-help') return null;
   if (!elements.has(id)) elements.set(id, {
     textContent: id === 'seed' ? '[]' : '', style: {}, dataset: {},
+    getBoundingClientRect() {return {top:0,bottom:800,height:800};},
+    scrollIntoView() {},
     setAttribute(name, value) { this[name] = value; },
     querySelector: () => null, querySelectorAll: () => [],
     insertAdjacentHTML() {
@@ -23,7 +25,7 @@ function element(id) {
 }
 const ctx = vm.createContext({
   document: {getElementById: element, addEventListener() {}, querySelectorAll: () => []},
-  IntersectionObserver: class {observe() {} unobserve() {}}, AbortSignal,
+  IntersectionObserver: class {constructor(callback) {ctx.observerCallback = callback;} observe() {} unobserve() {}}, AbortSignal,
   performance: {now: () => 2000},
   sessionStorage: {data: {}, getItem(key) {return this.data[key] || null;},
     setItem(key, value) {this.data[key] = value;}},
@@ -44,6 +46,10 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   await vm.runInContext('current=1; prepare(1)', ctx);
   assert.equal(video.loads, 1, 'activation does not restart the download');
   assert.equal(video.plays, 1);
+  element('s0').id = 's0';
+  element('s0').getBoundingClientRect = () => ({top:-800,bottom:0,height:800});
+  ctx.observerCallback([{target:element('s0'),isIntersecting:true,intersectionRatio:1}]);
+  assert.equal(vm.runInContext('current',ctx),1,'stale observer entries cannot undo a keyboard jump');
   await vm.runInContext('more()', ctx);
   assert.equal(vm.runInContext('exhausted', ctx), false, 'temporary empty response is not exhaustion');
   assert.equal(timers.length, 1, 'retry without requiring another scroll');
@@ -91,6 +97,7 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
     toggleMute = () => keyCalls.push('mute');
     addCurrent = () => keyCalls.push('add');
     openProfile = () => keyCalls.push('profile');
+    removeCurrent = () => keyCalls.push('remove');
     const realBlock = blockCurrent;
     blockCurrent = session => keyCalls.push(session ? 'session' : 'permanent');
   `, ctx);
@@ -111,6 +118,14 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   ctx.event = {key:'b', target:{closest:()=>({})}, preventDefault(){throw Error('typing intercepted');}};
   vm.runInContext('handleReelKey(event)',ctx);
   assert.equal(vm.runInContext('keyCalls.length',ctx),6);
+  ctx.event = {key:'r', code:'KeyR', target:{closest:()=>null}, preventDefault(){}};
+  vm.runInContext('handleReelKey(event); releaseReelKey(event)',ctx);
+  assert.equal(vm.runInContext('keyCalls.at(-1)',ctx),'remove');
+  ctx.event = {key:'ArrowUp',code:'ArrowUp',target:{closest:selector=>selector==='button, a'?{}:null},preventDefault(){this.prevented=true;}};
+  vm.runInContext('current=1; handleReelKey(event); handleReelKey(event); releaseReelKey(event)',ctx);
+  assert.equal(ctx.event.prevented,true);
+  assert.equal(vm.runInContext('current',ctx),0,'focused controls still navigate exactly one reel');
+  vm.runInContext('current=1',ctx);
   vm.runInContext(`
     blockCurrent = realBlock;
     more = () => {};

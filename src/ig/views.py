@@ -38,6 +38,7 @@ function showShortcuts() {
     <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>
     <dt><kbd>N</kbd></dt><dd>Not interested in this reel</dd>
     <dt><kbd>A</kbd></dt><dd>Add account to a feed</dd>
+    <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
     <dt><kbd>B</kbd></dt><dd>Block account permanently</dd>
     <dt><kbd>Shift+B</kbd></dt><dd>Block for this session</dd>
@@ -472,7 +473,7 @@ function syncAccountButtons() {{
     const saved = feeded.has(p.owner);
     button.innerHTML = '<span class="em">' + icon(saved ? 'check' : 'plus') + '</span><span>' + (saved ? 'in feed' : 'add') + '</span>';
     button.style.opacity = saved ? '.7' : '1';
-    button.title = saved ? 'Remove this account from your feeds' : 'Add this account to a feed';
+    button.title = saved ? 'Remove account from all feeds (R)' : 'Add this account to a feed';
     button.onclick = saved ? () => rmAcc(p.owner, button) : () => addAcc(p.owner, button);
   }});
 }}
@@ -526,7 +527,7 @@ function slideHtml(p, i) {{
       <div class="ico"><span class="em">${{icon('comment')}}</span><span id="cm${{i}}">${{fmt(p.comment_count)}}</span></div>
       ${{feeded.has(p.owner)
           ? `<div class="ico account-action" style="cursor:pointer;opacity:.7"
-             title="remove this account from your feeds"
+             title="Remove account from all feeds (R)"
              onclick="rmAcc('${{esc(p.owner)}}', this)">
              <span class="em">${{icon('check')}}</span><span>in feed</span></div>`
           : `<div class="ico account-action" style="cursor:pointer"
@@ -623,6 +624,12 @@ async function activate(i) {{
 let current = -1;
 const io = new IntersectionObserver(es => {{
   for (const e of es) if (e.isIntersecting && e.intersectionRatio > 0.6) {{
+    // Observer entries describe a past frame. Ignore entries for slides that
+    // have already left the viewport after a keyboard jump or layout change.
+    const bounds = e.target.getBoundingClientRect();
+    const viewport = feed.getBoundingClientRect();
+    const visible = Math.min(bounds.bottom, viewport.bottom) - Math.max(bounds.top, viewport.top);
+    if (visible <= bounds.height * 0.6) continue;
     const i = +e.target.id.slice(1);
     if (!isHidden(posts[i]) && i !== current) {{
       recordQuickSkip(current);
@@ -631,7 +638,7 @@ const io = new IntersectionObserver(es => {{
       activate(i);
     }}
   }}
-}}, {{ threshold:[0.6] }});
+}}, {{ root:feed, threshold:[0.6] }});
 function observeNew() {{
   feed.querySelectorAll('.slide').forEach(s => {{ if (!s.hidden && !s.dataset.obs) {{
     s.dataset.obs = 1; io.observe(s); }} }});
@@ -877,6 +884,12 @@ function addCurrent() {{
   const button = document.getElementById('s'+current)?.querySelector('.account-action');
   if (button) addAcc(p.owner, button);
 }}
+function removeCurrent() {{
+  const p = posts[current];
+  if (!p || isHidden(p) || !feeded.has(p.owner)) return;
+  const button = document.getElementById('s'+current)?.querySelector('.account-action');
+  if (button) rmAcc(p.owner, button);
+}}
 function openProfile() {{
   const owner = posts[current]?.owner;
   if (owner) window.open('/u/' + encodeURIComponent(owner), '_blank', 'noopener');
@@ -886,9 +899,12 @@ function releaseReelKey(e) {{ heldKeys.delete(e.code || e.key.toLowerCase()); }}
 function handleReelKey(e) {{
   if (e.ctrlKey || e.altKey || e.metaKey ||
       document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
-      e.target?.closest('input, textarea, select, button, a, [contenteditable="true"], dialog')) return;
+      e.target?.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
   const key = e.key.toLowerCase();
-  const actions = {{'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, p:openProfile,
+  // Space retains native activation for a focused button/link; navigation keys
+  // must always use our one-step handler, including after clicking controls.
+  if (key === ' ' && e.target?.closest('button, a')) return;
+  const actions = {{'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1)}};
   if (!actions[key]) return;
