@@ -52,6 +52,15 @@ def nested_find(obj, key):
     return None
 
 
+def audio_id(media):
+    clips = media.get('clips_metadata') or {}
+    music = clips.get('music_info') or {}
+    asset = music.get('music_asset_info') or {}
+    original = clips.get('original_sound_info') or {}
+    return str(asset.get('audio_cluster_id') or asset.get('id') or
+               original.get('audio_asset_id') or original.get('id') or '') or None
+
+
 def slim(n: dict) -> dict:
     img = n.get("display_uri")
     if not img:
@@ -59,6 +68,7 @@ def slim(n: dict) -> dict:
         img = (cands[0] or {}).get("url") if cands else None
     return {
         "shortcode": n.get("code"),
+        "audio_id": audio_id(n),
         "url": f"https://www.instagram.com/p/{n.get('code')}/",
         "owner": (n.get("user") or {}).get("username"),
         "taken_at": n.get("taken_at"),
@@ -85,11 +95,10 @@ def feed(username: str) -> list[dict]:
 
 def media_info(code: str) -> dict:
     """Full data for one post incl. direct MP4 URL (reels), via the
-    post page's xig_polaris_media payload; first-page comments ride along
-    in a separate data-sjs blob and feed account discovery."""
+    post page's xig_polaris_media payload, including audio and tagged creators."""
     s = cr.Session(impersonate="chrome", headers=UA_HEADERS)
     html = s.get(f"https://www.instagram.com/p/{code}/", timeout=30).text
-    m = comms = None
+    m = None
     for payload in sjs_payloads(html, "xig_polaris_media"):
         media = nested_find(payload, "xig_polaris_media")
         if media:
@@ -97,18 +106,13 @@ def media_info(code: str) -> dict:
             break
     if m is None:
         raise SystemExit(f"no post payload for {code}")
-    for payload in sjs_payloads(html, "comments_connection"):
-        c = nested_find(payload, "comments_connection")
-        if c and c.get("edges"):
-            comms = c
-            break
-
     def best(vlist):
         return (max(vlist, key=lambda x: x.get("width") or 0).get("url")
                 if vlist else None)
 
     out = {
         "shortcode": m.get("code"),
+        "audio_id": audio_id(m),
         "owner": (m.get("user") or {}).get("username"),
         "like_count": m.get("like_count"),
         "comment_count": m.get("comment_count"),
@@ -128,12 +132,6 @@ def media_info(code: str) -> dict:
                          (m.get("caption") or {}).get("text") or "")
     out["tagged_users"] = sorted(set(tagged))[:8]
 
-    # commenters on the post page; meme audiences are full of
-    # repost/meme accounts -> discovery fuel
-    owner = (m.get("user") or {}).get("username")
-    commenters = sorted({(e.get("node") or {}).get("user", {}).get("username")
-                         for e in (comms or {}).get("edges") or []} - {owner, None})
-    out["commenters"] = random.sample(commenters, min(6, len(commenters)))
     for s in m.get("carousel_media") or []:
         out["slides"].append({
             "video": best(s.get("video_versions") or []),

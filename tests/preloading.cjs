@@ -6,7 +6,7 @@ const calls = [];
 let response = {posts: [], has_more: true};
 const timers = [];
 function element(id) {
-  if (id === 'feed-picker') return null;
+  if (id === 'feed-picker' || id === 'shortcut-help') return null;
   if (!elements.has(id)) elements.set(id, {
     textContent: id === 'seed' ? '[]' : '', style: {}, dataset: {},
     setAttribute(name, value) { this[name] = value; },
@@ -24,6 +24,7 @@ function element(id) {
 const ctx = vm.createContext({
   document: {getElementById: element, addEventListener() {}, querySelectorAll: () => []},
   IntersectionObserver: class {observe() {} unobserve() {}}, AbortSignal,
+  performance: {now: () => 2000},
   sessionStorage: {data: {}, getItem(key) {return this.data[key] || null;},
     setItem(key, value) {this.data[key] = value;}},
   setTimeout(fn) {timers.push(fn); return timers.length;},
@@ -70,6 +71,20 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   response = {posts:[],has_more:false,feed_accounts:[]};
   await vm.runInContext('exhausted=false; more()',ctx);
   assert.ok(accountButtons.every(button=>button.innerHTML.includes('in feed')), 'old batches cannot undo a save');
+  const likeButton = {setAttribute(name,value){this[name]=value;}};
+  const originalQuery = element('s1').querySelector;
+  element('s1').querySelector = selector => selector === '.reel-like' ? likeButton : originalQuery(selector);
+  response = {feedback:'like'};
+  const savedBefore = vm.runInContext('feeded.size',ctx);
+  await vm.runInContext("rateReel(1, 'like')",ctx);
+  assert.equal(likeButton['aria-pressed'],'true');
+  assert.equal(vm.runInContext('posts[1].feedback',ctx),'like');
+  assert.equal(vm.runInContext('feeded.size',ctx),savedBefore,'liking a reel must not save the account');
+  response = {feedback:null};
+  await vm.runInContext("rateReel(1, 'clear')",ctx);
+  assert.equal(likeButton['aria-pressed'],'false');
+  vm.runInContext('posts[1]._viewStarted=1000; recordQuickSkip(1); recordQuickSkip(1)',ctx);
+  assert.equal(calls.filter(c=>c.url==='/feedback' && JSON.parse(c.options.body).action==='skip').length,1,'record each quick skip only once');
   vm.runInContext(`
     let keyCalls = [];
     togglePlayback = () => keyCalls.push('play');

@@ -41,4 +41,4 @@ class PreferenceTests(ProjectTests):
             'owner': 'meme', 'tagged_users': ['newmeme'], 'commenters': ['viewer']}):
             handler._media('code', pool)
         self.assertEqual(pool['meme_discoveries'], {'newmeme'})
-        self.assertIn('viewer', pool['discovered'])
+        self.assertNotIn('viewer', pool['discovered'])

@@ -1,5 +1,6 @@
 import random
 import threading
+from . import recommendations
 from .history import load_history, save_history
 from .config import FEEDS_JSON, USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, init_state, more_posts
@@ -11,8 +12,8 @@ def feed_accounts() -> set[str]:
 
 
 def available_accounts(pool: dict, tried: set) -> list[str]:
-    """Each eligible account gets the same chance, including discoveries."""
-    return sorted((feed_accounts() | pool["discovered"])
+    """Eligible saved and discovered accounts, excluding blocks and failed trials."""
+    return sorted((feed_accounts() | pool["discovered"] | recommendations.discovery_accounts())
                   - tried - pool.get("dead", set()) - blocked_accounts())
 
 
@@ -88,12 +89,12 @@ def choose_account(pool: dict, candidates: list[str], preferred: bool) -> str:
 BATCH_LOCK = threading.Lock()
 
 
-def pool_more(pool: dict, limit: int = 12, per_profile: int = 4, excluded=None) -> dict:
+def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     # Selection and reservation must be one operation across simultaneous tabs.
     with BATCH_LOCK:
         history = load_history()
         pool["served"].update(history["codes"])
-        batch = _pool_more(pool, limit, per_profile, set(excluded or ()))
+        batch = _pool_more(pool, limit, set(excluded or ()))
         blocked = blocked_accounts()
         posts = batch["posts"] = [p for p in batch["posts"] if p.get("owner") not in blocked]
         # Prefer a different opening account whenever this batch has one.
@@ -101,47 +102,74 @@ def pool_more(pool: dict, limit: int = 12, per_profile: int = 4, excluded=None) 
             if post.get("owner") != history["last_owner"]:
                 posts[0], posts[i] = posts[i], posts[0]
                 break
+        recommendations.remember_reels(posts)
+        reactions = recommendations.feedback_for([p['shortcode'] for p in posts])
+        for post in posts:
+            post['feedback'] = reactions.get(post['shortcode'])
+        recommendations.record_deliveries(posts)
         save_history(history, posts)
         return batch
 
 
-def _pool_more(pool: dict, limit: int = 12, per_profile: int = 4, excluded=None) -> dict:
-    """Pick random accounts and unserved videos, including discovered accounts."""
+def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
+    """Rank individual clips and serve one trial per creator in a varied batch."""
     excluded = set(excluded or ())
     preferred = prefer_memes()
-    out: list[dict] = []
-    profiles_used = 0
-    tried: set[str] = set()
-    while len(out) < limit and profiles_used < 3:
+    saved = feed_accounts()
+    model = recommendations.preference_model()
+    recent = recommendations.recent_creators()
+    cooldowns = recommendations.trial_cooldowns(saved)
+    out = []
+    tried = set()
+    requests_left = 3  # Bound slow Instagram requests, including pagination.
+    while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded)
         if not candidates:
             break
+        if requests_left <= 0:
+            candidates = [a for a in candidates if a in STATE]
+            if not candidates:
+                break
+        # Avoid repeating recent creators when alternatives are available.
+        diverse = [a for a in candidates if a not in recent and a not in cooldowns]
+        if diverse:
+            candidates = diverse
+        else:
+            rested = [a for a in candidates if a not in cooldowns]
+            if rested:
+                candidates = rested
+        unfamiliar = [a for a in candidates if a not in saved]
+        if unfamiliar and random.random() < 0.25:
+            candidates = unfamiliar
         username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:
-            st = STATE.get(username) or init_state(username)
-        except (Exception, SystemExit):  # dead/gated account
-            pool["dead"].add(username)
+            if username in STATE:
+                state = STATE[username]
+            else:
+                requests_left -= 1
+                state = init_state(username)
+        except (Exception, SystemExit):
+            pool['dead'].add(username)
             continue
-        fresh = [p for p in st["posts"]
-                 if p.get("is_video") and p["shortcode"] not in pool["served"]]
-        pages = 0
-        while not fresh and st.get("has_more") and pages < 3:
-            pages += 1
-            page = more_posts(username)  # one more page (~50 posts)
-            fresh = [p for p in st["posts"]
-                     if p.get("is_video") and p["shortcode"] not in pool["served"]]
-            if page.get("error") or not page.get("posts"):
-                break
+        fresh = [p for p in state['posts']
+                 if p.get('is_video') and p['shortcode'] not in pool['served']]
+        if not fresh and state.get('has_more') and requests_left > 0:
+            requests_left -= 1
+            try:
+                more_posts(username)
+            except (Exception, SystemExit):
+                continue
+            fresh = [p for p in state['posts']
+                     if p.get('is_video') and p['shortcode'] not in pool['served']]
+        reactions = recommendations.feedback_for([p['shortcode'] for p in fresh])
+        fresh = [p for p in fresh if reactions.get(p['shortcode']) != 'dislike']
         if not fresh:
-            if not st.get("has_more"):
-                pool["dead"].add(username)
-            continue  # no unserved videos here; try another account
-        take = random.sample(fresh, min(per_profile, len(fresh), limit - len(out)))
-        for p in take:
-            pool["served"].add(p["shortcode"])
-        random.shuffle(take)
-        out += take
-        profiles_used += 1
+            if not state.get('has_more'):
+                pool['dead'].add(username)
+            continue
+        post = recommendations.choose_reel(fresh, model)
+        pool['served'].add(post['shortcode'])
+        out.append(post)
     random.shuffle(out)
-    return {"posts": out, "has_more": bool(available_accounts(pool, excluded))}
+    return {'posts': out, 'has_more': bool(available_accounts(pool, excluded))}

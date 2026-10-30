@@ -1,0 +1,106 @@
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from ig import config, recommendations as rec, feeds
+from ig.server import Handler
+
+
+class RecommendationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        path = Path(self.directory.name)
+        for target, value in [('ig.config.CONFIG_DIR', path), ('ig.config.FEEDS_JSON', path / 'feeds.json')]:
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        config.save_feeds({'memes': ['saved']})
+
+    def test_like_discovers_tagged_creators_without_following_them(self):
+        rec.remember_reels([{'shortcode':'liked1', 'owner':'creator',
+                            'caption':'Funny gym story by @newcreator #powerlifting',
+                            'tagged_users':['collaborator']}])
+        self.assertEqual(rec.discovery_accounts(), set())
+        rec.set_feedback('liked1', 'like')
+        self.assertEqual(rec.discovery_accounts(), {'creator','newcreator','collaborator'})
+        self.assertEqual(config.load_feeds(), {'memes':['saved']})
+        rec.set_feedback('liked1', 'clear')
+        self.assertEqual(rec.discovery_accounts(), set())
+
+    def test_positive_and_negative_topic_matching(self):
+        liked = {'shortcode':'liked1','owner':'one','caption':'Squats and powerlifting #strength','audio_id':'music1'}
+        disliked = {'shortcode':'hated1','owner':'two','caption':'Movie scenes #cinema','audio_id':'music2'}
+        rec.remember_reels([liked,disliked])
+        rec.set_feedback('liked1','like')
+        rec.set_feedback('hated1','dislike')
+        model = rec.preference_model()
+        same_topic = {'owner':'new','caption':'Better squats #strength','audio_id':'music1'}
+        neutral = {'owner':'unknown','caption':'Astronomy and planets'}
+        self.assertGreater(rec.score(same_topic,model), rec.score(neutral,model))
+        self.assertLess(rec.score(disliked,model), rec.score(neutral,model))
+        with patch('ig.recommendations.random.random', return_value=0.5):
+            self.assertEqual(rec.choose_reel([disliked, neutral, same_topic],model), same_topic)
+
+    def test_skip_is_weak_and_cannot_overwrite_explicit_feedback(self):
+        post = {'shortcode':'clip01','owner':'one','caption':'Squats #strength'}
+        rec.remember_reels([post]); rec.set_feedback('clip01','skip')
+        weak = abs(rec.score(post,rec.preference_model()))
+        rec.set_feedback('clip01','dislike')
+        strong = abs(rec.score(post,rec.preference_model()))
+        self.assertLess(weak,strong/10)
+        self.assertEqual(rec.set_feedback('clip01','skip'),'dislike')
+        rec.set_feedback('clip01','like')
+        self.assertEqual(rec.set_feedback('clip01','skip'),'like')
+
+    def test_late_metadata_and_song_enrich_existing_like(self):
+        rec.remember_reels([{'shortcode':'clip01','owner':'one','caption':'Squats'}])
+        rec.set_feedback('clip01','like')
+        rec.remember_reels([{'shortcode':'clip01','tagged_users':['trainer'],'audio_id':'42'}])
+        rec.remember_song('clip01',{'status':'matched','title':'Song','artist':'Artist'})
+        liked = rec.liked_reels()[0]
+        self.assertEqual(liked['caption'],'Squats')
+        self.assertIn('trainer',rec.discovery_accounts())
+        self.assertIn('song:song:artist',rec.preference_model()[0])
+        self.assertIn('audio:42',rec.preference_model()[0])
+
+    def test_one_trial_per_account_and_creator_rotation(self):
+        names = ['creator'+str(i) for i in range(10)]
+        states = {owner:{'posts':[{'shortcode':owner+str(i),'owner':owner,'is_video':True} for i in range(6)],
+                         'has_more':False} for owner in names}
+        rec.record_deliveries([{'shortcode':'previous','owner':'creator0'}])
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.load_feeds',return_value={'memes':names}):
+            result = feeds._pool_more(feeds.make_pool(names))
+        owners = [p['owner'] for p in result['posts']]
+        self.assertEqual(len(owners),len(set(owners)))
+        self.assertNotIn('creator0',owners)
+        self.assertEqual(len(owners),6)
+
+    def test_disliked_clip_stays_out_after_server_history_reset(self):
+        rec.remember_reels([{'shortcode':'clip01','owner':'saved'}])
+        rec.set_feedback('clip01','dislike')
+        state = {'posts':[{'shortcode':'clip01','owner':'saved','is_video':True},
+                          {'shortcode':'clip02','owner':'saved','is_video':True}], 'has_more':False}
+        with patch('ig.feeds.STATE',{'saved':state}):
+            result = feeds._pool_more(feeds.make_pool(['saved']))
+        self.assertEqual([p['shortcode'] for p in result['posts']],['clip02'])
+
+    def test_feedback_endpoint_does_not_edit_feeds(self):
+        rec.remember_reels([{'shortcode':'clip01','owner':'creator'}])
+        handler=Handler.__new__(Handler); handler.path='/feedback'
+        body=json.dumps({'code':'clip01','action':'like'}).encode()
+        handler.headers={'Content-Length':str(len(body))};handler.rfile=io.BytesIO(body)
+        with patch.object(handler,'_send') as send:
+            handler.do_POST()
+            self.assertEqual(send.call_args.args[0],200)
+        self.assertEqual(rec.feedback_for(['clip01']),{'clip01':'like'})
+        self.assertEqual(config.load_feeds(),{'memes':['saved']})
+
+    def test_trial_cooldown_is_released_by_liking(self):
+        rec.remember_reels([{'shortcode':'trial1','owner':'newcreator'}])
+        rec.record_deliveries([{'shortcode':'trial1','owner':'newcreator'}])
+        self.assertIn('newcreator',rec.trial_cooldowns({'saved'}))
+        rec.set_feedback('trial1','like')
+        self.assertNotIn('newcreator',rec.trial_cooldowns({'saved'}))

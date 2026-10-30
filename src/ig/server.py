@@ -1,3 +1,4 @@
+from . import recommendations
 from .media import fetch_video
 import json
 import shutil
@@ -120,17 +121,43 @@ class Handler(BaseHTTPRequestHandler):
         data = media_info(code)
         meme_accounts = set(accounts_from_feed(load_feeds().get("memes")))
         meme_source = data.get("owner") in meme_accounts | pool["meme_discoveries"]
-        # Tags and mentions carry topic context; commenters remain general discovery.
-        discover_into(pool, data.pop("tagged_users", None) or [], meme_source=meme_source)
-        discover_into(pool, data.pop("commenters", None) or [])
+        data.setdefault('shortcode', code)
+        recommendations.remember_reels([data])
+        # Saved creators bootstrap exploration; liked reels supply persistent leads.
+        if data.get('owner') in feed_accounts() or recommendations.feedback_for([code]).get(code) == 'like':
+            discover_into(pool, data.get('tagged_users') or [], meme_source=meme_source)
+        data.pop('commenters', None)
         return data
 
     def do_POST(self):
+        if self.path == "/feedback":
+            try:
+                length = int(self.headers.get('Content-Length') or 0)
+                if not 0 < length <= 2048:
+                    raise ValueError('invalid request size')
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    raise ValueError('invalid request')
+                code = body.get('code')
+                action = body.get('action')
+                if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z0-9_-]{5,30}', code):
+                    raise ValueError('invalid post code')
+                if not isinstance(action, str):
+                    raise ValueError('invalid action')
+                result = recommendations.set_feedback(code, action)
+                return self._send(200, json.dumps({'feedback': result}).encode(), 'application/json')
+            except (ValueError, TypeError):
+                return self._send(400, b'invalid feedback', 'text/plain')
+            except KeyError:
+                return self._send(404, b'load this reel first', 'text/plain')
+            except Exception:
+                return self._send(500, b'could not save feedback', 'text/plain')
         if self.path.startswith("/recognize/"):
             code = self.path.removeprefix("/recognize/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                 return self._send(400, b"invalid post code", "text/plain")
             result = recognize_song(code)
+            recommendations.remember_song(code, result)
             return self._send(200, json.dumps(result).encode(), "application/json")
         if self.path in ("/block", "/unblock"):
             try:

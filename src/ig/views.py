@@ -16,6 +16,38 @@ if (typeof window !== 'undefined') window.addEventListener('storage', event => {
   if (event.key !== 'ig-account-change' || !event.newValue) return;
   try { const change = JSON.parse(event.newValue); accountChanged(change.username, change.saved); } catch (_) {}
 });
+function showShortcuts() {
+  if (document.getElementById('shortcut-help')) return;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'shortcut-help';
+  dialog.setAttribute('aria-labelledby', 'shortcut-title');
+  dialog.innerHTML = `<style>
+    #shortcut-help {color-scheme:dark;width:360px;max-width:calc(100vw - 64px);padding:24px;
+      border:1px solid #34343e;border-radius:20px;background:#17171d;color:#f5f5f7;font:14px system-ui;}
+    #shortcut-help::backdrop {background:#080810b8;backdrop-filter:blur(8px);}
+    #shortcut-help h2 {margin:0 0 20px;font-size:20px;}
+    #shortcut-help dl {display:grid;grid-template-columns:100px 1fr;gap:16px 10px;align-items:center;}
+    #shortcut-help dt {color:#c4b5fd;} #shortcut-help dd {margin:0;color:#c4c4d0;}
+    #shortcut-help kbd {padding:4px 8px;background:#2a2835;border:1px solid #45404f;border-radius:6px;}
+    #shortcut-help button {border:0;border-radius:10px;padding:10px 16px;background:#302b48;color:#ddd2ff;cursor:pointer;float:right;}
+  </style><h2 id="shortcut-title">Keyboard shortcuts</h2><dl>
+    <dt><kbd>J</kbd> / <kbd>↓</kbd></dt><dd>Next reel</dd>
+    <dt><kbd>K</kbd> / <kbd>↑</kbd></dt><dd>Previous reel</dd>
+    <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
+    <dt><kbd>M</kbd></dt><dd>Mute / unmute</dd>
+    <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>
+    <dt><kbd>N</kbd></dt><dd>Not interested in this reel</dd>
+    <dt><kbd>A</kbd></dt><dd>Add account to a feed</dd>
+    <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
+    <dt><kbd>B</kbd></dt><dd>Block account permanently</dd>
+    <dt><kbd>Shift+B</kbd></dt><dd>Block for this session</dd>
+    <dt><kbd>?</kbd></dt><dd>Show shortcuts</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Close this window</dd>
+  </dl><button type="button">Done</button>`;
+  dialog.addEventListener('close', () => dialog.remove(), {once:true});
+  dialog.querySelector('button').onclick = () => dialog.close();
+  document.body.append(dialog); dialog.showModal();
+}
 async function chooseFeed(username) {
   if (document.getElementById('feed-picker')) return false;
   if (!document.getElementById('feed-picker-style')) {
@@ -370,6 +402,8 @@ def reels_html(posts: list[dict]) -> str:
   .ico {{ display:flex; flex-direction:column; align-items:center; gap:5px;
           color:#fff; text-decoration:none; cursor:pointer; }}
   button.ico {{ border:0;background:transparent;padding:0;font:inherit; }}
+  button.reel-like[aria-pressed="true"] {{ color:#f184b0; }}
+  button.reel-like[aria-pressed="true"] .icon {{ fill:currentColor; }}
   button.ico:disabled {{ opacity:.5;cursor:wait; }}
   button.ico:focus-visible {{ outline:2px solid #c4b5fd;outline-offset:5px;border-radius:6px; }}
   .em {{ display:grid;place-items:center;filter:drop-shadow(0 1px 4px #0008); }}
@@ -398,6 +432,8 @@ def reels_html(posts: list[dict]) -> str:
   .count {{ color:#9a9aa5; }}
   #mute {{ margin-left:auto; border:0; background:#000a; color:#fff;
             border-radius:50%; width:40px; height:40px; display:grid; place-items:center; cursor:pointer; }}
+  #shortcuts {{ display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;background:transparent;color:#ccc;cursor:pointer; }}
+  #shortcuts:hover {{ background:#ffffff20; }}
   #mute:hover {{ background:#ffffff20; }}
   #mute:focus-visible {{ outline:2px solid #c4b5fd;outline-offset:3px; }}
 </style></head>
@@ -408,7 +444,7 @@ def reels_html(posts: list[dict]) -> str:
     Prefer memes
   </label><span id="preference-status" role="status" aria-live="polite"></span>
   
-  <span title="Space: play/pause · M: mute · A: add to feed · P: profile · B: block permanently · Shift+B: block this session" aria-label="Keyboard shortcuts">{icon("keyboard")}</span>
+  <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{icon("keyboard")}</button>
   <span id="action-status" role="status" aria-live="polite"></span>
   <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{icon("muted")}</button></div>
 <div id="feed"></div>
@@ -449,8 +485,8 @@ let preferMemes = {preference};
 let blockedAccounts = new Set({blocked});
 let sessionBlocked = new Set();
 try {{ sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); }} catch (_) {{}}
-function isBlocked(p) {{ return p && (blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }}
-function visibleIndices() {{ return posts.map((p,i) => isBlocked(p) ? -1 : i).filter(i => i >= 0); }}
+function isHidden(p) {{ return p && (p.feedback === 'dislike' || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }}
+function visibleIndices() {{ return posts.map((p,i) => isHidden(p) ? -1 : i).filter(i => i >= 0); }}
 function actionStatus(message) {{ document.getElementById('action-status').textContent = message; }}
 
 async function togglePreference(input) {{
@@ -482,7 +518,11 @@ function slideHtml(p, i) {{
       <div class="song" id="song${{i}}" hidden>${{icon('music')}}<span></span></div>
     </div>
     <div class="bar">
-      <div class="ico"><span class="em">${{icon('heart')}}</span><span id="likes${{i}}">${{fmt(p.like_count)}}</span></div>
+      <button class="ico reel-like" type="button" title="More like this · local like (L)"
+        aria-label="Like this reel" aria-pressed="${{p.feedback === 'like'}}" onclick="likeReel(${{i}})">
+        <span class="em">${{icon('heart')}}</span><span id="likes${{i}}">${{fmt(p.like_count)}}</span></button>
+      <button class="ico" type="button" title="Not interested in this reel (N)" aria-label="Not interested"
+        onclick="rateReel(${{i}}, 'dislike')"><span class="em">${{icon('less')}}</span><span>less</span></button>
       <div class="ico"><span class="em">${{icon('comment')}}</span><span id="cm${{i}}">${{fmt(p.comment_count)}}</span></div>
       ${{feeded.has(p.owner)
           ? `<div class="ico account-action" style="cursor:pointer;opacity:.7"
@@ -502,7 +542,7 @@ function slideHtml(p, i) {{
   </div>`;
 }}
 function append(chunk) {{
-  chunk = chunk.filter(p => !isBlocked(p));
+  chunk = chunk.filter(p => !isHidden(p));
   posts.push(...chunk);
   feed.insertAdjacentHTML('beforeend', chunk.map((p,k)=>slideHtml(p, slides+k)).join(''));
   slides += chunk.length;
@@ -519,7 +559,7 @@ function setVideo(p, i, play = false) {{
   if (!v) {{
     slide.insertAdjacentHTML('beforeend',
       `<video muted loop playsinline preload="auto"
-        onplaying="this.parentNode.querySelector('.poster').style.opacity=0; queueSong(${{i}})"
+        onplaying="this.parentNode.querySelector('.poster').style.opacity=0; onReelPlaying(${{i}})"
         onclick="tap(event)"></video>`);
     v = slide.querySelector('video');
   }}
@@ -533,7 +573,7 @@ function setVideo(p, i, play = false) {{
 }}
 async function prepare(i) {{
   const p = posts[i];
-  if (!p || isBlocked(p)) return;
+  if (!p || isHidden(p)) return;
   if (!p._rich) {{
     if (!p._loading) {{
       p._loading = fetch(base + '/media', {{method:'POST',
@@ -548,7 +588,7 @@ async function prepare(i) {{
     await p._loading;
   }}
   // A slow response may arrive after the user has scrolled away.
-  if (isBlocked(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
+  if (isHidden(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
   document.getElementById('likes'+i).textContent = fmt(p.like_count);
   document.getElementById('cm'+i).textContent = fmt(p.comment_count);
   setVideo(p, i, current === i);
@@ -560,14 +600,14 @@ function preloadAhead() {{
   // Release videos outside the nearby window to bound downloaded media memory.
   feed.querySelectorAll('video').forEach(v => {{
     const i = +v.parentNode.id.slice(1);
-    if (isBlocked(posts[i]) || i < current - 1 || i > current + PRELOAD_AHEAD) {{
+    if (isHidden(posts[i]) || i < current - 1 || i > current + PRELOAD_AHEAD) {{
       v.pause(); v.removeAttribute('src'); v.load(); v.remove();
       document.getElementById('s'+i).querySelector('.poster').style.opacity = 1;
     }}
   }});
 }}
 async function activate(i) {{
-  if (isBlocked(posts[i])) return;
+  if (isHidden(posts[i])) return;
   const spin = document.getElementById('spin'+i);
   spin.textContent = 'loading…'; spin.hidden = false;
   maybeMore();
@@ -584,7 +624,8 @@ let current = -1;
 const io = new IntersectionObserver(es => {{
   for (const e of es) if (e.isIntersecting && e.intersectionRatio > 0.6) {{
     const i = +e.target.id.slice(1);
-    if (!isBlocked(posts[i]) && i !== current) {{
+    if (!isHidden(posts[i]) && i !== current) {{
+      recordQuickSkip(current);
       current = i;
       document.querySelectorAll('video').forEach(v => v.pause());
       activate(i);
@@ -620,9 +661,10 @@ async function more() {{
       accountUpdates.forEach((saved, username) => saved ? feeded.add(username) : feeded.delete(username));
       syncAccountButtons();
     }}
-    if (d.blocked) {{ blockedAccounts = new Set(d.blocked); hideBlocked(); }}
+    if (d.blocked) {{ blockedAccounts = new Set(d.blocked); hideFilteredReels(); }}
     if (d.posts?.length) append(d.posts);
     exhausted = d.has_more === false;
+    if (exhausted && !visibleIndices().length) actionStatus('No reels available right now');
     retry = (!d.posts?.length || !visibleIndices().length) && !exhausted;
     preloadAhead();
   }} catch (error) {{
@@ -660,11 +702,52 @@ async function rmAcc(u, el) {{
   }} catch (error) {{ el.querySelector('span:last-child').textContent = 'retry'; }}
 }}
 
+function onReelPlaying(i) {{
+  if (current !== i || !posts[i]) return;
+  if (!posts[i]._viewStarted) posts[i]._viewStarted = performance.now();
+  queueSong(i);
+}}
+function recordQuickSkip(i) {{
+  const p = posts[i];
+  if (!p || p.feedback || p._skipSent || !p._viewStarted || p._paused || document.hidden) return;
+  const seconds = (performance.now() - p._viewStarted) / 1000;
+  if (seconds < 0.3 || seconds > 2.5) return;
+  p._skipSent = true;
+  fetch('/feedback', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{code:p.shortcode, action:'skip'}}), keepalive:true}}).catch(()=>{{}});
+}}
+function likeReel(i) {{
+  if (posts[i]) rateReel(i, posts[i].feedback === 'like' ? 'clear' : 'like');
+}}
+async function rateReel(i, action) {{
+  const p = posts[i];
+  if (!p || p._feedbackBusy) return;
+  p._feedbackBusy = true;
+  try {{
+    const r = await fetch('/feedback', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{code:p.shortcode, action}})}});
+    if (!r.ok) throw new Error();
+    const result = await r.json();
+    posts.filter(post => post.shortcode === p.shortcode).forEach(post => post.feedback = result.feedback);
+    posts.forEach((post,index) => {{
+      if (post.shortcode !== p.shortcode) return;
+      document.getElementById('s'+index)?.querySelector('.reel-like')?.setAttribute('aria-pressed', String(result.feedback === 'like'));
+    }});
+    actionStatus(result.feedback === 'like' ? 'Liked · we’ll look for similar reels' :
+      result.feedback === 'dislike' ? 'We’ll show less like this' : 'Like removed');
+    if (result.feedback === 'dislike') {{
+      hideFilteredReels();
+      exhausted = false;
+      if (current < 0) more(); else maybeMore();
+    }}
+  }} catch (_) {{ actionStatus('Could not save feedback · try again'); }}
+  finally {{ p._feedbackBusy = false; }}
+}}
 let songTimer = null;
 let songBusy = false;
 function renderSong(i, result) {{
   const row = document.getElementById('song'+i);
-  if (!row || isBlocked(posts[i])) return;
+  if (!row || isHidden(posts[i])) return;
   row.hidden = false;
   const label = row.querySelector('span');
   label.textContent = '';
@@ -681,17 +764,17 @@ function renderSong(i, result) {{
 }}
 function queueSong(i) {{
   const p = posts[i];
-  if (!p || current !== i || isBlocked(p)) return;
+  if (!p || current !== i || isHidden(p)) return;
   if (p._song) {{ renderSong(i, p._song); return; }}
   if (songBusy || (p._songRetryAt || 0) > Date.now()) return;
   clearTimeout(songTimer);
   songTimer = setTimeout(() => {{
-    if (current === i && !p._paused && !isBlocked(p)) recognizeSong(i);
+    if (current === i && !p._paused && !isHidden(p)) recognizeSong(i);
   }}, 3000);
 }}
 async function recognizeSong(i) {{
   const p = posts[i];
-  if (songBusy || !p || p._song || isBlocked(p) || current !== i) return;
+  if (songBusy || !p || p._song || isHidden(p) || current !== i) return;
   songBusy = true;
   renderSong(i, {{status:'loading'}});
   try {{
@@ -732,21 +815,22 @@ async function downloadReel(i, button) {{
 }}
 function togglePlayback() {{
   const p = posts[current];
-  if (!p || isBlocked(p)) return;
+  if (!p || isHidden(p)) return;
   const video = document.getElementById('s'+current)?.querySelector('video');
   p._paused = video ? !video.paused : !p._paused;
   if (video) p._paused ? video.pause() : video.play().catch(()=>{{}});
 }}
 function showSlide(i) {{
-  if (i === undefined || isBlocked(posts[i])) return;
+  if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
+  if (current !== i) recordQuickSkip(current);
   current = i;
   document.getElementById('s'+i)?.scrollIntoView({{behavior:'instant'}});
   activate(i);
 }}
-function hideBlocked() {{
+function hideFilteredReels() {{
   posts.forEach((p,i) => {{
-    if (!isBlocked(p)) return;
+    if (!isHidden(p)) return;
     const slide = document.getElementById('s'+i);
     if (!slide) return;
     io.unobserve(slide);
@@ -756,7 +840,7 @@ function hideBlocked() {{
     slide.style.display = 'none';
   }});
   countEl.textContent = fmt(visibleIndices().length) + ' reels';
-  if (isBlocked(posts[current])) {{
+  if (isHidden(posts[current])) {{
     const indices = visibleIndices();
     const next = indices.find(i => i > current) ?? indices.at(-1);
     current = -1;
@@ -780,7 +864,7 @@ async function blockCurrent(sessionOnly = false) {{
       const d = await r.json();
       blockedAccounts = new Set(d.blocked);
     }}
-    hideBlocked();
+    hideFilteredReels();
     actionStatus('@' + owner + (sessionOnly ? ' blocked for this session' : ' blocked permanently'));
     exhausted = false;
     if (current < 0) more(); else maybeMore();
@@ -789,7 +873,7 @@ async function blockCurrent(sessionOnly = false) {{
 }}
 function addCurrent() {{
   const p = posts[current];
-  if (!p || isBlocked(p)) return;
+  if (!p || isHidden(p)) return;
   const button = document.getElementById('s'+current)?.querySelector('.account-action');
   if (button) addAcc(p.owner, button);
 }}
@@ -801,10 +885,10 @@ const heldKeys = new Set();
 function releaseReelKey(e) {{ heldKeys.delete(e.code || e.key.toLowerCase()); }}
 function handleReelKey(e) {{
   if (e.ctrlKey || e.altKey || e.metaKey ||
-      document.getElementById('feed-picker') ||
+      document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
       e.target?.closest('input, textarea, select, button, a, [contenteditable="true"], dialog')) return;
   const key = e.key.toLowerCase();
-  const actions = {{' ':togglePlayback, m:toggleMute, a:addCurrent, p:openProfile,
+  const actions = {{'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, p:openProfile,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1)}};
   if (!actions[key]) return;
@@ -826,6 +910,6 @@ function goRel(d) {{
   if (i !== undefined && i !== current) showSlide(i);
 }}
 append(incoming.splice(0));
-if (current < 0 && sessionBlocked.size) more();
+if (current < 0) more();
 </script>
 </body></html>"""

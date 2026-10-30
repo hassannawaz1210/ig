@@ -32,11 +32,11 @@ ig serve --port 7349       # foreground server
 ig stop                    # stop the background server
 ```
 
-A saved feed name opens the combined mix, matching the original tool. All eligible accounts have the same chance of being selected, including discovered accounts. The interface supports video playback, carousels, adding and removing accounts. In the reels view, use arrow keys or `j`/`k` to move.
+A saved feed name opens the combined mix, matching the original tool. The mix ranks individual reels using your local feedback and rotates creators, with room for new-account trials. The interface supports video playback, carousels, adding and removing accounts. In the reels view, use arrow keys or `j`/`k` to move.
 
 ## Local data
 
-Existing feeds remain in `~/.config/ig/feeds.json`. Both the original list format and `{ "accounts": [...], "weight": 1 }` format are supported; legacy weights are ignored. Defaults are created on first use if the file does not exist. Background server metadata lives in `~/.cache/ig/server.json`; post and discovery state stays in memory. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.json` to avoid repeats across restarts. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+Existing feeds remain in `~/.config/ig/feeds.json`. Both the original list format and `{ "accounts": [...], "weight": 1 }` format are supported; legacy weights are ignored. Defaults are created on first use if the file does not exist. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback and liked-reel discovery leads persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.json` to avoid repeats across restarts. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
 
 No virtual environment, personal feed configuration, or runtime cache is included in the project. The original installation is left in place.
 
@@ -49,7 +49,7 @@ No virtual environment, personal feed configuration, or runtime cache is include
 - `src/ig/cli.py`: commands and browser shortcuts
 - `src/ig/config.py`: paths and saved feeds
 - `src/ig/instagram.py`: page parsing, requests, and pagination
-- `src/ig/feeds.py`: random selection and account discovery
+- `src/ig/feeds.py`: varied batches and account discovery
 - `src/ig/views.py`: existing HTML, CSS, and JavaScript views
 - `src/ig/server.py`: local HTTP routes and server lifecycle
 
@@ -61,12 +61,17 @@ The reels view prepares the next three videos and requests another batch when fe
 
 Use **Prefer memes** at the top of the reels view to turn the preference on or off. It is off by default and persists in `~/.config/ig/preferences.json`. Changes apply to newly requested batches; already loaded reels stay in place.
 
-When on, account selections target 70% saved accounts in the `memes` feed, 20% new accounts found through meme-account tags and mentions, and 10% other accounts. Empty or exhausted groups redistribute their share among available groups. These are approximate account-selection shares, not guaranteed reel counts. Tags and mentions are leads, not automatic content classification; commenters stay in general discovery. The Add button asks which feed to save an account to, in both the reels and profile views. Choose `memes` to include it in your preferred saved accounts. Discovery lasts for the server session. Turning the preference off restores equal selection among eligible accounts.
+When on, the meme preference biases eligible account choices toward the saved `memes` feed and discoveries from meme accounts. Creator rotation, trial selection, and available clips also affect the mix, so this is not a fixed percentage of reels. Turning it off removes that feed bias; personal reel preferences still apply. Tags and mentions are leads, not automatic content classification. Random commenters are no longer used for discovery.
+
+The Add button asks which feed to save an account to, in both the reels and profile views. Choose `memes` to include it in your preferred saved accounts. Liking a reel never adds its creator to a feed.
 
 Opening batches avoid the previous batch’s opening account when another account is available. History includes prefetched clips, and starts accumulating with this version; clips delivered by earlier versions cannot be recovered.
 
 ## Reel shortcuts and blocklists
 
+- **?**: open the shortcut list (or click the keyboard icon); **Esc** closes it.
+- **L**: like or unlike an individual reel locally.
+- **N**: mark this reel as not interesting and move on.
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
 - **A**: open the feed picker for the current account, even if it is already saved elsewhere.
@@ -87,3 +92,15 @@ After a reel starts playing and stays visible for three seconds, the app identif
 This uses the free, open-source [ShazamIO client](https://github.com/shazamio/ShazamIO), which contacts Shazam's unofficial recognition service. No paid API key or microphone access is required. The server downloads the reel temporarily (up to 40 MB), extracts 12 seconds of audio using the bundled FFmpeg binary and creates its fingerprint locally, and sends that fingerprint to Shazam. Temporary video files are deleted after recognition. It is not an offline service, and upstream changes can interrupt it.
 
 Matches are cached for 30 days and no-match results for one day in `~/.cache/ig/songs.sqlite3`, capped at 5,000 entries. Failures are shown separately from genuine no-match results and never block video playback. No-match results are possible for speech, remixes, and obscure music.
+
+## Discovering reels you like
+
+The heart is now a **local reel like**, not an Instagram action. Its displayed count still comes from Instagram. Use the heart or **L** to ask for more similar content; use the minus-circle button or **N** for less. Neither action follows, saves, or blocks the creator. Account saving (**A**) and the two blocklists remain separate.
+
+Likes and “not interested” train a small, transparent ranking model using caption words, hashtags, and audio IDs or recognized song metadata when available. A quick skip after 0.3–2.5 seconds of playback is a much weaker signal. Skips do not overwrite explicit likes/dislikes, and each reel contributes only its latest feedback. This is metadata matching; it does not understand the visuals or jokes inside a video.
+
+New creator candidates come from tags and mentions in liked reels; saved creators' tags bootstrap exploration before you have likes. Liked creators can get further trials without being added to a feed. A batch contains at most one reel per creator, with up to six creators and at most three profile/pagination requests. The scheduler prefers alternatives to the last eight delivered creators. Unfamiliar creators get a 20-reel trial cooldown until liked, relaxed when there are no alternatives so the feed can continue. One fifth of clip selections remain exploratory. Blocks always take priority.
+
+Feedback affects new batches. Already loaded clips remain in place, except an explicitly disliked reel is hidden immediately. The metadata and preferences survive server restarts; they stay on this machine. Media URLs and video files are not stored in the preferences database.
+
+**Discovery limits:** logged-out hashtag pages tested here did not expose usable reel lists. There is no global hashtag/audio search in this version. Matching ranks candidates from accessible public profiles; tagged accounts may still be private, unrelated, or unavailable. No subscription or video-analysis service was added.

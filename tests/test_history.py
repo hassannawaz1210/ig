@@ -11,6 +11,7 @@ class HistoryTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         for target, value in [
+            ('ig.config.CONFIG_DIR', Path(self.directory.name)),
             ('ig.history.HISTORY_JSON', Path(self.directory.name) / 'history.json'),
             ('ig.feeds.load_feeds', lambda: {'memes': ['a', 'b']}),
             ('ig.feeds.prefer_memes', lambda: False),
