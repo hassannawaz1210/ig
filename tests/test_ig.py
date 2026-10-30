@@ -46,6 +46,9 @@ class ProjectTests(unittest.TestCase):
         with patch('ig.cli.open_user') as opened:
             self.run_cli()
             opened.assert_called_with('/')
+            for alias in ('reels', 'all', 'REELS'):
+                self.run_cli(alias)
+                opened.assert_called_with('/')
             self.run_cli('@NASA')
             opened.assert_called_with('/u/nasa')
         self.assertIn('ig serve', self.run_cli('--help'))

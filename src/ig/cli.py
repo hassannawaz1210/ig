@@ -9,6 +9,7 @@ from .server import open_user, serve, stop_server
 HELP = """ig — browse Instagram logged out
 
   ig                        open the mixed reels feed
+  ig reels                  open the mixed reels feed
   ig <username|feed>        open a profile or the mix for a saved feed
   ig blocked                list blocked accounts
   ig unblock <username>    allow an account in the mix again
@@ -45,7 +46,7 @@ def main(args=None):
         open_user(arg.lstrip("@").lower())
     elif cmd == "go":
         name = arg.lstrip("@").lower()
-        if name == "all" or name in load_feeds():
+        if name in {"all", "reels"} or name in load_feeds():
             open_user("/")
         else:
             open_user(f"/u/{name}")
