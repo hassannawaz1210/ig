@@ -1,3 +1,4 @@
+from .migrations import migrate
 import json
 import os
 import re
@@ -61,6 +62,24 @@ def _write_feeds(db, feeds):
                        [(name, username, i) for i, username in enumerate(accounts)])
 
 
+def _initial_schema(db):
+    db.execute("CREATE TABLE IF NOT EXISTS feeds (name TEXT PRIMARY KEY, position INTEGER NOT NULL)")
+    db.execute("CREATE TABLE IF NOT EXISTS feed_accounts (feed TEXT REFERENCES feeds(name), username TEXT, position INTEGER NOT NULL, PRIMARY KEY (feed, username))")
+    db.execute("CREATE TABLE IF NOT EXISTS blocked_accounts (username TEXT PRIMARY KEY)")
+    db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+    if not db.execute("SELECT 1 FROM settings WHERE key = 'migrated'").fetchone():
+        feeds = _legacy_json(CONFIG_DIR / "feeds.json", DEFAULT_FEEDS)
+        blocks = _legacy_json(CONFIG_DIR / "blocked.json", [])
+        preferences = _legacy_json(CONFIG_DIR / "preferences.json", {})
+        if not isinstance(feeds, dict) or not isinstance(blocks, list) or not isinstance(preferences, dict):
+            raise ValueError("Invalid legacy settings; original files were left untouched")
+        _write_feeds(db, feeds)
+        db.executemany("INSERT OR IGNORE INTO blocked_accounts VALUES (?)",
+                       [(v.lower(),) for v in blocks if isinstance(v, str) and USER_RE.fullmatch(v)])
+        db.execute("INSERT INTO settings VALUES ('prefer_memes', ?)", (preferences.get('prefer_memes') is True,))
+        db.execute("INSERT INTO settings VALUES ('migrated', 1)")
+
+
 @contextmanager
 def database():
     """Open a transaction, importing legacy files exactly once, atomically."""
@@ -69,21 +88,7 @@ def database():
     try:
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("BEGIN IMMEDIATE")
-        db.execute("CREATE TABLE IF NOT EXISTS feeds (name TEXT PRIMARY KEY, position INTEGER NOT NULL)")
-        db.execute("CREATE TABLE IF NOT EXISTS feed_accounts (feed TEXT REFERENCES feeds(name), username TEXT, position INTEGER NOT NULL, PRIMARY KEY (feed, username))")
-        db.execute("CREATE TABLE IF NOT EXISTS blocked_accounts (username TEXT PRIMARY KEY)")
-        db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value INTEGER NOT NULL)")
-        if not db.execute("SELECT 1 FROM settings WHERE key = 'migrated'").fetchone():
-            feeds = _legacy_json(CONFIG_DIR / "feeds.json", DEFAULT_FEEDS)
-            blocks = _legacy_json(CONFIG_DIR / "blocked.json", [])
-            preferences = _legacy_json(CONFIG_DIR / "preferences.json", {})
-            if not isinstance(feeds, dict) or not isinstance(blocks, list) or not isinstance(preferences, dict):
-                raise ValueError("Invalid legacy settings; original files were left untouched")
-            _write_feeds(db, feeds)
-            db.executemany("INSERT OR IGNORE INTO blocked_accounts VALUES (?)",
-                           [(v.lower(),) for v in blocks if isinstance(v, str) and USER_RE.fullmatch(v)])
-            db.execute("INSERT INTO settings VALUES ('prefer_memes', ?)", (preferences.get('prefer_memes') is True,))
-            db.execute("INSERT INTO settings VALUES ('migrated', 1)")
+        migrate(db, (_initial_schema,))
         yield db
         db.commit()
     except BaseException:

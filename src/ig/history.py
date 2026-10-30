@@ -1,4 +1,5 @@
 """Bounded SQLite history of delivered reels, across server restarts."""
+from .migrations import migrate
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -8,6 +9,22 @@ HISTORY_JSON = CACHE / 'history.json'
 MAX_HISTORY = 5000
 
 
+def _initial_schema(db):
+    db.execute('CREATE TABLE IF NOT EXISTS reels (position INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)')
+    if not db.execute("SELECT 1 FROM metadata WHERE key = 'migrated'").fetchone():
+        try:
+            data = json.loads(HISTORY_JSON.read_text())
+        except FileNotFoundError:
+            data = {'codes': [], 'last_owner': None}
+        if not isinstance(data, dict) or not isinstance(data.get('codes'), list):
+            raise ValueError('Invalid legacy history; original file was left untouched')
+        db.executemany('INSERT OR IGNORE INTO reels(code) VALUES (?)',
+                       [(code,) for code in data['codes'][-MAX_HISTORY:] if isinstance(code, str)])
+        db.execute("INSERT INTO metadata VALUES ('last_owner', ?)", (data.get('last_owner'),))
+        db.execute("INSERT INTO metadata VALUES ('migrated', '1')")
+
+
 @contextmanager
 def database():
     path = HISTORY_JSON.with_suffix('.sqlite3')
@@ -15,19 +32,7 @@ def database():
     db = sqlite3.connect(path, timeout=30)
     try:
         db.execute('BEGIN IMMEDIATE')
-        db.execute('CREATE TABLE IF NOT EXISTS reels (position INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL)')
-        db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)')
-        if not db.execute("SELECT 1 FROM metadata WHERE key = 'migrated'").fetchone():
-            try:
-                data = json.loads(HISTORY_JSON.read_text())
-            except FileNotFoundError:
-                data = {'codes': [], 'last_owner': None}
-            if not isinstance(data, dict) or not isinstance(data.get('codes'), list):
-                raise ValueError('Invalid legacy history; original file was left untouched')
-            db.executemany('INSERT OR IGNORE INTO reels(code) VALUES (?)',
-                           [(code,) for code in data['codes'][-MAX_HISTORY:] if isinstance(code, str)])
-            db.execute("INSERT INTO metadata VALUES ('last_owner', ?)", (data.get('last_owner'),))
-            db.execute("INSERT INTO metadata VALUES ('migrated', '1')")
+        migrate(db, (_initial_schema,))
         yield db
         db.commit()
     except BaseException:

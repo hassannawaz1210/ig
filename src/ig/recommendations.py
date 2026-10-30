@@ -8,8 +8,15 @@ import time
 from collections import Counter
 from contextlib import contextmanager
 from . import config
+from .migrations import migrate
 
 STOP_WORDS = set('this that with from your have just when what like follow share viral reels reel instagram explore fyp foryou trending funny video videos meme memes content original audio sound http https www com the and for you are not but'.split())
+
+
+def _initial_schema(connection):
+    connection.execute('CREATE TABLE IF NOT EXISTS reels (code TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL NOT NULL)')
+    connection.execute('CREATE TABLE IF NOT EXISTS feedback (code TEXT PRIMARY KEY, action TEXT NOT NULL, updated REAL NOT NULL)')
+    connection.execute('CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY, code TEXT NOT NULL, owner TEXT NOT NULL, sent REAL NOT NULL)')
 
 
 @contextmanager
@@ -17,15 +24,9 @@ def database():
     config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(config.CONFIG_DIR / 'recommendations.sqlite3', timeout=10)
     try:
-        connection.executescript('''
-            CREATE TABLE IF NOT EXISTS reels (
-                code TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS feedback (
-                code TEXT PRIMARY KEY, action TEXT NOT NULL, updated REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS deliveries (
-                id INTEGER PRIMARY KEY, code TEXT NOT NULL, owner TEXT NOT NULL, sent REAL NOT NULL);
-        ''')
         with connection:
+            connection.execute('BEGIN IMMEDIATE')
+            migrate(connection, (_initial_schema,))
             yield connection
     finally:
         connection.close()

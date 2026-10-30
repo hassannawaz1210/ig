@@ -3,6 +3,7 @@ import json
 import sqlite3
 import time
 from .config import CACHE
+from .migrations import migrate
 
 DATABASE = CACHE / 'songs.sqlite3'
 MATCH_TTL = 30 * 24 * 60 * 60
@@ -12,9 +13,19 @@ NO_MATCH_TTL = 24 * 60 * 60
 def _connect():
     DATABASE.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE, timeout=10)
+    try:
+        with connection:
+            connection.execute('BEGIN IMMEDIATE')
+            migrate(connection, (_initial_schema,))
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
+def _initial_schema(connection):
     connection.execute('CREATE TABLE IF NOT EXISTS songs '
                        '(code TEXT PRIMARY KEY, result TEXT NOT NULL, expires REAL NOT NULL)')
-    return connection
 
 
 def cached_song(code):

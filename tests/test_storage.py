@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +37,15 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(config.blocked_accounts(), set())
         self.assertFalse(config.prefer_memes())
         self.assertTrue((self.path / 'feeds.json').exists())
+
+    def test_adopts_unversioned_database_without_reimport(self):
+        self.write('feeds.json', {'code': ['old']})
+        config.save_feeds({'code': ['current']})
+        with sqlite3.connect(self.path / 'settings.sqlite3') as db:
+            db.execute('PRAGMA user_version = 0')
+        self.assertEqual(config.load_feeds(), {'code': ['current']})
+        with sqlite3.connect(self.path / 'settings.sqlite3') as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 1)
 
     def test_failed_migration_rolls_back_and_can_retry(self):
         self.write('feeds.json', {'custom': ['cs50']})
