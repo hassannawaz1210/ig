@@ -36,7 +36,7 @@ A saved feed name opens the combined mix, matching the original tool. The mix ra
 
 ## Local data
 
-Existing feeds remain in `~/.config/ig/feeds.json`. Both the original list format and `{ "accounts": [...], "weight": 1 }` format are supported; legacy weights are ignored. Defaults are created on first use if the file does not exist. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback and liked-reel discovery leads persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.json` to avoid repeats across restarts. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+Existing feeds remain in `~/.config/ig/feeds.json`. Both the original list format and `{ "accounts": [...], "weight": 1 }` format are supported; legacy weights are ignored. Defaults are created on first use if the file does not exist. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback and liked-reel discovery leads persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.json` to avoid repeats across restarts. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
 
 No virtual environment, personal feed configuration, or runtime cache is included in the project. The original installation is left in place.
 

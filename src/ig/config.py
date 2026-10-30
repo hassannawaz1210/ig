@@ -25,6 +25,7 @@ DEFAULT_FEEDS = {
         "cinemaedits", "cinematicedits",
     ],
     "memes": ["memes", "funnymemes", "9gag", "ladbible", "unilad"],
+    "programming": ["cs50", "freecodecamp", "fireship_dev", "codewithharry"],
 }
 
 
