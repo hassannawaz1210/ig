@@ -2,7 +2,7 @@ import random
 import threading
 from . import recommendations
 from .history import load_history, save_history
-from .config import FEEDS_JSON, USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
+from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, init_state, more_posts
 
 
@@ -36,19 +36,19 @@ def _pool_seeds(name: str) -> list[str]:
 
 
 def feed_pool(name: str) -> dict:
-    mtime = FEEDS_JSON.stat().st_mtime if FEEDS_JSON.exists() else 0
+    signature = tuple((name, tuple(accounts_from_feed(value))) for name, value in load_feeds().items())
     p = POOLS.get(name)
-    if p is not None and p.get("mtime") == mtime:
+    if p is not None and p.get("signature") == signature:
         return p
     fresh = make_pool(_pool_seeds(name))
-    if p is not None:  # feeds.json changed: keep memory, honor removals
+    if p is not None:  # saved feeds changed: keep memory, honor removals
         fresh["served"] = p["served"]
         fresh["meme_discoveries"] = p["meme_discoveries"] - p["seeds"]
         # carry over only TRUE discoveries; old seeds that vanished from
-        # feeds.json were removed by the user and must stay gone
+        # saved feeds were removed by the user and must stay gone
         for u in p["discovered"] - p["seeds"]:
             fresh["discovered"].add(u)
-    fresh["mtime"] = mtime
+    fresh["signature"] = signature
     POOLS[name] = fresh
     return fresh
 

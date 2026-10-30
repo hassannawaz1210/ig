@@ -12,7 +12,9 @@ from ig.views import reels_html
 class PreloadingTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node.js is needed for browser logic checks')
     def test_preloading_and_pagination(self):
-        with patch('ig.views.feed_accounts', return_value=set()):
+        with patch('ig.views.feed_accounts', return_value=set()), \
+             patch('ig.views.blocked_accounts', return_value=set()), \
+             patch('ig.views.prefer_memes', return_value=False):
             script = re.findall(r'<script>(.*?)</script>', reels_html([]), re.S)[0]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'reels.js'

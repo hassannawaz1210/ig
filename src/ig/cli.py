@@ -1,7 +1,7 @@
 """Command-line entry point, including the original shell launcher's shortcuts."""
 import json
 import sys
-from .config import FEED_RE, USER_RE, load_feeds, save_feeds, accounts_from_feed, blocked_accounts, set_blocked
+from .config import FEED_RE, USER_RE, load_feeds, edit_feeds, accounts_from_feed, blocked_accounts, set_blocked
 from .feeds import MIX, POOLS
 from .instagram import profile, post, feed
 from .server import open_user, serve, stop_server
@@ -66,31 +66,29 @@ def main(args=None):
         name = arg.lower()
         if not FEED_RE.fullmatch(name):
             raise SystemExit("feed name: lowercase/digits/-/_ , max 20 chars")
-        feeds = load_feeds()
-        accounts = [a.lstrip("@").lower() for a in argv[3:]]
-        accounts = [a for a in accounts if USER_RE.fullmatch(a)]
-        if not accounts:
-            raise SystemExit("give at least one account: ig add <feed> <acc...>")
-        cur = accounts_from_feed(feeds.get(name))
-        feeds[name] = list(dict.fromkeys(cur + accounts))
-        save_feeds(feeds)
+        with edit_feeds() as feeds:
+            accounts = [a.lstrip("@").lower() for a in argv[3:]]
+            accounts = [a for a in accounts if USER_RE.fullmatch(a)]
+            if not accounts:
+                raise SystemExit("give at least one account: ig add <feed> <acc...>")
+            cur = accounts_from_feed(feeds.get(name))
+            feeds[name] = list(dict.fromkeys(cur + accounts))
         POOLS.pop(name, None)
         print(f"feed '{name}': {len(feeds[name])} accounts")
     elif cmd == "rm":
         name = arg.lower()
-        feeds = load_feeds()
-        if name not in feeds:
-            raise SystemExit(f"no feed '{name}'")
-        cur = accounts_from_feed(feeds[name])
-        accounts = [a.lstrip("@").lower() for a in argv[3:]]
-        if accounts:
-            feeds[name] = [a for a in cur if a not in accounts]
-            print(f"feed '{name}': {len(feeds[name])} accounts left")
-        else:
-            del feeds[name]
-            print(f"removed feed '{name}'")
-        POOLS.pop(name, None)
-        save_feeds(feeds)
+        with edit_feeds() as feeds:
+            if name not in feeds:
+                raise SystemExit(f"no feed '{name}'")
+            cur = accounts_from_feed(feeds[name])
+            accounts = [a.lstrip("@").lower() for a in argv[3:]]
+            if accounts:
+                feeds[name] = [a for a in cur if a not in accounts]
+                print(f"feed '{name}': {len(feeds[name])} accounts left")
+            else:
+                del feeds[name]
+                print(f"removed feed '{name}'")
+            POOLS.pop(name, None)
     elif cmd == "serve":
         port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 7349
         serve(port)

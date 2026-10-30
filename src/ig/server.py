@@ -10,7 +10,7 @@ import sys
 import time
 from urllib.parse import urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, save_feeds, accounts_from_feed, prefer_memes, set_prefer_memes, blocked_accounts, set_blocked
+from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, prefer_memes, set_prefer_memes, blocked_accounts, set_blocked
 from .feeds import MIX, feed_pool, pool_more, discover_into, feed_accounts
 from .instagram import STATE, init_state, more_posts, media_info
 from .recognition import recognize_song
@@ -194,16 +194,14 @@ class Handler(BaseHTTPRequestHandler):
                 username = str(body.get("username", "")).lstrip("@").lower()
                 if not USER_RE.fullmatch(username):
                     return self._send(400, b"bad username", "text/plain")
-                feeds = load_feeds()
-                removed = False
-                for name, val in feeds.items():
-                    accounts = accounts_from_feed(val)
-                    if username in accounts:
-                        accounts.remove(username)
-                        feeds[name] = accounts
-                        removed = True
-                if removed:
-                    save_feeds(feeds)  # mix pool hot-reloads
+                with edit_feeds() as feeds:
+                    removed = False
+                    for name, val in feeds.items():
+                        accounts = accounts_from_feed(val)
+                        if username in accounts:
+                            accounts.remove(username)
+                            feeds[name] = accounts
+                            removed = True
                 return self._send(200, json.dumps(
                     {"ok": True, "removed": removed}).encode(),
                     "application/json")
@@ -217,20 +215,16 @@ class Handler(BaseHTTPRequestHandler):
                 username = str(body.get("username", "")).lstrip("@").lower()
                 if not USER_RE.fullmatch(username):
                     return self._send(400, b"bad username", "text/plain")
-                feeds = load_feeds()
-                destination = str(body.get("feed", "")).lower()
-                if not FEED_RE.fullmatch(destination) or destination not in set(feeds) | {"saved"}:
-                    return self._send(400, b"choose a valid feed", "text/plain")
-                cur = accounts_from_feed(feeds.get(destination))
-                if username not in cur:
-                    feeds[destination] = cur + [username]
-                    save_feeds(feeds)  # mix pool hot-reloads on mtime change
-                    return self._send(200, json.dumps(
-                        {"ok": True, "added": username}).encode(),
-                        "application/json")
-                return self._send(200, json.dumps(
-                    {"ok": True, "duplicate": True}).encode(),
-                    "application/json")
+                with edit_feeds() as feeds:
+                    destination = str(body.get("feed", "")).lower()
+                    if not FEED_RE.fullmatch(destination) or destination not in set(feeds) | {"saved"}:
+                        return self._send(400, b"choose a valid feed", "text/plain")
+                    cur = accounts_from_feed(feeds.get(destination))
+                    duplicate = username in cur
+                    if not duplicate:
+                        feeds[destination] = cur + [username]
+                result = {"ok": True, "duplicate": True} if duplicate else {"ok": True, "added": username}
+                return self._send(200, json.dumps(result).encode(), "application/json")
             except Exception as e:
                 return self._send(500, json.dumps({"error": str(e)}).encode(),
                                   "application/json")

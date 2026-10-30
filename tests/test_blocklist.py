@@ -23,7 +23,7 @@ class BlocklistTests(unittest.TestCase):
         config.set_blocked('discovered', True)
         pool = feeds.make_pool(['saved', 'other', 'discovered'])
         self.assertEqual(feeds.available_accounts(pool, set()), ['other'])
-        self.assertEqual(json.loads((config.CONFIG_DIR / 'blocked.json').read_text()),
+        self.assertEqual(sorted(config.blocked_accounts()),
                          ['discovered', 'saved'])
         config.set_blocked('saved', False)
         self.assertIn('saved', feeds.available_accounts(pool, set()))

@@ -13,7 +13,7 @@ class RecommendationTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         path = Path(self.directory.name)
-        for target, value in [('ig.config.CONFIG_DIR', path), ('ig.config.FEEDS_JSON', path / 'feeds.json')]:
+        for target, value in [('ig.config.CONFIG_DIR', path)]:
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)

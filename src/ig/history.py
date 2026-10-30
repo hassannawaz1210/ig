@@ -1,31 +1,53 @@
-"""Bounded history of reels delivered to the browser, across server restarts."""
+"""Bounded SQLite history of delivered reels, across server restarts."""
 import json
-import tempfile
+import sqlite3
+from contextlib import contextmanager
 from .config import CACHE
 
 HISTORY_JSON = CACHE / 'history.json'
 MAX_HISTORY = 5000
 
 
-def load_history() -> dict:
+@contextmanager
+def database():
+    path = HISTORY_JSON.with_suffix('.sqlite3')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=30)
     try:
-        data = json.loads(HISTORY_JSON.read_text())
-        if isinstance(data, dict) and isinstance(data.get('codes'), list):
-            return {'codes': [c for c in data['codes'] if isinstance(c, str)][-MAX_HISTORY:],
-                    'last_owner': data.get('last_owner')}
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return {'codes': [], 'last_owner': None}
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('CREATE TABLE IF NOT EXISTS reels (position INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)')
+        if not db.execute("SELECT 1 FROM metadata WHERE key = 'migrated'").fetchone():
+            try:
+                data = json.loads(HISTORY_JSON.read_text())
+            except FileNotFoundError:
+                data = {'codes': [], 'last_owner': None}
+            if not isinstance(data, dict) or not isinstance(data.get('codes'), list):
+                raise ValueError('Invalid legacy history; original file was left untouched')
+            db.executemany('INSERT OR IGNORE INTO reels(code) VALUES (?)',
+                           [(code,) for code in data['codes'][-MAX_HISTORY:] if isinstance(code, str)])
+            db.execute("INSERT INTO metadata VALUES ('last_owner', ?)", (data.get('last_owner'),))
+            db.execute("INSERT INTO metadata VALUES ('migrated', '1')")
+        yield db
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def load_history() -> dict:
+    with database() as db:
+        return {'codes': [row[0] for row in db.execute('SELECT code FROM reels ORDER BY position')],
+                'last_owner': db.execute("SELECT value FROM metadata WHERE key = 'last_owner'").fetchone()[0]}
 
 
 def save_history(history: dict, posts: list[dict]) -> None:
     if not posts:
         return
-    codes = list(dict.fromkeys(history['codes'] + [p['shortcode'] for p in posts]))
-    data = {'codes': codes[-MAX_HISTORY:], 'last_owner': posts[0].get('owner')}
-    HISTORY_JSON.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', dir=HISTORY_JSON.parent, delete=False) as file:
-        json.dump(data, file)
-        temporary = file.name
-    from pathlib import Path
-    Path(temporary).replace(HISTORY_JSON)
+    with database() as db:
+        db.executemany('INSERT OR IGNORE INTO reels(code) VALUES (?)',
+                       [(code,) for code in history['codes'] + [p['shortcode'] for p in posts]])
+        db.execute('DELETE FROM reels WHERE position NOT IN (SELECT position FROM reels ORDER BY position DESC LIMIT ?)', (MAX_HISTORY,))
+        db.execute("UPDATE metadata SET value = ? WHERE key = 'last_owner'", (posts[0].get('owner'),))

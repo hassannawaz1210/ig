@@ -14,9 +14,7 @@ class ProjectTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         path = Path(self.tmp.name)
-        for target, value in [('ig.config.CONFIG_DIR', path),
-                              ('ig.config.FEEDS_JSON', path / 'feeds.json'),
-                              ('ig.feeds.FEEDS_JSON', path / 'feeds.json')]:
+        for target, value in [('ig.config.CONFIG_DIR', path)]:
             p = patch(target, value)
             p.start()
             self.addCleanup(p.stop)

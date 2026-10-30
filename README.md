@@ -36,7 +36,7 @@ A saved feed name opens the combined mix, matching the original tool. The mix ra
 
 ## Local data
 
-Existing feeds remain in `~/.config/ig/feeds.json`. Both the original list format and `{ "accounts": [...], "weight": 1 }` format are supported; legacy weights are ignored. Defaults are created on first use if the file does not exist. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback and liked-reel discovery leads persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.json` to avoid repeats across restarts. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback and liked-reel discovery leads persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
 
 No virtual environment, personal feed configuration, or runtime cache is included in the project. The original installation is left in place.
 
@@ -59,7 +59,7 @@ The reels view prepares the next three videos and requests another batch when fe
 
 ## Prefer memes
 
-Use **Prefer memes** at the top of the reels view to turn the preference on or off. It is off by default and persists in `~/.config/ig/preferences.json`. Changes apply to newly requested batches; already loaded reels stay in place.
+Use **Prefer memes** at the top of the reels view to turn the preference on or off. It is off by default and persists in `~/.config/ig/settings.sqlite3`. Changes apply to newly requested batches; already loaded reels stay in place.
 
 When on, the meme preference biases eligible account choices toward the saved `memes` feed and discoveries from meme accounts. Creator rotation, trial selection, and available clips also affect the mix, so this is not a fixed percentage of reels. Turning it off removes that feed bias; personal reel preferences still apply. Tags and mentions are leads, not automatic content classification. Random commenters are no longer used for discovery.
 
@@ -81,7 +81,7 @@ Opening batches avoid the previous batch’s opening account when another accoun
 
 Shortcuts do not intercept typing or controls in the feed picker. Blocking hides all loaded reels from that account, skips to another account when possible, and excludes it from future batches and discovery picks.
 
-Permanent blocks are stored in `~/.config/ig/blocked.json` and take priority over saved feeds. Use `ig blocked` to list them, `ig block <username>` to add one, and `ig unblock <username>` to remove one. Reload after unblocking to update the open view. Blocking does not delete feed membership.
+Permanent blocks are stored in `~/.config/ig/settings.sqlite3` and take priority over saved feeds. Use `ig blocked` to list them, `ig block <username>` to add one, and `ig unblock <username>` to remove one. Reload after unblocking to update the open view. Blocking does not delete feed membership.
 
 Session blocks are stored in the tab's `sessionStorage` and sent with its batch requests. They survive page refreshes and do not change the permanent list or other existing tabs. Closing the tab normally clears them; browser session restoration may restore them with the tab.
 
