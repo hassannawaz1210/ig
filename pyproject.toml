@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ig-browser"
+version = "0.1.0"
+description = "A local, logged-out Instagram feed and reels browser"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["curl-cffi==0.17.0", "shazamio==0.9.0", "imageio-ffmpeg==0.6.0"]
+
+[project.scripts]
+ig = "ig.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
