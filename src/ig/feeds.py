@@ -137,13 +137,18 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     saved = active_accounts()
     # Credits from saved/liked reels survive restarts and do not require the
     # user to open each reel's media before we can discover its creator.
-    discover_into(pool, recommendations.related_accounts(saved))
+    leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None)
+    discover_into(pool, leads)
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
     out = []
     tried = set()
     used_topics = {name: 0 for name in selected}
+    # At most one uncertain trial in a quarter of batches, not a fresh lottery
+    # for every tagged profile. Sponsor-only leads face an additional gate.
+    allow_uncertain = random.random() < 0.25
+    uncertain_used = False
     requests_left = 3  # Bound slow Instagram requests, including pagination.
     while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded)
@@ -172,7 +177,10 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         if groups and not (rested_trials and candidates == rested_trials):
             least = min(used_topics[name] for name, _ in groups)
             _, candidates = random.choice([(name, group) for name, group in groups if used_topics[name] == least])
-        username = choose_account(pool, candidates, preferred)
+        if candidates and all(a not in saved for a in candidates):
+            username = random.choices(candidates, weights=[leads.get(a, 1.0) for a in candidates], k=1)[0]
+        else:
+            username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:
             if username in STATE:
@@ -183,14 +191,22 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         except (Exception, SystemExit):
             pool['dead'].add(username)
             continue
+        uncertain = False
         memberships = {name for name, accounts in selected.items() if username in accounts}
         if not memberships:
             # Curated meme starters are known candidates. Other credit/liked
             # leads must establish relevance independently of the source tag.
             memberships = {'memes'} if username in MEME_TRIAL_ACCOUNTS and selected.get('memes') else recommendations.matching_topics(state, selected)
             if not memberships:
-                pool['dead'].add(username)
-                continue
+                known_topics = recommendations.matching_topics(state, recommendations.TOPIC_WORDS)
+                # A known different topic is not an uncertain match. Unknown
+                # humour can get a trial, but never bypass blocks or cooldowns.
+                eligible = (allow_uncertain and not uncertain_used and username in leads
+                            and username not in cooldowns and username not in recent
+                            and not known_topics and model[1].get(username, 0) >= 0)
+                if not eligible or (leads[username] < 1 and random.random() >= 0.2):
+                    continue  # Keep uncertain candidates for future batches.
+                uncertain = True
         fresh = [p for p in state['posts']
                  if p.get('is_video') and p['shortcode'] not in pool['served']]
         if not fresh and state.get('has_more') and requests_left > 0:
@@ -210,6 +226,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         post = recommendations.choose_reel(fresh, model)
         pool['served'].add(post['shortcode'])
         out.append(post)
+        if uncertain:
+            uncertain_used = True
         for topic in memberships:
             used_topics[topic] += 1
     random.shuffle(out)

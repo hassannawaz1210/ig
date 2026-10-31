@@ -95,31 +95,44 @@ def discovery_accounts():
 
 
 def creator_credits(post):
-    """Explicit attribution supplies leads; tags, sponsors and collabs do not."""
-    caption = post.get('caption') or ''
-    # Promotional captions are particularly ambiguous: prefer missing a lead
-    # to treating a paid partner as a recommended creator.
-    if re.search(r'(?i)(#ad\b|#sponsored\b|paid partnership|sponsored by|partnering with|promo code|discount code)', caption):
-        return set()
-    return {name.lower() for name in re.findall(
-        r'(?i)(?:credits?|video by|created by|original by|creator)\s*[:：-]?\s*@([A-Za-z0-9._]{1,30})', caption)
+    """Explicit attribution is stronger evidence than a plain mention."""
+    return {name.rstrip('.').lower() for name in re.findall(
+        r'(?i)(?:credits?|video by|created by|original by|creator)\s*[:：-]?\s*@([A-Za-z0-9._]{1,30})', post.get('caption') or '')
         if config.USER_RE.fullmatch(name)}
 
 
-def related_accounts(owners):
-    """Recover explicit creator credits, not arbitrary tags or mentions."""
+def candidate_leads(post):
+    """Tags are leads for inspection, not proof of topic relevance."""
+    caption = post.get('caption') or ''
+    handles = set(post.get('tagged_users') or [])
+    handles.update(re.findall(r'@([A-Za-z0-9._]{1,30})', caption))
+    promotional = bool(re.search(r'(?i)(#ad\b|#sponsored\b|paid partnership|sponsored by|partnering with|promo code|discount code)', caption))
+    leads = {name.rstrip('.').lower(): 0.2 if promotional else 1.0 for name in handles
+             if isinstance(name, str) and config.USER_RE.fullmatch(name)}
+    for name in creator_credits(post):
+        leads[name] = 0.5 if promotional else 2.0
+    return leads
+
+
+def related_leads(owners, *, include_liked=False):
+    """Persist broad leads with weaker sponsor evidence, scoped to sources."""
     owners = set(owners)
-    if not owners:
-        return set()
-    accounts = set()
+    if not owners and not include_liked:
+        return {}
+    leads = {}
     with database() as connection:
-        rows = connection.execute('SELECT r.data FROM reels r LEFT JOIN feedback f ON r.code=f.code '
+        rows = connection.execute('SELECT r.data, f.action FROM reels r LEFT JOIN feedback f ON r.code=f.code '
                                   "WHERE COALESCE(f.action, '') != 'dislike' ORDER BY r.updated DESC LIMIT 3000")
-        for (raw,) in rows:
+        for raw, action in rows:
             post = json.loads(raw)
-            if post.get('owner') in owners:
-                accounts.update(creator_credits(post))
-    return accounts - owners
+            if post.get('owner') in owners or (include_liked and action == 'like'):
+                for name, strength in candidate_leads(post).items():
+                    leads[name] = max(leads.get(name, 0), strength)
+    return {name: strength for name, strength in leads.items() if name not in owners}
+
+
+def related_accounts(owners):
+    return set(related_leads(owners))
 
 
 TOPIC_WORDS = {

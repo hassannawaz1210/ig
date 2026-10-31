@@ -107,7 +107,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_saved_reel_credits_supply_persistent_discovery(self):
         rec.remember_reels([{'shortcode':'credit1','owner':'saved','caption':'Credit @newmeme', 'tagged_users':['another']}])
-        self.assertEqual(rec.related_accounts({'saved'}), {'newmeme'})
+        self.assertEqual(rec.related_accounts({'saved'}), {'newmeme', 'another'})
         self.assertEqual(config.load_feeds(), {'memes':['saved']})
         rec.set_feedback('credit1','dislike')
         self.assertEqual(rec.related_accounts({'saved'}), set())
@@ -123,18 +123,19 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(result['posts'][0]['owner'], 'newmeme')
         self.assertEqual(config.load_feeds(), {'memes':['saved']})
 
-    def test_sponsor_mentions_and_plain_tags_are_not_leads(self):
-        for caption in ['Thanks @brand', 'Collab with @brand', 'Sponsored by @brand. Credit @editor',
-                        'Paid partnership with @brand', 'Credit @editor #ad']:
-            self.assertEqual(rec.creator_credits({'caption':caption, 'tagged_users':['brand']}), set())
-        self.assertEqual(rec.creator_credits({'caption':'Video by @editor'}), {'editor'})
+    def test_tags_and_sponsors_are_leads_with_different_strength(self):
+        self.assertEqual(rec.candidate_leads({'caption':'Collab with @creator','tagged_users':['tagged']}),
+                         {'creator':1.0,'tagged':1.0})
+        sponsored = rec.candidate_leads({'caption':'Sponsored by @brand. Credit @editor'})
+        self.assertEqual(sponsored, {'brand':0.2,'editor':0.5})
+        self.assertGreater(rec.candidate_leads({'caption':'Credit @editor'})['editor'], sponsored['editor'])
 
     def test_credit_requires_independent_topic_evidence(self):
         rec.remember_reels([{'shortcode':'source','owner':'saved','caption':'Credit @brand'}])
         states = {u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
                   for u in ['saved','brand']}
         states['brand']['biography'] = 'Chocolate and snacks'
-        with patch('ig.feeds.STATE',states):
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.random.random',return_value=1):
             result = feeds._pool_more(feeds.make_pool(['saved']))
         self.assertEqual([p['owner'] for p in result['posts']], ['saved'])
 
@@ -175,3 +176,42 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(rec.matching_topics(state,['memes']),set())
         state['biography']='I make ironic comedy'
         self.assertEqual(rec.matching_topics(state,['memes']),{'memes'})
+
+    def test_unknown_tagged_humour_gets_at_most_one_uncertain_trial(self):
+        rec.remember_reels([{'shortcode':'source','owner':'saved','tagged_users':['odd1','odd2']}])
+        states={u:{'posts':[{'shortcode':u,'owner':u,'is_video':True,'caption':'architecture'}], 'has_more':False}
+                for u in ['saved','odd1','odd2']}
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.random.random',return_value=0):
+            result=feeds._pool_more(feeds.make_pool(['saved']))
+        owners={p['owner'] for p in result['posts']}
+        self.assertIn('saved',owners)
+        self.assertEqual(len(owners & {'odd1','odd2'}),1)
+        self.assertEqual(config.load_feeds(), {'memes':['saved']})
+
+    def test_uncertain_trial_respects_cooldown_and_different_topics(self):
+        rec.remember_reels([{'shortcode':'source','owner':'saved','tagged_users':['coder','recent']}])
+        rec.record_deliveries([{'shortcode':'before','owner':'recent'}])
+        states={u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
+                for u in ['saved','coder','recent']}
+        states['coder']['biography']='Python programming tutorials'
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.random.random',return_value=0):
+            result=feeds._pool_more(feeds.make_pool(['saved']))
+        self.assertEqual([p['owner'] for p in result['posts']],['saved'])
+
+    def test_unmatched_lead_is_not_permanently_discarded(self):
+        rec.remember_reels([{'shortcode':'source','owner':'saved','tagged_users':['odd']}])
+        states={u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
+                for u in ['saved','odd']}
+        pool=feeds.make_pool(['saved'])
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.random.random',return_value=1):
+            feeds._pool_more(pool)
+        self.assertNotIn('odd',pool['dead'])
+        with patch('ig.feeds.STATE',states), patch('ig.feeds.random.random',return_value=0):
+            result=feeds._pool_more(pool)
+        self.assertEqual([p['owner'] for p in result['posts']],['odd'])
+
+    def test_liked_reel_tags_recovered_without_saving_account(self):
+        rec.remember_reels([{'shortcode':'like1','owner':'unsaved','caption':'with @collaborator'}])
+        rec.set_feedback('like1','like')
+        self.assertIn('collaborator',rec.related_leads(set(),include_liked=True))
+        self.assertNotIn('collaborator',rec.related_leads({'saved'}))
