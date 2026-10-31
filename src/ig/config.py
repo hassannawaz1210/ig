@@ -18,7 +18,7 @@ FEED_RE = re.compile(r"^[a-z0-9_-]{1,20}$")
 
 
 DEFAULT_FEEDS = {
-    "movie_edits": ["v4ultfx", "aradz.cc", "gdb.vfx.ae"],
+    "edits": ["v4ultfx", "aradz.cc", "gdb.vfx.ae", "editbyxeno", "seven_spokes", "woyshnis.media"],
     "gaming": [
         "houseofgaming", "igndotcom", "gamespot",
         "playstation", "xbox", "nintendoamerica",
@@ -115,7 +115,23 @@ def _edits_and_gaming_schema(db):
                    [(username, i) for i, username in enumerate(GAMING_STARTER_ACCOUNTS)])
 
 
-SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema)
+def _rename_edits_schema(db):
+    feeds = _read_feeds(db)
+    if 'movie_edits' in feeds:
+        combined = list(dict.fromkeys(accounts_from_feed(feeds.get('edits')) + accounts_from_feed(feeds['movie_edits'])))
+        renamed = {}
+        for name, accounts in feeds.items():
+            renamed['edits' if name == 'movie_edits' else name] = combined if name in {'edits', 'movie_edits'} else accounts
+        _write_feeds(db, renamed)
+    row = db.execute("SELECT value FROM text_preferences WHERE key='selected_feeds'").fetchone()
+    if row:
+        selection = json.loads(row[0])
+        if selection is not None:
+            selection = sorted(set('edits' if name == 'movie_edits' else name for name in selection))
+            db.execute("UPDATE text_preferences SET value=? WHERE key='selected_feeds'", (json.dumps(selection),))
+
+
+SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema, _rename_edits_schema)
 
 
 @contextmanager

@@ -37,14 +37,14 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
 
     def test_fresh_database_has_edit_pages_and_gaming(self):
         feeds = config.load_feeds()
-        self.assertEqual(feeds['movie_edits'], ['v4ultfx', 'aradz.cc', 'gdb.vfx.ae'])
+        self.assertEqual(feeds['edits'], config.DEFAULT_FEEDS['edits'])
         self.assertEqual(feeds['gaming'], list(config.GAMING_STARTER_ACCOUNTS))
-        self.assertEqual(self.version(), 3)
+        self.assertEqual(self.version(), 4)
 
     def test_users_version_2_data_loses_studios_and_gains_gaming(self):
         self.make_version_2({'movie_edits': USER_MOVIE_EDITS, 'saved': ['houseofgaming'], 'memes': ['memes']})
         feeds = config.load_feeds()
-        self.assertEqual(feeds['movie_edits'], ['cinemaedits', 'cinematicedits'])
+        self.assertEqual(feeds['edits'], ['cinemaedits', 'cinematicedits'])
         self.assertEqual(feeds['saved'], ['houseofgaming'])
         self.assertEqual(feeds['memes'], ['memes'])
         self.assertEqual(list(feeds)[-1], 'gaming')  # New feed goes after the user's own.
@@ -54,7 +54,7 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
         self.make_version_2({'movie_edits': ['netflix', 'myedits', 'cinemaedits'],
                              'gaming': ['mygamer'], 'other': ['imdb']})
         feeds = config.load_feeds()
-        self.assertEqual(feeds['movie_edits'], ['myedits', 'cinemaedits'])
+        self.assertEqual(feeds['edits'], ['myedits', 'cinemaedits'])
         self.assertEqual(feeds['gaming'], ['mygamer'])
         self.assertEqual(feeds['other'], ['imdb'])  # Only movie_edits is cleaned.
 
@@ -66,10 +66,18 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
         self.make_version_2({'movie_edits': USER_MOVIE_EDITS})
         first = config.load_feeds()
         with config.edit_feeds() as feeds:
-            feeds['movie_edits'].append('netflix')  # Re-added on purpose after upgrading.
+            feeds['edits'].append('netflix')  # Re-added on purpose after upgrading.
             del feeds['gaming']
-        self.assertEqual(config.load_feeds(), {'movie_edits': first['movie_edits'] + ['netflix']})
-        self.assertEqual(self.version(), 3)
+        self.assertEqual(config.load_feeds(), {'edits': first['edits'] + ['netflix']})
+        self.assertEqual(self.version(), 4)
+
+    def test_rename_merges_memberships_and_preserves_selection(self):
+        self.make_version_2({'movie_edits':['film','shared'],'edits':['cars','shared']})
+        with sqlite3.connect(self.path / 'settings.sqlite3') as db:
+            db.execute("UPDATE text_preferences SET value=? WHERE key='selected_feeds'", (json.dumps(['movie_edits']),))
+        self.assertEqual(config.load_feeds()['edits'], ['cars','shared','film'])
+        self.assertEqual(config.selected_feeds(), ['edits'])
+        self.assertNotIn('movie_edits',config.load_feeds())
 
 
 class EditsAndGamingTopicTests(unittest.TestCase):

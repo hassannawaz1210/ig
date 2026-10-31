@@ -453,7 +453,7 @@ TOPIC_WORDS = {
     'programming': r'programming|coding|coder|developer|software|computer science|python|javascript',
     'electronics': r'electronics?|circuits?|microcontrollers?|arduino|raspberry pi|soldering|pcb|robotics',
     'movie_edits': EDIT_WORDS,
-    'edits': EDIT_WORDS,  # Older name for movie_edits.
+    'edits': EDIT_WORDS + r'|(?:car|bike|motorcycle|automotive|auto|moto) ?edits?|car cinematics?|automotive cinematography',
     'gaming': (r'gaming|gamers?|video ?games?|e-?sports?|twitch|streamers?|gameplay|playstation|ps[45]|'
                r'xbox|nintendo|pc gaming|speedrun(?:s|ner|ners|ning)?'),
     'gym': r'gym|fitness|bodybuilding|powerlifting|weightlifting|strength training',

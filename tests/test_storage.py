@@ -49,7 +49,7 @@ class StorageTests(unittest.TestCase):
             db.execute('PRAGMA user_version = 0')
         self.assertEqual(config.load_feeds(), {'code': ['current'], **GAMING})
         with sqlite3.connect(self.path / 'settings.sqlite3') as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], len(config.SETTINGS_MIGRATIONS))
 
     def test_failed_migration_rolls_back_and_can_retry(self):
         self.write('feeds.json', {'custom': ['cs50']})
