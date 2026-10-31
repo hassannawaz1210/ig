@@ -205,6 +205,7 @@ async function activate(i) {
 }
 let current = -1;
 const io = new IntersectionObserver(es => {
+  noteScroll(); // may put back a reel the burst went past; the check below then skips it
   for (const e of es) if (e.isIntersecting && e.intersectionRatio > 0.6) {
     // Observer entries describe a past frame. Ignore entries for slides that
     // have already left the viewport after a keyboard jump or layout change.
@@ -414,6 +415,7 @@ function showSlide(i) {
   document.querySelectorAll('video').forEach(v => v.pause());
   if (current !== i) recordQuickSkip(current);
   current = i;
+  scrollBurst = null; // a deliberate move ends any scroll burst; see noteScroll
   document.getElementById('s'+i)?.scrollIntoView({behavior:'instant'});
   activate(i);
 }
@@ -526,5 +528,66 @@ function goRel(d) {
   // Commit the target before observers or incoming batches can change current.
   if (i !== undefined && i !== current) showSlide(i);
 }
+// One wheel notch or trackpad swipe moves one reel. Left to the browser, each
+// small trackpad step snaps to the next reel, and a long swipe can pass several.
+// Steps less than SCROLL_BURST_GAP_MS apart count as one swipe.
+const SCROLL_BURST_GAP_MS = 150;
+let lastWheel = -Infinity;
+function scrollsItself(el) {
+  for (; el && el !== feed; el = el.parentElement)
+    if (el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)) return true;
+  return false;
+}
+feed.addEventListener('wheel', e => {
+  if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX) || scrollsItself(e.target)) return;
+  e.preventDefault();
+  const now = performance.now();
+  if (now - lastWheel > SCROLL_BURST_GAP_MS) goRel(Math.sign(e.deltaY));
+  lastWheel = now;
+}, {passive:false});
+// Other scrolling we did not start (touch, or a keyboard-scrolling extension
+// such as Vimium, which handles j/k before this page sees them) can also arrive
+// as a burst of small steps, and snapping turns each step into a whole reel.
+// Let each burst move at most one reel from where it started.
+let scrollBurst = null; // {to, step, last}
+let burstFrame = 0;
+let lastScrollTop = 0;
+function slideOffset(i) {
+  return document.getElementById('s'+i).getBoundingClientRect().top - feed.getBoundingClientRect().top;
+}
+function limitScrollBurst() {
+  if (scrollBurst && performance.now() - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
+  if (!scrollBurst) return false;
+  // Went past the neighbouring reel: put it back in view.
+  if (slideOffset(scrollBurst.to) * scrollBurst.step < -1)
+    document.getElementById('s'+scrollBurst.to).scrollIntoView({behavior:'instant'});
+  return true;
+}
+// Check every frame while a burst lasts, so a step an animation makes in this
+// frame is undone before it is painted.
+function watchScrollBurst() {
+  burstFrame = limitScrollBurst() ? requestAnimationFrame(watchScrollBurst) : 0;
+}
+// Called on every scroll event and before the observer moves `current`, since
+// either can see a step first.
+function noteScroll() {
+  const now = performance.now(), top = feed.scrollTop, moved = top - lastScrollTop;
+  lastScrollTop = top;
+  if (scrollBurst && now - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
+  if (!scrollBurst) {
+    if (current < 0 || isHidden(posts[current]) || !document.getElementById('s'+current)) return;
+    // Our own scrollIntoView, or a layout change that kept the reel in place.
+    if (Math.abs(slideOffset(current)) < 1 || !moved) return;
+    const step = Math.sign(moved);
+    const indices = visibleIndices();
+    scrollBurst = {to: indices[indices.indexOf(current) + step] ?? current, step};
+  }
+  scrollBurst.last = now;
+  limitScrollBurst();
+  if (!burstFrame) burstFrame = requestAnimationFrame(watchScrollBurst);
+}
+feed.addEventListener('scroll', noteScroll, {passive:true});
+// Each new swipe may move one more reel, even while the last one is settling.
+feed.addEventListener('touchstart', () => { scrollBurst = null; }, {passive:true});
 append(incoming.splice(0));
 if (current < 0) more();
