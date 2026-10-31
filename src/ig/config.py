@@ -18,9 +18,10 @@ FEED_RE = re.compile(r"^[a-z0-9_-]{1,20}$")
 
 
 DEFAULT_FEEDS = {
-    "movie_edits": [
-        "imdb", "netflix", "marvelstudios", "movieclips",
-        "cinemaedits", "cinematicedits",
+    "movie_edits": ["cinemaedits", "cinematicedits"],
+    "gaming": [
+        "houseofgaming", "igndotcom", "gamespot",
+        "playstation", "xbox", "nintendoamerica",
     ],
     "memes": ["memes", "funnymemes", "9gag", "ladbible", "unilad"],
     "electronics": ["adafruit", "sparkfun"],
@@ -89,6 +90,34 @@ def _feed_selection_schema(db):
     db.execute("INSERT OR IGNORE INTO text_preferences VALUES ('selected_feeds', ?)", (json.dumps(selection),))
 
 
+# Migration 3 constants are frozen with the migration: later changes to
+# DEFAULT_FEEDS must not change what an old database is upgraded to.
+STUDIO_AND_CLIP_ACCOUNTS = ("imdb", "netflix", "marvelstudios", "movieclips")
+GAMING_STARTER_ACCOUNTS = (
+    "houseofgaming", "igndotcom", "gamespot",
+    "playstation", "xbox", "nintendoamerica",
+)
+
+
+def _edits_and_gaming_schema(db):
+    """Keep movie_edits to edit pages and add a gaming feed.
+
+    Only the four studio and clip accounts that were old defaults are
+    removed; accounts the user added stay. An existing gaming feed is left
+    exactly as it is."""
+    db.executemany("DELETE FROM feed_accounts WHERE feed = 'movie_edits' AND username = ?",
+                   [(username,) for username in STUDIO_AND_CLIP_ACCOUNTS])
+    if db.execute("SELECT 1 FROM feeds WHERE name = 'gaming'").fetchone():
+        return
+    position = db.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM feeds").fetchone()[0]
+    db.execute("INSERT INTO feeds VALUES ('gaming', ?)", (position,))
+    db.executemany("INSERT INTO feed_accounts VALUES ('gaming', ?, ?)",
+                   [(username, i) for i, username in enumerate(GAMING_STARTER_ACCOUNTS)])
+
+
+SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema)
+
+
 @contextmanager
 def database():
     """Open a transaction, importing legacy files exactly once, atomically."""
@@ -97,7 +126,7 @@ def database():
     try:
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("BEGIN IMMEDIATE")
-        migrate(db, (_initial_schema, _feed_selection_schema))
+        migrate(db, SETTINGS_MIGRATIONS)
         yield db
         db.commit()
     except BaseException:
