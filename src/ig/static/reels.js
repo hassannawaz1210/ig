@@ -382,8 +382,8 @@ function collapseCaptions() {
 async function activate(i) {
   collapseCaptions();
   const panel = document.getElementById('comments-panel');
-  if (panel.dataset.code !== posts[i]?.shortcode) closeComments();
   if (isHidden(posts[i])) return;
+  if (panel.hidden === false && panel.dataset.code !== posts[i]?.shortcode) toggleComments(i);
   const spin = document.getElementById('spin'+i);
   spin.textContent = 'loading…'; spin.hidden = false;
   maybeMore();
@@ -864,7 +864,9 @@ function commentRow(comment) {
     ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
     <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`;
 }
-function commentKey(comment) { return comment.username + '\u0000' + comment.text; }
+function commentKey(comment) {
+  return comment.id ? 'id:' + comment.id : JSON.stringify([comment.username, comment.text, comment.created_at]);
+}
 function commentsPage(p, after) {
   return fetch('/comments/' + encodeURIComponent(p.shortcode) + (after ? '?after=' + encodeURIComponent(after) : ''),
     {method:'POST', signal:AbortSignal.timeout(45000)}).then(async response => {
@@ -873,6 +875,29 @@ function commentsPage(p, after) {
       return data;
     });
 }
+function commentsVisible(p) {
+  const panel = document.getElementById('comments-panel');
+  return !panel.hidden && panel.dataset.code === p.shortcode;
+}
+function renderComments(p) {
+  if (!commentsVisible(p)) return;
+  const body = document.getElementById('comments-body');
+  const top = body.scrollTop;
+  body.innerHTML = (p._comments || []).map(commentRow).join('');
+  if (p._commentsLoading) {
+    body.insertAdjacentHTML('beforeend', '<div id="comments-more" role="status">Loading comments…</div>');
+  } else if (p._commentError || p._commentCursor) {
+    const button = document.createElement('button');
+    button.id = 'comments-more';
+    button.type = 'button';
+    button.textContent = p._commentError ? 'Couldn’t load comments · Retry' : 'Load more comments';
+    button.onclick = () => loadMoreComments(p);
+    body.appendChild(button);
+  } else if (!p._comments?.length) {
+    body.textContent = 'Nothing to show yet.';
+  }
+  body.scrollTop = top;
+}
 async function toggleComments(i) {
   const p = posts[i];
   if (!p || isHidden(p)) return;
@@ -880,57 +905,52 @@ async function toggleComments(i) {
   if (!panel.hidden && panel.dataset.code === p.shortcode) { closeComments(); return; }
   panel.hidden = false;
   panel.dataset.code = p.shortcode;
-  const body = document.getElementById('comments-body');
-  body.textContent = 'Loading comments…';
-  try {
-    if (!p._comments) {
-      if (!p._commentsLoading) p._commentsLoading = commentsPage(p, null).then(data => {
-        p._comments = data.comments || [];
-        p._commentKeys = new Set(p._comments.map(commentKey));
-        p._commentCursor = data.next_cursor || null;
-      }).finally(() => { p._commentsLoading = null; });
-      await p._commentsLoading;
-    }
-    if (panel.hidden || panel.dataset.code !== p.shortcode) return;
-    body.innerHTML = p._comments.length ? p._comments.map(commentRow).join('') : 'Nothing to show yet.';
-    // A short first page on a tall panel should already offer more.
-    if (p._commentCursor && body.scrollHeight <= body.clientHeight) loadMoreComments(p, body);
-  } catch (error) {
-    if (panel.hidden || panel.dataset.code !== p.shortcode) return;
-    body.textContent = error.message + ' · close and reopen to retry';
-  }
+  document.getElementById('comments-body').scrollTop = 0;
+  if (!p._comments && !p._commentsLoading) await loadMoreComments(p);
+  else renderComments(p);
 }
-async function loadMoreComments(p, body) {
-  if (p._commentsLoading || !p._commentCursor) return;
-  document.getElementById('comments-more')?.remove();
-  const sentinel = document.createElement('div');
-  sentinel.id = 'comments-more';
-  sentinel.textContent = 'Loading more…';
-  body.appendChild(sentinel);
-  let failed = false;
-  p._commentsLoading = commentsPage(p, p._commentCursor).then(data => {
+async function loadMoreComments(p) {
+  if (p._commentsLoading || (p._comments && !p._commentCursor)) return;
+  const after = p._comments ? p._commentCursor : null;
+  let added = 0;
+  p._commentError = false;
+  p._commentsLoading = commentsPage(p, after).then(data => {
+    p._comments ||= [];
+    p._commentKeys ||= new Set(p._comments.map(commentKey));
+    p._commentCursors ||= new Set();
+    if (after) p._commentCursors.add(after);
     for (const comment of data.comments || []) {
-      if (p._commentKeys.has(commentKey(comment))) continue;  // cursors may repeat a row
-      p._commentKeys.add(commentKey(comment));
+      const key = commentKey(comment);
+      if (p._commentKeys.has(key)) continue;
+      p._commentKeys.add(key);
       p._comments.push(comment);
-      sentinel.insertAdjacentHTML('beforebegin', commentRow(comment));
+      added++;
     }
-    p._commentCursor = data.next_cursor || null;
+    const next = data.next_cursor || null;
+    p._commentCursor = p._commentCursors.has(next) ? null : next;
+    p._commentAutoPaused = added === 0;
   }).catch(() => {
-    failed = true;
+    p._commentError = true;
   }).finally(() => {
-    sentinel.remove();
     p._commentsLoading = null;
-    if (failed) body.insertAdjacentHTML('beforeend',
-      '<div id="comments-more" role="status">Couldn’t load more · scroll to retry</div>');
+    renderComments(p);
+    // Keep filling a short panel, but stop automatic requests on errors or
+    // duplicate-only pages. The button still works when there is no scrollbar.
+    const body = document.getElementById('comments-body');
+    if (added && p._commentCursor && commentsVisible(p) && body.scrollHeight <= body.clientHeight) {
+      setTimeout(() => {
+        if (commentsVisible(p) && !p._commentError) loadMoreComments(p);
+      }, 0);
+    }
   });
+  renderComments(p);
   await p._commentsLoading;
 }
 document.getElementById('comments-body').addEventListener('scroll', event => {
   const el = event.target;
   const panel = document.getElementById('comments-panel');
   const p = posts.find(x => x && x.shortcode === panel.dataset.code);
-  if (panel.hidden || !p || p._commentsLoading || !p._commentCursor) return;
+  if (panel.hidden || !p || p._commentsLoading || p._commentError || p._commentAutoPaused || !p._commentCursor) return;
   if (el.scrollHeight - el.scrollTop - el.clientHeight > 140) return;
-  loadMoreComments(p, el);
+  loadMoreComments(p);
 });

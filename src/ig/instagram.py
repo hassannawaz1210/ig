@@ -329,6 +329,7 @@ def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
         if not username:
             continue
         comments.append({
+            "id": str(node.get("pk") or node.get("id") or ""),
             "username": username,
             "text": node.get("text") or "",
             "like_count": node.get("comment_like_count") or 0,

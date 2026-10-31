@@ -183,6 +183,9 @@
 .comments-heading button { background:transparent;color:#ccc;border:0;font-size:18px;cursor:pointer;align-self:flex-start; }
 #comments-body { padding:18px;overflow-y:auto;overscroll-behavior:contain;font-size:13px;line-height:1.5; }
 #comments-more { padding:12px 0;color:#999;text-align:center; }
+button#comments-more { display:block;width:100%;border:0;background:transparent;font:inherit;cursor:pointer; }
+button#comments-more:hover { color:#fff; }
+button#comments-more:focus-visible { outline:1px solid #aaa;outline-offset:-1px; }
 .comment-row + .comment-row { margin-top:20px; }
 .comment-row a { color:#ddd3ff;text-decoration:none;font-weight:600; }
 .comment-row p { margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere; }

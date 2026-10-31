@@ -55,6 +55,7 @@ class CommentFetchTests(unittest.TestCase):
         self.assertTrue(result['comments'][0]['is_owner'])
         self.assertFalse(result['comments'][1]['is_owner'])
         self.assertEqual(result['comments'][0]['like_count'], 40)
+        self.assertEqual([c['id'] for c in result['comments']], ['0', '1', '2'])
         # The GraphQL call carries the post's media id.
         from urllib.parse import unquote
         variables = dict(pair.split('=', 1) for pair in

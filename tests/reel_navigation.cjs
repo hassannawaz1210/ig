@@ -151,6 +151,51 @@ const KEYS = {
     await evaluate(`document.querySelector('#feed-menu summary').click()`);
     await key('k'); await expectReel(6, 'K resumes navigation with the feed menu open');
     assert.equal(await evaluate(`document.getElementById('feed-menu').open`), false);
+    // Control comment responses to exercise races while switching reels.
+    await evaluate(`globalThis.commentRequests = [];
+      commentsPage = (p, after) => new Promise((resolve, reject) =>
+        commentRequests.push({code:p.shortcode, after, resolve, reject}));
+      void toggleComments(current)`);
+    const replyComments = async (index, comments, cursor = null, fail = false) => {
+      await evaluate(`commentRequests[${index}].${fail ? 'reject' : 'resolve'}(${JSON.stringify(
+        fail ? 'offline' : {comments, next_cursor: cursor})}); undefined`);
+      await sleep(80);
+    };
+    const comment = id => ({id, username:'fan', text:'same text', like_count:0});
+    await replyComments(0, [comment('1'), comment('2')], 'page2');
+    assert.equal(await evaluate('commentRequests.length'), 2, 'short panel automatically fetches another page');
+    await evaluate('void toggleComments(current); void toggleComments(current)');
+    await replyComments(1, [comment('2'), comment('3')], 'page2');
+    assert.equal(await evaluate(`document.querySelectorAll('.comment-row').length`), 3,
+      'reopening during pagination keeps distinct comments and removes repeated IDs');
+    assert.equal(await evaluate('posts[current]._commentCursor'), null, 'repeated cursor stops pagination');
+
+    await evaluate(`posts[current]._commentCursor = 'page3'; void loadMoreComments(posts[current]); showSlide(7)`);
+    assert.equal(await evaluate(`document.getElementById('comments-panel').hidden`), false,
+      'reel navigation keeps the drawer open');
+    assert.equal(await evaluate('commentRequests.length'), 4, 'new reel fetches its own comments');
+    await replyComments(2, [], null, true);
+    assert.equal(await evaluate(`document.getElementById('comments-body').textContent`), 'Loading comments…',
+      'a previous reel failure cannot overwrite the current panel');
+    await replyComments(3, [], null, true);
+    assert.ok(await evaluate(`document.querySelector('button#comments-more') !== null`),
+      'failed initial request offers a keyboard-accessible retry');
+    await evaluate(`document.querySelector('button#comments-more').click()`);
+    await replyComments(4, [comment('4')], 'more');
+    await replyComments(5, [comment('4')], 'next');
+    await evaluate(`document.getElementById('comments-body').dispatchEvent(new Event('scroll'))`);
+    assert.equal(await evaluate('commentRequests.length'), 6, 'duplicate-only page does not loop automatically');
+    assert.ok(await evaluate(`document.querySelector('button#comments-more') !== null`),
+      'underfilled panel can still load more without scrolling');
+    await evaluate(`document.querySelector('button#comments-more').click()`);
+    await replyComments(6, [], null, true);
+    await evaluate(`document.querySelector('button#comments-more').click()`);
+    await replyComments(7, [comment('5')]);
+    assert.equal(await evaluate(`document.querySelectorAll('.comment-row').length`), 2,
+      'page retry preserves existing comments');
+    await evaluate('closeComments(); showSlide(6)');
+    assert.equal(await evaluate('commentRequests.length'), 8, 'closed drawer does not fetch on navigation');
+
     await key(',');
     assert.ok(await evaluate(`document.activeElement.dataset.all`), 'picker focuses All initially');
     await key('ArrowDown');
