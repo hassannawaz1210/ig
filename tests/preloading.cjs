@@ -1,41 +1,58 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const elements = new Map();
-const calls = [];
-let response = {posts: [], has_more: true};
-const timers = [];
-function element(id) {
-  if (id === 'feed-picker' || id === 'shortcut-help') return null;
-  if (!elements.has(id)) elements.set(id, {
-    textContent: id === 'boot' ? JSON.stringify({posts: [], feed_accounts: [], blocked: [], selected_feeds: null}) : '', style: {}, dataset: {},
-    getBoundingClientRect() {return {top:0,bottom:800,height:800};},
-    scrollIntoView() {},
-    setAttribute(name, value) { this[name] = value; },
-    querySelector: () => null, querySelectorAll: () => [],
-    insertAdjacentHTML() {
-      const video = {src: '', load() {this.loads = (this.loads || 0) + 1;},
-        play() {this.paused = false; this.plays = (this.plays || 0) + 1; return Promise.resolve();},
-        pause() {this.paused = true;}, removeAttribute() {this.src = null;}, remove() {},
-        getAttribute() {return this.src;}};
-      this.querySelector = () => video;
+const source = fs.readFileSync(process.argv[2], 'utf8');
+
+// A fake reels page: just enough DOM for reels.js, with every request recorded.
+// `respond(url, options)` returns the fake fetch result.
+function createPage(respond, {chips = []} = {}) {
+  const elements = new Map();
+  const calls = [];
+  const timers = [];
+  function element(id) {
+    if (id === 'feed-picker' || id === 'shortcut-help') return null;
+    if (!elements.has(id)) elements.set(id, {
+      id,
+      textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null}) : '', style: {}, dataset: {},
+      getBoundingClientRect() {return {top:0,bottom:800,height:800};},
+      scrollIntoView() {},
+      setAttribute(name, value) { this[name] = value; },
+      remove() { this.removed = true; },
+      querySelector: () => null, querySelectorAll: () => [],
+      insertAdjacentHTML() {
+        const video = {src: '', load() {this.loads = (this.loads || 0) + 1;},
+          play() {this.paused = false; this.plays = (this.plays || 0) + 1; return Promise.resolve();},
+          pause() {this.paused = true;}, removeAttribute() {this.src = null;}, remove() {this.removed = true;},
+          getAttribute() {return this.src;}};
+        this.querySelector = () => video;
+      },
+    });
+    return elements.get(id);
+  }
+  const ctx = vm.createContext({
+    document: {getElementById: element, addEventListener() {},
+      querySelectorAll: selector => selector === '.feed-choice' ? chips : []},
+    IntersectionObserver: class {constructor(callback) {ctx.observerCallback = callback;} observe() {} unobserve() {}}, AbortSignal,
+    performance: {now: () => 2000},
+    sessionStorage: {data: {}, getItem(key) {return this.data[key] || null;},
+      setItem(key, value) {this.data[key] = value;}},
+    // Timers never run by themselves; tests run them explicitly.
+    setTimeout(fn, ms) {timers.push({run: fn, ms}); return timers.length;},
+    clearTimeout(id) { if (id) timers[id - 1].cancelled = true; },
+    console: {error() {}, warn() {}, log: console.log},
+    window: {location: {reload() { ctx.didReload = true; }}, addEventListener() {}},
+    fetch: async (url, options) => {
+      calls.push({url, options});
+      return respond(url, options);
     },
   });
-  return elements.get(id);
+  vm.runInContext(source, ctx);
+  return {ctx, element, calls, timers};
 }
-const ctx = vm.createContext({
-  document: {getElementById: element, addEventListener() {}, querySelectorAll: () => []},
-  IntersectionObserver: class {constructor(callback) {ctx.observerCallback = callback;} observe() {} unobserve() {}}, AbortSignal,
-  performance: {now: () => 2000},
-  sessionStorage: {data: {}, getItem(key) {return this.data[key] || null;},
-    setItem(key, value) {this.data[key] = value;}},
-  setTimeout(fn) {timers.push(fn); return timers.length;},
-  fetch: async (url, options) => {
-    calls.push({url, options});
-    return {ok: true, json: async () => url.endsWith('/media') ? {video: 'https://example.test/video.mp4'} : response};
-  },
-});
-vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
+
+let response = {posts: [], has_more: true};
+const {ctx, element, calls, timers} = createPage(async url =>
+  ({ok: true, json: async () => url.endsWith('/media') ? {video: 'https://example.test/video.mp4'} : response}));
 (async () => {
   vm.runInContext("posts.push({shortcode:'first'}, {shortcode:'second'}); slides=2; current=0;", ctx);
   await vm.runInContext('Promise.all([prepare(1), prepare(1)])', ctx);
@@ -181,14 +198,172 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   assert.equal(vm.runInContext("blockedAccounts.has('another')",ctx),true);
   assert.equal(element('s0').hidden,true,'permanent block hides loaded clip');
   assert.equal(calls.filter(c=>c.url === '/block').length,1);
-  vm.runInContext("selectedFeeds=null; draftFeeds=null; chooseFeedSelection('memes'); chooseFeedSelection('electronics')",ctx);
-  assert.deepEqual(Array.from(vm.runInContext('draftFeeds',ctx)),['electronics','memes'],'combine selected feeds');
-  ctx.window = {location:{reload(){ctx.didReload=true;}}};
-  await vm.runInContext('applyFeedSelection()',ctx);
-  assert.deepEqual(JSON.parse(calls.filter(call=>call.url==='/preferences').at(-1).options.body),
-                   {selected_feeds:['electronics','memes']});
-  assert.equal(ctx.didReload,true,'selection reloads to discard old mixed reels');
-  vm.runInContext('savingFeeds=false; chooseFeedSelection(null)',ctx);
-  assert.equal(vm.runInContext('draftFeeds',ctx),null,'All clears the selection');
-  console.log('Reel preloading, keyboard shortcuts, blocks, and feed selection passed');
+  console.log('Reel preloading, keyboard shortcuts and blocks passed');
+  await feedSelectionTests();
+  await loadingStateTests();
+  console.log('Feed selection and loading state passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});
+
+// Requests stay open until the test answers them, so races can be staged.
+function createControlledPage(options) {
+  const open = [];
+  const page = createPage((url, request) => {
+    if (url.endsWith('/media')) return {ok: true, json: async () => ({video: 'https://example.test/' + JSON.parse(request.body).code + '.mp4'})};
+    return new Promise((resolve, reject) => open.push({url, body: JSON.parse(request.body || '{}'), resolve, reject}));
+  }, options);
+  page.next = url => {
+    const index = open.findIndex(request => request.url === url);
+    assert.ok(index >= 0, 'expected an open request to ' + url);
+    return open.splice(index, 1)[0];
+  };
+  page.reply = (request, body, status = 200) => request.resolve({ok: status < 400, status,
+    json: async () => body, text: async () => JSON.stringify(body)});
+  page.open = open;
+  return page;
+}
+const settle = () => new Promise(resolve => setImmediate(resolve));
+async function settleAll() { for (let i = 0; i < 5; i++) await settle(); }
+const reels = (...codes) => codes.map(code => ({shortcode: code, owner: 'owner_' + code, image: ''}));
+function runTimer(page, ms) {
+  const timer = pendingTimers(page, ms).at(-1);
+  assert.ok(timer, `expected a pending ${ms} ms timer`);
+  timer.ran = true;
+  timer.run();
+}
+function pendingTimers(page, ms) {
+  return page.timers.filter(timer => timer.ms === ms && !timer.cancelled && !timer.ran);
+}
+
+async function feedSelectionTests() {
+  const chips = ['all', 'gym', 'memes'].map(name => ({dataset: name === 'all' ? {all: 'true'} : {feed: name},
+    setAttribute(key, value) { this[key] = value; }, addEventListener(type, fn) { this.click = fn; }}));
+  const page = createControlledPage({chips});
+  const {ctx, element, calls} = page;
+  const run = code => vm.runInContext(code, ctx);
+  const delay = run('SELECTION_DELAY_MS');
+
+  // Selection rules.
+  assert.deepEqual(Array.from(run("nextFeedSelection(null, 'gym')")), ['gym'], 'a feed while All is active selects just that feed');
+  assert.deepEqual(Array.from(run("nextFeedSelection(['gym'], 'memes')")), ['gym', 'memes'], 'feeds combine');
+  assert.deepEqual(Array.from(run("nextFeedSelection(['gym', 'memes'], 'gym')")), ['memes'], 'a selected feed toggles off');
+  assert.equal(run("nextFeedSelection(['gym'], 'gym')"), null, 'removing the last feed returns to All');
+  assert.equal(run("nextFeedSelection(['gym'], null)"), null, 'All clears the selection');
+  assert.deepEqual(Array.from(run("nextFeedSelection([], 'gym')")), ['gym'], 'an emptied saved selection can pick a feed');
+  assert.equal(chips[0]['aria-pressed'], 'true', 'All starts selected');
+
+  // First batch: three reels, the first one playing.
+  page.reply(page.next('/reels/more'), {posts: reels('a', 'b', 'c'), has_more: true});
+  await settleAll();
+  assert.equal(run('current'), 0);
+  assert.equal(element('feed-status').hidden, true, 'loading notice hides once a reel shows');
+  const queuedVideo = element('s1').querySelector('video');
+  assert.equal(queuedVideo.loads, 1, 'next reel was preloaded');
+  const oldTopUp = page.next('/reels/more');  // asked for under the old selection; answered later
+
+  // Two quick taps become one saved change, applied without Apply.
+  run("muted = false");
+  chips[1].click();
+  chips[2].click();
+  assert.equal(chips[0]['aria-pressed'], 'false');
+  assert.equal(chips[1]['aria-pressed'], 'true', 'tapped chip shows as selected right away');
+  assert.equal(chips[2]['aria-pressed'], 'true');
+  assert.equal(calls.filter(call => call.url === '/preferences').length, 0, 'saving waits for the short delay');
+  runTimer(page, delay);
+  assert.equal(pendingTimers(page, delay).length, 0,'earlier tap timer was cancelled');
+  assert.equal(calls.filter(call => call.url === '/preferences').length, 1, 'one save for quick taps');
+  assert.equal(element('feed-busy').hidden, false, 'busy while switching');
+  assert.equal(element('feed-choices')['aria-busy'], 'true');
+  const save = page.next('/preferences');
+  assert.deepEqual(save.body, {selected_feeds: ['gym', 'memes']});
+  page.reply(save, {selected_feeds: ['gym', 'memes']});
+  await settleAll();
+
+  assert.notEqual(ctx.didReload, true, 'changing feeds does not reload the page');
+  assert.equal(run('current'), 0, 'current reel stays in place');
+  assert.equal(element('s0').removed, undefined, 'current reel is kept');
+  assert.equal(element('s1').removed, true, 'reels queued for the old selection are removed');
+  assert.equal(element('s2').removed, true);
+  assert.equal(queuedVideo.src, null, 'video of a removed reel is released');
+  assert.equal(run('muted'), false, 'mute state is kept');
+  assert.equal(element('feed-status').hidden, false, 'notice shows while nothing is queued');
+  assert.equal(element('feed-status').dataset.mode, 'compact', 'small notice while a reel is playing');
+  assert.equal(element('feed-status-text').textContent, 'Loading reels…');
+
+  // A new batch is requested at once, even though the old request is still open.
+  const fresh = page.next('/reels/more');
+  // The old request answers late; its reels must not appear.
+  page.reply(oldTopUp, {posts: reels('old1'), has_more: true});
+  await settleAll();
+  assert.ok(!run('posts').some(post => post.shortcode === 'old1'), 'a batch for the old selection is discarded');
+  assert.equal(page.open.length, 0, 'a discarded batch does not start another request');
+  assert.equal(run('switchingFeeds'), true, 'still switching until the new batch arrives');
+  assert.equal(run('fetching'), true, 'the new request is still the one in progress');
+  return finishSwitch(page, fresh, chips);
+}
+
+async function finishSwitch(page, fresh, chips) {
+  const {ctx, element, calls} = page;
+  const run = code => vm.runInContext(code, ctx);
+  page.reply(fresh, {posts: reels('d', 'e'), has_more: true});
+  await settleAll();
+  const codes = Array.from(run('visibleIndices().map(i => posts[i].shortcode)'));
+  assert.deepEqual(codes, ['a', 'd', 'e'], 'new batch follows the current reel');
+  assert.equal(run('switchingFeeds'), false);
+  assert.equal(element('feed-busy').hidden, true, 'busy state ends with the new batch');
+  assert.equal(element('feed-status').hidden, true);
+  assert.deepEqual(calls.filter(call => call.url === '/reels/more').at(-1).options.body,
+    JSON.stringify({session_blocked: []}), 'batch requests still carry session blocks');
+
+  // A failed save reverts the chips and keeps the queued reels.
+  chips[1].click();
+  assert.equal(chips[1]['aria-pressed'], 'false');
+  runTimer(page, run('SELECTION_DELAY_MS'));
+  page.reply(page.next('/preferences'), 'could not save preference', 500);
+  await settleAll();
+  assert.equal(chips[1]['aria-pressed'], 'true', 'chips go back to the saved selection');
+  assert.deepEqual(Array.from(run('chosenFeeds')), ['gym', 'memes']);
+  assert.equal(element('preference-status').textContent, 'Could not change feeds · try again');
+  assert.equal(element('preference-status').dataset.tone, 'error');
+  assert.equal(element('s3').removed, undefined, 'queued reels stay after a failed save');
+  assert.equal(run('switchingFeeds'), false);
+}
+
+async function loadingStateTests() {
+  const page = createControlledPage();
+  const {ctx, element} = page;
+  const run = code => vm.runInContext(code, ctx);
+  const status = element('feed-status');
+  assert.equal(status.hidden, false, 'loading notice shows before the first batch');
+  assert.equal(status.dataset.mode, 'overlay', 'centered while no reel is showing');
+  assert.equal(status.dataset.state, 'loading');
+  assert.equal(element('feed-status-text').textContent, 'Loading reels…');
+  assert.equal(element('feed-retry').hidden, true);
+
+  page.next('/reels/more').reject(new TypeError('Failed to fetch'));
+  await settleAll();
+  assert.equal(status.dataset.state, 'loading', 'one failure keeps the loading notice while retrying');
+  runTimer(page, run('RETRY_DELAY_MS'));
+  page.next('/reels/more').reject(new TypeError('Failed to fetch'));
+  await settleAll();
+  assert.equal(status.hidden, false);
+  assert.equal(status.dataset.state, 'error', 'repeated failures show an error');
+  assert.match(element('feed-status-text').textContent, /not reachable/);
+  assert.equal(element('feed-retry').hidden, false, 'error offers a retry button');
+  assert.ok(pendingTimers(page, run('RETRY_DELAY_MS')).length,'still retries automatically');
+
+  run('retryLoading()');
+  assert.equal(status.dataset.state, 'loading', 'retry shows loading again');
+  const request = page.next('/reels/more');
+  page.reply(request, {error: 'Instagram is rate limiting requests'}, 429);
+  await settleAll();
+  runTimer(page, run('RETRY_DELAY_MS'));
+  page.reply(page.next('/reels/more'), {error: 'Instagram is rate limiting requests'}, 429);
+  await settleAll();
+  assert.match(element('feed-status-text').textContent, /rate limiting/, 'server error message is shown');
+  runTimer(page, run('RETRY_DELAY_MS'));
+  page.reply(page.next('/reels/more'), {posts: reels('x'), has_more: true});
+  await settleAll();
+  assert.equal(status.hidden, true, 'notice hides when the first reel shows');
+  assert.equal(run('current'), 0);
+  assert.equal(run('loadFailures'), 0);
+}

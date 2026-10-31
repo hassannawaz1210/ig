@@ -1,6 +1,6 @@
-// Page data from the server: {posts, feed_accounts, blocked, selected_feeds}.
+// Page data from the server: {feed_accounts, blocked, selected_feeds}. The page
+// arrives without reels and fetches its first batch from /reels/more.
 const boot = JSON.parse(document.getElementById('boot').textContent);
-const incoming = boot.posts;
 const feed = document.getElementById('feed');
 const countEl = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -30,57 +30,163 @@ accountChanged = (username, saved) => {
   saved ? feeded.add(username) : feeded.delete(username);
   syncAccountButtons();
 };
-let selectedFeeds = boot.selected_feeds;
-let draftFeeds = selectedFeeds === null ? null : [...selectedFeeds];
-let savingFeeds = false;
 let blockedAccounts = new Set(boot.blocked);
 let sessionBlocked = new Set();
 try { sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); } catch (_) {}
-function isHidden(p) { return p && (p.feedback === 'dislike' || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }
+// A dropped reel was queued for an earlier feed choice and removed from the page.
+function isHidden(p) { return p && (p._dropped || p.feedback === 'dislike' || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }
 function visibleIndices() { return posts.map((p,i) => isHidden(p) ? -1 : i).filter(i => i >= 0); }
 function actionStatus(message) { document.getElementById('action-status').textContent = message; }
 
+// Feed chips. A tap changes the selection at once; saving waits a moment so
+// several quick taps become one change. null means All.
+const SELECTION_DELAY_MS = 350;
+const STATUS_CLEAR_MS = 4000;
+let selectedFeeds = boot.selected_feeds;            // last saved selection
+let chosenFeeds = copyFeeds(selectedFeeds);         // what the chips show
+let selectionTimer = null;
+let savingFeeds = false;
+let switchingFeeds = false;  // between a saved change and the first batch for it
+let selectionVersion = 0;    // increases with every saved change
+let statusTimer = null;
+function copyFeeds(names) { return names === null ? null : [...names]; }
+function sameFeeds(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+// All -> one feed; then taps toggle feeds; removing the last one returns to All.
+function nextFeedSelection(chosen, name) {
+  if (name === null || chosen === null) return name === null ? null : [name];
+  if (chosen.includes(name)) {
+    const rest = chosen.filter(value => value !== name);
+    return rest.length ? rest : null;
+  }
+  return [...chosen, name].sort();
+}
+function preferenceStatus(message, tone = '') {
+  const status = document.getElementById('preference-status');
+  status.textContent = message;
+  if (tone) status.dataset.tone = tone; else delete status.dataset.tone;
+  clearTimeout(statusTimer);
+  statusTimer = message ? setTimeout(() => preferenceStatus(''), STATUS_CLEAR_MS) : null;
+}
 function renderFeedSelection() {
   document.querySelectorAll('.feed-choice').forEach(button => {
-    const selected = button.dataset.all ? draftFeeds === null : draftFeeds?.includes(button.dataset.feed);
-    button.setAttribute('aria-pressed', String(Boolean(selected)));
-    button.disabled = savingFeeds;
+    const selected = button.dataset.all ? chosenFeeds === null : Boolean(chosenFeeds?.includes(button.dataset.feed));
+    button.setAttribute('aria-pressed', String(selected));
   });
-  const changed = JSON.stringify(draftFeeds) !== JSON.stringify(selectedFeeds);
-  document.getElementById('apply-feeds').disabled = savingFeeds || !changed;
+  const busy = savingFeeds || switchingFeeds;
+  document.getElementById('feed-choices').setAttribute('aria-busy', String(busy));
+  document.getElementById('feed-busy').hidden = !busy;
 }
 function chooseFeedSelection(name) {
-  if (savingFeeds) return;
-  if (name === null) draftFeeds = null;
-  else if (draftFeeds === null) draftFeeds = [name];
-  else if (draftFeeds.includes(name)) {
-    draftFeeds = draftFeeds.filter(value => value !== name);
-    if (!draftFeeds.length) draftFeeds = null;
-  } else draftFeeds = [...draftFeeds, name].sort();
+  chosenFeeds = nextFeedSelection(chosenFeeds, name);
   renderFeedSelection();
+  clearTimeout(selectionTimer);
+  selectionTimer = setTimeout(saveFeedSelection, SELECTION_DELAY_MS);
 }
 document.querySelectorAll('.feed-choice').forEach(button => {
   button.addEventListener('click', () => chooseFeedSelection(button.dataset.all ? null : button.dataset.feed));
 });
 renderFeedSelection();
-async function applyFeedSelection() {
-  if (savingFeeds) return;
+async function saveFeedSelection() {
+  selectionTimer = null;
+  // One save at a time; the running save checks for newer taps when it ends.
+  if (savingFeeds || sameFeeds(chosenFeeds, selectedFeeds)) return;
+  const wanted = copyFeeds(chosenFeeds);
   savingFeeds = true;
   renderFeedSelection();
-  const status = document.getElementById('preference-status');
-  status.textContent = 'Saving…';
   try {
     const r = await fetch('/preferences', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({selected_feeds:draftFeeds})});
-    if (!r.ok) throw new Error('Could not save');
-    // Discard the old batch immediately so it cannot leak unselected feeds.
-    document.querySelectorAll('video').forEach(video => video.pause());
-    window.location.reload();
+      body:JSON.stringify({selected_feeds:wanted})});
+    if (!r.ok) throw new Error(`Saving the feed choice failed (HTTP ${r.status}): ${await r.text().catch(() => '')}`);
+    const saved = await r.json();
+    selectedFeeds = saved.selected_feeds === undefined ? wanted : saved.selected_feeds;
+    if (selectionTimer === null && sameFeeds(chosenFeeds, wanted)) chosenFeeds = copyFeeds(selectedFeeds);
+    preferenceStatus('');
+    feedsChanged();
   } catch (error) {
-    status.textContent = 'Could not save · try again';
+    console.error('Could not change feeds', error);
+    clearTimeout(selectionTimer);
+    selectionTimer = null;
+    chosenFeeds = copyFeeds(selectedFeeds);
+    preferenceStatus('Could not change feeds · try again', 'error');
+  } finally {
     savingFeeds = false;
     renderFeedSelection();
+    if (selectionTimer === null && !sameFeeds(chosenFeeds, selectedFeeds)) saveFeedSelection();
+  }
+}
+// Keep the current reel and earlier ones, and replace what was queued after
+// it with a batch for the new selection. Nothing reloads.
+function feedsChanged() {
+  selectionVersion += 1;
+  dropQueuedReels();
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  fetching = false;  // a request for the old selection is ignored when it returns
+  exhausted = false;
+  loadFailures = 0;
+  switchingFeeds = true;
+  renderFeedSelection();
+  more();
+}
+function releaseVideo(slide) {
+  const v = slide.querySelector('video');
+  if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
+}
+function dropQueuedReels() {
+  posts.forEach((p, i) => {
+    if (i <= current || p._dropped) return;
+    p._dropped = true;
+    const slide = document.getElementById('s'+i);
+    if (!slide) return;
+    io.unobserve(slide);
+    releaseVideo(slide);
+    slide.remove();
+  });
+  countEl.textContent = fmt(visibleIndices().length) + ' reels';
+}
+
+// Loading notice: centered while no reel is on screen, a small pill while a
+// new feed choice has nothing queued yet.
+const FAILURES_BEFORE_ERROR = 2;
+let loadFailures = 0;
+let loadError = '';
+function updateFeedStatus() {
+  const box = document.getElementById('feed-status');
+  const visible = visibleIndices();
+  const queued = visible.some(i => i > current);
+  let mode = null;
+  if (!visible.length) mode = 'overlay';
+  else if (switchingFeeds && !queued) mode = 'compact';
+  let state = 'loading', text = 'Loading reels…';
+  if (loadFailures >= FAILURES_BEFORE_ERROR) {
+    state = 'error';
+    text = `Couldn’t load reels: ${loadError} · retrying`;
+  } else if (exhausted && !queued) {
+    state = 'empty';
+    text = 'No reels available right now';
+  }
+  box.hidden = mode === null;
+  box.dataset.mode = mode || 'overlay';
+  box.dataset.state = state;
+  document.getElementById('feed-status-text').textContent = text;
+  document.getElementById('feed-retry').hidden = state === 'loading';
+}
+function retryLoading() {
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  exhausted = false;
+  loadFailures = 0;
+  updateFeedStatus();
+  more();
+}
+// The batch request itself failed (no response), with a short readable reason.
+const BATCH_TIMEOUT_MS = 120000;
+class BatchRequestError extends Error {
+  constructor(cause) {
+    const timedOut = cause?.name === 'TimeoutError' || cause?.name === 'AbortError';
+    super(timedOut ? 'the request timed out' : 'the ig server is not reachable', {cause});
+    this.name = 'BatchRequestError';
   }
 }
 
@@ -135,9 +241,11 @@ function append(chunk) {
   countEl.textContent = fmt(visibleIndices().length) + ' reels';
   observeNew();
   if (current < 0 && visibleIndices().length) showSlide(visibleIndices()[0]);
+  updateFeedStatus();
 }
 const PRELOAD_AHEAD = 3;
 const BUFFER_AHEAD = 8;
+const RETRY_DELAY_MS = 3000;  // wait before asking again after an empty or failed batch
 let retryTimer = null;
 function setVideo(p, i, play = false) {
   const slide = document.getElementById('s'+i);
@@ -235,18 +343,24 @@ function maybeMore() {
 function retryMore() {
   if (!retryTimer) retryTimer = setTimeout(() => {
     retryTimer = null; if (current < 0) more(); else maybeMore();
-  }, 3000);
+  }, RETRY_DELAY_MS);
 }
 async function more() {
   if (fetching || exhausted) return;
   fetching = true;
+  const version = selectionVersion;
   let retry = false;
+  updateFeedStatus();
   try {
     const r = await fetch(base + '/more', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session_blocked:[...sessionBlocked]}), signal:AbortSignal.timeout(120000)});
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error || 'Could not load more reels');
+      body:JSON.stringify({session_blocked:[...sessionBlocked]}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)})
+      .catch(error => { throw new BatchRequestError(error); });
+    const d = await r.json().catch(() => ({}));  // error pages may not be JSON
+    // A batch asked for under an earlier feed choice no longer belongs here.
+    if (version !== selectionVersion) return;
+    if (!r.ok || d.error) throw new Error(d.error || `server error (HTTP ${r.status})`);
+    loadFailures = 0;
     if (d.feed_accounts) {
       feeded = new Set(d.feed_accounts);
       // A batch started before an add/remove may contain an older account list.
@@ -258,13 +372,23 @@ async function more() {
     exhausted = d.has_more === false;
     if (exhausted && !visibleIndices().length) actionStatus('No reels available right now');
     retry = (!d.posts?.length || !visibleIndices().length) && !exhausted;
+    if (exhausted || visibleIndices().some(i => i > current)) switchingFeeds = false;
     preloadAhead();
   } catch (error) {
+    if (version !== selectionVersion) return;
+    loadFailures += 1;
+    loadError = error.message || 'unknown error';
+    console.warn(`Could not load reels (attempt ${loadFailures})`, error.cause || error);
     retry = true;
   } finally {
-    fetching = false;
-    if (retry) retryMore();
-    else maybeMore();
+    // An older request must not touch the state of the newer one.
+    if (version === selectionVersion) {
+      fetching = false;
+      if (retry) retryMore();
+      else maybeMore();
+      renderFeedSelection();
+      updateFeedStatus();
+    }
   }
 }
 function tap(e) {
@@ -467,6 +591,7 @@ function hideFilteredReels() {
     slide.style.display = 'none';
   });
   countEl.textContent = fmt(visibleIndices().length) + ' reels';
+  updateFeedStatus();
   if (isHidden(posts[current])) {
     const indices = visibleIndices();
     const next = indices.find(i => i > current) ?? indices.at(-1);
@@ -565,5 +690,5 @@ function goRel(d) {
   // Commit the target before observers or incoming batches can change current.
   if (i !== undefined && i !== current) showSlide(i);
 }
-append(incoming.splice(0));
-if (current < 0) more();
+updateFeedStatus();
+more();

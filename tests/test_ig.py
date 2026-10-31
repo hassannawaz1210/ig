@@ -57,10 +57,42 @@ class ProjectTests(unittest.TestCase):
 
     def test_views_render_without_weight_controls(self):
         config.save_feeds({})
-        for html in [views.reels_html([]), views.viewer_html('Profile', '', [], 'nasa')]:
+        for html in [views.reels_html(), views.viewer_html('Profile', '', [], 'nasa')]:
             self.assertIn('</html>', html)
             self.assertNotIn('weightOp', html)
             self.assertNotIn('mixpanel', html)
+
+    def test_reels_page_is_sent_before_any_batch(self):
+        from ig.server import Handler
+        config.save_feeds({'memes': ['meme']})
+        for path in ('/', '/reels'):
+            handler = Handler.__new__(Handler)
+            handler.path = path
+            with patch('ig.server.pool_more') as pool_more, patch('ig.server.feed_pool') as feed_pool, \
+                    patch.object(handler, '_send') as send:
+                handler.do_GET()
+            pool_more.assert_not_called()
+            feed_pool.assert_not_called()
+            status, body, content_type = send.call_args.args
+            self.assertEqual(status, 200)
+            self.assertTrue(content_type.startswith('text/html'))
+            html = body.decode()
+            boot = json.loads(html.split('<script id="boot" type="application/json">')[1].split('</script>')[0])
+            self.assertNotIn('posts', boot)
+            self.assertIn('Loading reels…', html)
+            self.assertIn('data-feed="memes"', html)
+            self.assertNotIn('apply-feeds', html)
+
+    def test_reels_page_failure_returns_safe_error(self):
+        from ig.server import Handler
+        handler = Handler.__new__(Handler)
+        handler.path = '/'
+        with patch('ig.server.reels_html', side_effect=RuntimeError('secret detail')), \
+                patch.object(handler, '_send') as send, self.assertLogs('ig', level='ERROR'):
+            handler.do_GET()
+        status, body, _ = send.call_args.args
+        self.assertEqual(status, 500)
+        self.assertNotIn(b'secret detail', body)
 
     def test_instagram_payload_parser(self):
         data = {'xig_user_by_username': {'id': '1'},

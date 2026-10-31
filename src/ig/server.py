@@ -178,9 +178,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 return self._fail(error, context="Opening Saved reels")
         if self.path in ("/", "/reels"):  # the one reels page: everything mixed
+            # Send the page at once; it asks POST /reels/more for its first
+            # batch, which can take several seconds of Instagram requests.
             try:
-                batch = pool_more(feed_pool(MIX), 12)
-                html = reels_html(batch["posts"])
+                html = reels_html()
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
                 return self._fail(error, context="Opening the reels page")
