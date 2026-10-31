@@ -65,7 +65,9 @@ The server writes to `~/.cache/ig/server.log`, rotating at 1 MB and keeping thre
 - `src/ig/config.py`: paths and saved feeds
 - `src/ig/instagram.py`: page parsing, requests, and pagination
 - `src/ig/feeds.py`: varied batches and account discovery
-- `src/ig/views.py`: existing HTML, CSS, and JavaScript views
+- `src/ig/views.py`: fills the page templates and serves `/static` files
+- `src/ig/static/`: page templates (`*.html`), styles and browser scripts
+- `src/ig/reasons.py`: “Why am I seeing this?” text
 - `src/ig/server.py`: local HTTP routes and server lifecycle
 - `src/ig/logs.py`: server log file
 
@@ -93,6 +95,7 @@ Opening batches avoid the previous batch’s opening account when another accoun
 - **R**: remove the current account from all saved feeds (does not block it).
 - **A**: open the feed picker for the current account, even if it is already saved elsewhere.
 - **P**: open the current account's profile in a new tab.
+- **W**: show why this reel was picked (or tap **why**).
 - **B**: block the current account permanently.
 - **Shift+B**: block the current account for this tab's session.
 
@@ -109,6 +112,10 @@ After a reel starts playing and stays visible for three seconds, the app identif
 This uses the free, open-source [ShazamIO client](https://github.com/shazamio/ShazamIO), which contacts Shazam's unofficial recognition service. No paid API key or microphone access is required. The server downloads the reel temporarily (up to 40 MB), extracts 12 seconds of audio using the bundled FFmpeg binary and creates its fingerprint locally, and sends that fingerprint to Shazam. Temporary video files are deleted after recognition. It is not an offline service, and upstream changes can interrupt it.
 
 Matches are cached for 30 days and no-match results for one day in `~/.cache/ig/songs.sqlite3`, capped at 5,000 entries. Failures are shown separately from genuine no-match results and never block video playback. No-match results are possible for speech, remixes, and obscure music.
+
+## Why am I seeing this?
+
+Each reel has a **why** button (or press **W**). It says where the creator came from: a saved feed, a credit, tag or mention in another reel, shared hashtags, a creator you liked, or the built-in meme list. For new creators it also says what matched the topic (bio or recent captions), or that it's an occasional uncertain trial. Finally, it says how this reel was picked: features it shares with reels you liked (hashtags, words, audio or song), or a random pick to keep the feed varied.
 
 ## Discovering reels you like
 

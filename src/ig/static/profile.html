@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{{title}}</title>
+<link rel="stylesheet" href="/static/profile.css"></head>
+<body>
+<header>
+  <div class="hleft">
+    <h1>{{title}}</h1>
+    <p><span id="count"></span> loaded · {{subtitle}}</p>
+  </div>
+  {{add_button}}
+</header>
+<div class="grid" id="grid"></div>
+<button id="more">Load more</button>
+
+<div class="lb" id="lb" hidden>
+  <button class="x" onclick="closeLb()" title="close (Esc)">✕</button>
+  <button class="nav prev" onclick="step(-1)" title="previous (←)">‹</button>
+  <div id="lbcontent"></div>
+  <div class="lbmeta">
+    <div class="lbstats" id="lbstats"></div>
+    <div class="lbcap" id="lbcap"></div>
+  </div>
+  <div class="lbbtns">
+    <a id="lbopen" href="#" target="_blank" rel="noopener">open on Instagram {{icon:external}}</a>
+    <button onclick="closeLb()">close</button>
+  </div>
+  <button class="nav next" onclick="step(1)" title="next (→)">›</button>
+</div>
+
+<script id="boot" type="application/json">{{boot}}</script>
+<script src="/static/icons.js"></script>
+<script src="/static/common.js"></script>
+<script src="/static/profile.js"></script>
+</body></html>

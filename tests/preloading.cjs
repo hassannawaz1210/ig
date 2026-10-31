@@ -8,7 +8,7 @@ const timers = [];
 function element(id) {
   if (id === 'feed-picker' || id === 'shortcut-help') return null;
   if (!elements.has(id)) elements.set(id, {
-    textContent: id === 'seed' ? '[]' : '', style: {}, dataset: {},
+    textContent: id === 'boot' ? JSON.stringify({posts: [], feed_accounts: [], blocked: [], selected_feeds: null}) : '', style: {}, dataset: {},
     getBoundingClientRect() {return {top:0,bottom:800,height:800};},
     scrollIntoView() {},
     setAttribute(name, value) { this[name] = value; },

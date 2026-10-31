@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ig import config, recommendations as rec
+from ig import config, feeds, recommendations as rec
 
 
 class TempConfig(unittest.TestCase):
@@ -25,7 +25,10 @@ class TagLeadFixTests(TempConfig):
         rec.remember_reels([{'shortcode': 'src0', 'owner': 'saved', 'caption': filler}] +
                            [{'shortcode': f'src{i}', 'owner': 'saved', 'caption': '#zzsignature'} for i in (1, 2, 3)] +
                            [{'shortcode': 'other', 'owner': 'mate', 'caption': '#zzsignature'}])
-        self.assertIn('mate', rec.related_leads({'saved'}))
+        reasons = {}
+        leads = rec.related_leads({'saved'}, reasons=reasons)
+        self.assertIn('mate', leads)
+        self.assertEqual(reasons['mate'], {'source': 'hashtag', 'tags': ['zzsignature']})
 
     def test_reach_bait_and_widely_spread_tags_do_not_recruit(self):
         rec.remember_reels([{'shortcode': 'src', 'owner': 'saved', 'caption': '#explorepage #everywhere'},
@@ -40,6 +43,12 @@ class TagLeadFixTests(TempConfig):
                             {'shortcode': 'bad', 'owner': 'creator', 'caption': '#niche'}])
         rec.set_feedback('bad', 'dislike')
         self.assertNotIn('creator', rec.related_leads({'saved'}))
+
+    def test_credit_reasons_name_the_source_reel_owner(self):
+        rec.remember_reels([{'shortcode': 'src', 'owner': 'saved', 'caption': 'Credit @editor'}])
+        reasons = {}
+        rec.related_leads({'saved'}, reasons=reasons)
+        self.assertEqual(reasons['editor'], {'source': 'credit', 'via': 'saved', 'liked': False})
 
 
 class TagIndexFixTests(TempConfig):
@@ -91,6 +100,52 @@ class VocabularyFixTests(TempConfig):
             rec.topic_tag_vocabulary({'memes': ['saved']})
             rec.topic_tag_vocabulary({'memes': ['saved']})
         self.assertEqual(build.call_count, 2)
+
+
+class ReasonTests(TempConfig):
+    def batch(self, states, pool):
+        with patch('ig.feeds.STATE', states), patch('ig.feeds.random.random', return_value=1):
+            return {p['owner']: p['reason'] for p in feeds._pool_more(pool)['posts']}
+
+    def test_saved_reel_names_its_feed(self):
+        states = {'saved': {'posts': [{'shortcode': 'clip01', 'owner': 'saved', 'is_video': True}], 'has_more': False}}
+        reason = self.batch(states, feeds.make_pool(['saved']))['saved']
+        self.assertEqual(reason['summary'], 'From your Memes feed')
+        self.assertIn('@saved is saved in your Memes feed.', reason['details'])
+
+    def test_credited_creator_explains_source_and_topic(self):
+        rec.remember_reels([{'shortcode': 'src01', 'owner': 'saved', 'caption': 'Credit @newmeme'}])
+        states = {'saved': {'posts': [{'shortcode': 'clip01', 'owner': 'saved', 'is_video': True}], 'has_more': False},
+                  'newmeme': {'biography': 'daily memes', 'has_more': False,
+                              'posts': [{'shortcode': 'clip02', 'owner': 'newmeme', 'is_video': True}]}}
+        reason = self.batch(states, feeds.make_pool(['saved']))['newmeme']
+        self.assertEqual(reason['summary'], 'New creator for you')
+        self.assertIn('@newmeme was credited in a reel by @saved.', reason['details'])
+        self.assertIn('Its bio matches your Memes feed.', reason['details'])
+
+    def test_liked_features_are_named(self):
+        rec.remember_reels([{'shortcode': 'liked1', 'owner': 'saved', 'caption': '#cats'}])
+        rec.set_feedback('liked1', 'like')
+        states = {'saved': {'posts': [{'shortcode': 'clip01', 'owner': 'saved', 'is_video': True,
+                                       'caption': 'more #cats'}], 'has_more': False}}
+        reason = self.batch(states, feeds.make_pool(['saved']))['saved']
+        self.assertIn('Picked because it shares #cats with reels you liked.', reason['details'])
+
+    def test_random_picks_say_so(self):
+        states = {'saved': {'posts': [{'shortcode': 'clip01', 'owner': 'saved', 'is_video': True}], 'has_more': False}}
+        with patch('ig.feeds.STATE', states), patch('ig.recommendations.random.random', return_value=0):
+            reason = feeds._pool_more(feeds.make_pool(['saved']))['posts'][0]['reason']
+        self.assertIn('This reel was picked at random to keep your feed varied.', reason['details'])
+
+    def test_uncertain_trial_is_labelled(self):
+        rec.remember_reels([{'shortcode': 'src01', 'owner': 'saved', 'tagged_users': ['odd']}])
+        states = {u: {'posts': [{'shortcode': u + '0001', 'owner': u, 'is_video': True, 'caption': 'architecture'}],
+                      'has_more': False} for u in ['saved', 'odd']}
+        # feeds and recommendations share random.random; 0 allows the uncertain trial.
+        with patch('ig.feeds.STATE', states), patch('ig.feeds.random.random', return_value=0):
+            reasons = {p['owner']: p['reason'] for p in feeds._pool_more(feeds.make_pool(['saved']))['posts']}
+        self.assertEqual(reasons['odd']['summary'], 'Trying a new creator')
+        self.assertTrue(any('occasional trial' in detail for detail in reasons['odd']['details']))
 
 
 if __name__ == '__main__':

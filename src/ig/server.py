@@ -18,7 +18,7 @@ from .feeds import MIX, feed_pool, pool_more, feed_accounts
 from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError)
 from .recognition import recognize_song
-from .views import viewer_html, reels_html
+from .views import viewer_html, reels_html, static_file
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +109,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/ping":
             return self._send(200, b"ok", "text/plain")
+        if self.path.startswith("/static/"):
+            found = static_file(self.path.removeprefix("/static/"))
+            if found is None:
+                return self._send(404, b"not found", "text/plain")
+            return self._send(200, *found)
         if self.path.startswith("/download/"):
             code = self.path.removeprefix("/download/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):

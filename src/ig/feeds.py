@@ -5,6 +5,7 @@ from . import recommendations, config
 from .history import load_history, save_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, PROFILES, more_posts, InstagramError, RateLimited, ProfileUnavailable
+from .reasons import Reason
 
 log = logging.getLogger(__name__)
 
@@ -144,8 +145,11 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     saved = active_accounts()
     # Credits from saved/liked reels survive restarts and do not require the
     # user to open each reel's media before we can discover its creator.
-    leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None)
+    lead_reasons = {}
+    leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None,
+                                          reasons=lead_reasons)
     discover_into(pool, leads)
+    liked_creators = recommendations.discovery_accounts()
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
@@ -253,8 +257,24 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if not state.get('has_more'):
                 pool['dead'].add(username)
             continue
+        picked, exploratory = recommendations.pick_reel(fresh, model)
         # Copy: profile posts are shared with the profile view and the cache.
-        post = dict(recommendations.choose_reel(fresh, model))
+        post = dict(picked)
+        reason = Reason(username)
+        if username in saved:
+            reason.saved_in = {name for name, accounts in selected.items() if username in accounts}
+        else:
+            reason.lead = lead_reasons.get(username)
+            reason.liked_creator = username in liked_creators
+            reason.starter = username in MEME_TRIAL_ACCOUNTS
+            for topic in memberships:
+                found = recommendations.topic_evidence(state, topic, vocabulary)
+                if found:
+                    reason.topics[topic] = found
+        reason.uncertain = uncertain
+        reason.exploratory = exploratory
+        reason.features = [] if exploratory else recommendations.liked_features(post, model)
+        post['reason'] = reason.as_dict()
         pool['served'].add(post['shortcode'])
         out.append(post)
         if uncertain:

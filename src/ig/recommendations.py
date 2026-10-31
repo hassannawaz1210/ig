@@ -188,8 +188,11 @@ def candidate_leads(post):
     return {name: strength for name, (strength, _) in candidate_lead_kinds(post).items()}
 
 
-def related_leads(owners, *, include_liked=False):
-    """Persist broad leads with weaker sponsor evidence, scoped to sources."""
+def related_leads(owners, *, include_liked=False, reasons=None):
+    """Persist broad leads with weaker sponsor evidence, scoped to sources.
+
+    When a dict is passed as reasons, it receives each lead's strongest
+    evidence, for example {'source': 'credit', 'via': 'owner', 'liked': False}."""
     owners = set(owners)
     if not owners and not include_liked:
         return {}
@@ -211,6 +214,8 @@ def related_leads(owners, *, include_liked=False):
             if strength > leads.get(name, 0):
                 leads[name] = strength
                 evidence[name] = {'source': 'hashtag', 'tags': tags}
+    if reasons is not None:
+        reasons.update({name: evidence[name] for name in leads if name not in owners})
     return {name: strength for name, strength in leads.items() if name not in owners}
 
 
@@ -431,11 +436,23 @@ def score(post, model):
     return sum(topics.get(token, 0) for token in tokens) / math.sqrt(max(1, len(tokens))) + creators.get(post.get('owner'), 0)
 
 
-def choose_reel(posts, model):
+def liked_features(post, model, limit=3):
+    """This reel's features that most resemble reels you liked."""
+    topics = model[0]
+    weights = [(topics.get(token, 0), token) for token in features(post)]
+    return [token for weight, token in sorted(weights, reverse=True) if weight >= 0.25][:limit]
+
+
+def pick_reel(posts, model):
+    """Return (reel, exploratory). One fifth of picks are random on purpose."""
     # Keep one fifth of selections exploratory, including topics not yet liked.
     if random.random() < 0.2:
-        return random.choice(posts)
-    return max(random.sample(posts, len(posts)), key=lambda post: score(post, model))
+        return random.choice(posts), True
+    return max(random.sample(posts, len(posts)), key=lambda post: score(post, model)), False
+
+
+def choose_reel(posts, model):
+    return pick_reel(posts, model)[0]
 
 
 def recent_creators():

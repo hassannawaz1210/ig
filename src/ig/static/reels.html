@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Reels</title>
+<link rel="stylesheet" href="/static/reels.css"></head>
+<body>
+<div class="top"><b>Reels</b><span class="count" id="count"></span>
+  <div class="feed-choices" role="group" aria-label="Choose feeds">
+    <button type="button" class="feed-choice" data-all="true" aria-pressed="false">All</button>
+    {{feed_choices}}
+    <button id="apply-feeds" type="button" onclick="applyFeedSelection()" disabled>Apply</button>
+  </div><span id="preference-status" role="status" aria-live="polite"></span>
+  <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{{icon:keyboard}}</button>
+  <span id="action-status" role="status" aria-live="polite"></span>
+  <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{{icon:muted}}</button></div>
+<div id="feed"></div>
+<script id="boot" type="application/json">{{boot}}</script>
+<script src="/static/icons.js"></script>
+<script src="/static/common.js"></script>
+<script src="/static/reels.js"></script>
+</body></html>

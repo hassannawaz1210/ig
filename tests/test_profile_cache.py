@@ -221,8 +221,8 @@ class BatchFailureTests(TempDirs):
         config.save_feeds({'memes': ['saved']})
         with patch('ig.feeds.STATE', states):
             result = feeds._pool_more(feeds.make_pool(['saved']))
-        result['posts'][0]['feedback'] = 'like'
-        self.assertNotIn('feedback', post)
+        self.assertIn('reason', result['posts'][0])
+        self.assertNotIn('reason', post)
 
 
 if __name__ == '__main__':
