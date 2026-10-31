@@ -25,7 +25,10 @@ DEFAULT_FEEDS = {
     ],
     "memes": ["memes", "funnymemes", "9gag", "ladbible", "unilad"],
     "electronics": ["adafruit", "sparkfun"],
-    "islam": ["yaqeeninstitute", "muftimenkofficial"],
+    "islam": [
+        "yaqeeninstitute", "muftimenkofficial", "onepathnetwork",
+        "muslimcentral", "mercifulservant", "belal.assaad", "assimalhakeem",
+    ],
     "programming": ["cs50", "freecodecamp", "fireship_dev", "codewithharry"],
 }
 

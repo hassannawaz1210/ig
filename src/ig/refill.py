@@ -27,7 +27,7 @@ class Refill:
                 on_error(owner_pool, name, error)
 
     def schedule(self, pool, names, saved, *, states=None):
-        """Warm sources with fewer than six unseen clips, at most two at once."""
+        """Page sources below twelve unseen clips, at most two requests at once."""
         states = STATE if states is None else states
         candidates = []
         for name in names:
@@ -37,11 +37,11 @@ class Refill:
             if state is None:
                 state = PROFILES.cached(name)  # disk only; never network
             if state is None:
-                candidates.append((0 if name in saved else 1, name, False))
+                candidates.append((0 if name in saved else 2, name, False))
             elif (name in saved or name in pool.get('accepted', set())) and state.get('has_more'):
                 unseen = sum(p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])
-                if unseen < 6:
-                    candidates.append((0 if unseen == 0 else 2, name, True))
+                if unseen < 12:
+                    candidates.append((0 if unseen == 0 else 1, name, True))
         # One discovery source may run alongside saved-source replenishment.
         candidates.sort(key=lambda entry: entry[0])
         for _, name, paging in candidates:

@@ -50,8 +50,28 @@ class BackgroundRefillTests(TempDirs):
         self.assertFalse(self.refill.pending)
 
     def test_pagination_starts_before_the_last_clips_are_delivered(self):
-        state={'posts':[{'shortcode':str(i),'is_video':True} for i in range(4)],'has_more':True}
+        state={'posts':[{'shortcode':str(i),'is_video':True} for i in range(10)],'has_more':True}
         with patch('ig.refill.more_posts',return_value={}) as paging:
             self.refill.schedule({'served':set()}, ['creator'], {'creator'}, states={'creator':state})
             for future,_ in self.refill.pending.values(): future.result(timeout=2)
         paging.assert_called_once_with('creator')
+
+    def test_discovery_does_not_delay_replenishing_saved_sources(self):
+        state = {'posts': [{'shortcode': str(i), 'is_video': True} for i in range(10)],
+                 'has_more': True}
+        with patch('ig.refill.PROFILES.cached', return_value=None), \
+             patch('ig.refill.PROFILES.load', return_value=({}, False)), \
+             patch('ig.refill.more_posts', return_value={}) as paging:
+            self.refill.schedule({'served': set()}, ['trial1', 'trial2', 'saved'], {'saved'},
+                                 states={'saved': state})
+            for future, _ in self.refill.pending.values():
+                future.result(timeout=2)
+        paging.assert_called_once_with('saved')
+        self.assertEqual(len(self.refill.pending), 2)
+
+    def test_full_source_does_not_fetch_unneeded_pages(self):
+        state = {'posts': [{'shortcode': str(i), 'is_video': True} for i in range(12)],
+                 'has_more': True}
+        with patch('ig.refill.more_posts') as paging:
+            self.refill.schedule({'served': set()}, ['saved'], {'saved'}, states={'saved': state})
+        paging.assert_not_called()
