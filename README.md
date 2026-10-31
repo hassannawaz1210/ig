@@ -91,7 +91,11 @@ The reels view prepares the next three videos and requests another batch when fe
 
 ## Choosing feeds
 
-Select any feed or combination of feed chips at the top of the reels view, then press **Apply**. **All** includes every saved feed. The choice persists in SQLite and reloading clears the previous batch. Selected feeds receive roughly balanced opportunities when eligible creators are available; discovery must also match a selected topic. A saved account's membership is trusted, including ironic humour with literal-looking captions. Accounts saved only in unselected feeds are excluded even if previously liked.
+Tap the feed chips at the top of the reels view; a change applies right away, with no Apply button. **All** includes every saved feed. Tapping a feed while All is active picks just that feed, further taps add or remove feeds, and removing the last one goes back to All. Quick taps within about a third of a second are saved as one change. Selected chips are filled and show a check; on narrow screens the row scrolls sideways.
+
+Changing feeds does not reload the page. The reel you're watching and the ones before it stay; reels queued after it for the old choice are removed and a new batch for the new choice is added after the current reel. A batch that was requested before the change is thrown away when it arrives. Session blocks, likes and mute stay as they were. A small spinner shows while the switch is in progress; if saving fails, the chips go back to the saved choice and a short message says so. The choice persists in SQLite.
+
+The page opens immediately and fetches its first batch afterwards, showing **Loading reels…** in the middle of the screen until the first reel appears (and a small notice when a new feed choice has nothing queued yet). Failed requests retry every 3 seconds; after two failures in a row the reason is shown with a **Try again** button. Selected feeds receive roughly balanced opportunities when eligible creators are available; discovery must also match a selected topic. A saved account's membership is trusted, including ironic humour with literal-looking captions. Accounts saved only in unselected feeds are excluded even if previously liked.
 
 Settings migration v2 converts an enabled legacy meme preference into the Memes selection. Deleting the last selected feed does not silently enable All; choose another feed explicitly.
 
