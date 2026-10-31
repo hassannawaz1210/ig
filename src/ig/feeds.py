@@ -142,6 +142,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
+    vocabulary = recommendations.topic_tag_vocabulary(selected)
     out = []
     tried = set()
     used_topics = {name: 0 for name in selected}
@@ -196,9 +197,9 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         if not memberships:
             # Curated meme starters are known candidates. Other credit/liked
             # leads must establish relevance independently of the source tag.
-            memberships = {'memes'} if username in MEME_TRIAL_ACCOUNTS and selected.get('memes') else recommendations.matching_topics(state, selected)
+            memberships = {'memes'} if username in MEME_TRIAL_ACCOUNTS and selected.get('memes') else recommendations.matching_topics(state, selected, vocabulary)
             if not memberships:
-                known_topics = recommendations.matching_topics(state, recommendations.TOPIC_WORDS)
+                known_topics = recommendations.matching_topics(state, recommendations.TOPIC_WORDS, vocabulary)
                 # A known different topic is not an uncertain match. Unknown
                 # humour can get a trial, but never bypass blocks or cooldowns.
                 eligible = (allow_uncertain and not uncertain_used and username in leads
