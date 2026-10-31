@@ -298,12 +298,20 @@ def related_accounts(owners):
     return set(related_leads(owners))
 
 
+# Fan and cinematic edits, not studios or clip channels: "movie" or "film"
+# alone is not evidence, so only edit words count.
+EDIT_WORDS = (r'edits?|editors?|editing|(?:movie|film|fan|scene|velocity|cinematic|cinema)edits?|'
+              r'velocity|after ?effects|ae|capcut|amv|scene ?packs?')
+
+
 TOPIC_WORDS = {
     'memes': r'memes?|comedy|comedian|humou?r|satire|satirical|shitpost(?:ing)?|brainrot',
     'programming': r'programming|coding|coder|developer|software|computer science|python|javascript',
     'electronics': r'electronics?|circuits?|microcontrollers?|arduino|raspberry pi|soldering|pcb|robotics',
-    'movie_edits': r'movies?|cinema|cinematic|film|films|filmmaker',
-    'edits': r'movies?|cinema|cinematic|film|films|filmmaker',
+    'movie_edits': EDIT_WORDS,
+    'edits': EDIT_WORDS,  # Older name for movie_edits.
+    'gaming': (r'gaming|gamers?|video ?games?|e-?sports?|twitch|streamers?|gameplay|playstation|ps[45]|'
+               r'xbox|nintendo|pc gaming|speedrun(?:s|ner|ners|ning)?'),
     'gym': r'gym|fitness|bodybuilding|powerlifting|weightlifting|strength training',
 }
 
