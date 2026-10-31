@@ -37,7 +37,7 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
 
     def test_fresh_database_has_edit_pages_and_gaming(self):
         feeds = config.load_feeds()
-        self.assertEqual(feeds['movie_edits'], ['cinemaedits', 'cinematicedits'])
+        self.assertEqual(feeds['movie_edits'], ['v4ultfx', 'aradz.cc', 'gdb.vfx.ae'])
         self.assertEqual(feeds['gaming'], list(config.GAMING_STARTER_ACCOUNTS))
         self.assertEqual(self.version(), 3)
 
