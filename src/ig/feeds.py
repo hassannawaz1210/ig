@@ -27,6 +27,10 @@ POOLS: dict[str, dict] = {}
 
 MIX = "__mix__"
 
+# Public meme discovery candidates, not saved memberships. Unavailable profiles
+# are skipped by the normal trial loader; blocks always take precedence.
+MEME_TRIAL_ACCOUNTS = ("sainthoax", "epicfunnypage", "sarcasm_only", "fuckjerry", "meme")
+
 
 def _pool_seeds(name: str) -> list[str]:
     feeds = load_feeds()
@@ -48,6 +52,8 @@ def feed_pool(name: str) -> dict:
         # saved feeds were removed by the user and must stay gone
         for u in p["discovered"] - p["seeds"]:
             fresh["discovered"].add(u)
+    if accounts_from_feed(load_feeds().get('memes')):
+        discover_into(fresh, MEME_TRIAL_ACCOUNTS, meme_source=True)
     fresh["signature"] = signature
     POOLS[name] = fresh
     return fresh
@@ -116,6 +122,11 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     excluded = set(excluded or ())
     preferred = prefer_memes()
     saved = feed_accounts()
+    # Credits from saved/liked reels survive restarts and do not require the
+    # user to open each reel's media before we can discover its creator.
+    meme_sources = set(accounts_from_feed(load_feeds().get('memes')))
+    discover_into(pool, recommendations.related_accounts(saved))
+    discover_into(pool, recommendations.related_accounts(meme_sources), meme_source=True)
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
@@ -139,8 +150,11 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if rested:
                 candidates = rested
         unfamiliar = [a for a in candidates if a not in saved]
-        if unfamiliar and random.random() < 0.25:
-            candidates = unfamiliar
+        rested_trials = [a for a in unfamiliar if a not in cooldowns and a not in recent]
+        # Reserve the first attempt for discovery instead of leaving an entire
+        # batch to chance. Failed trials may fall back to saved creators.
+        if rested_trials and (not out or random.random() < 0.25):
+            candidates = rested_trials
         username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:

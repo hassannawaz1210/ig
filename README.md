@@ -107,3 +107,5 @@ New creator candidates come from tags and mentions in liked reels; saved creator
 Feedback affects new batches. Already loaded clips remain in place, except an explicitly disliked reel is hidden immediately. The metadata and preferences survive server restarts; they stay on this machine. Media URLs and video files are not stored in the preferences database.
 
 **Discovery limits:** logged-out hashtag pages tested here did not expose usable reel lists. There is no global hashtag/audio search in this version. Matching ranks candidates from accessible public profiles; tagged accounts may still be private, unrelated, or unavailable. No subscription or video-analysis service was added.
+
+Meme discovery also samples a small built-in set of public profile candidates when the memes feed is nonempty. These are trial sources, never saved memberships. Creator credits from stored saved-account reels are recovered after restarts. Each batch first tries an eligible unfamiliar creator (subject to blocks, cooldowns, and the request budget), then fills from the normal mix. Discovery remains limited to public profiles and credits; this is not logged-in Explore access.

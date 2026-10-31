@@ -101,6 +101,24 @@ def discovery_accounts():
     return {a.lower() for a in accounts if isinstance(a, str) and config.USER_RE.fullmatch(a)}
 
 
+def related_accounts(owners):
+    """Recover creator credits from stored reels, including across restarts."""
+    owners = set(owners)
+    if not owners:
+        return set()
+    accounts = set()
+    with database() as connection:
+        rows = connection.execute('SELECT r.data FROM reels r LEFT JOIN feedback f ON r.code=f.code '
+                                  "WHERE COALESCE(f.action, '') != 'dislike' ORDER BY r.updated DESC LIMIT 3000")
+        for (raw,) in rows:
+            post = json.loads(raw)
+            if post.get('owner') not in owners:
+                continue
+            accounts.update(post.get('tagged_users') or [])
+            accounts.update(re.findall(r'@([A-Za-z0-9._]{1,30})', post.get('caption') or ''))
+    return {a.lower() for a in accounts if isinstance(a, str) and config.USER_RE.fullmatch(a)} - owners
+
+
 def features(post):
     caption = (post.get('caption') or '').lower()
     tags = {'tag:' + tag for tag in re.findall(r'#(\w+)', caption)

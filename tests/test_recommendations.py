@@ -104,3 +104,20 @@ class RecommendationTests(unittest.TestCase):
         self.assertIn('newcreator',rec.trial_cooldowns({'saved'}))
         rec.set_feedback('trial1','like')
         self.assertNotIn('newcreator',rec.trial_cooldowns({'saved'}))
+
+    def test_saved_reel_credits_supply_persistent_discovery(self):
+        rec.remember_reels([{'shortcode':'credit1','owner':'saved','caption':'Credit @newmeme', 'tagged_users':['another']}])
+        self.assertEqual(rec.related_accounts({'saved'}), {'newmeme', 'another'})
+        self.assertEqual(config.load_feeds(), {'memes':['saved']})
+        rec.set_feedback('credit1','dislike')
+        self.assertEqual(rec.related_accounts({'saved'}), set())
+
+    def test_new_creator_gets_trial_even_when_random_choice_favors_saved(self):
+        states = {u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
+                  for u in ['saved','newmeme']}
+        pool = feeds.make_pool(['saved'])
+        feeds.discover_into(pool, ['newmeme'], meme_source=True)
+        with patch('ig.feeds.STATE', states), patch('ig.feeds.random.random',return_value=1):
+            result = feeds._pool_more(pool,limit=1)
+        self.assertEqual(result['posts'][0]['owner'], 'newmeme')
+        self.assertEqual(config.load_feeds(), {'memes':['saved']})
