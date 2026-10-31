@@ -227,3 +227,30 @@ class BatchFailureTests(TempDirs):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RequestBudgetTests(TempDirs):
+    """After a restart nothing is in memory; off-topic leads must not starve saved accounts."""
+
+    def test_trials_cannot_use_up_requests_meant_for_saved_accounts(self):
+        saved = ['one', 'two', 'three']
+        leads = [f'stranger{i}' for i in range(30)]
+        config.save_feeds({'memes': saved})
+        loaded = []
+
+        def load(username):
+            loaded.append(username)
+            return ({'posts': [{'shortcode': f'{username}0001', 'owner': username, 'is_video': True,
+                                'caption': 'university campus tour'}], 'has_more': False,
+                     'biography': 'Official university account'}, True)
+        pool = feeds.make_pool(saved)
+        feeds.discover_into(pool, leads)
+        # 0.1 makes every pick prefer a new creator, the worst case for saved accounts.
+        with patch('ig.feeds.STATE', {}), patch.object(feeds.PROFILES, 'load', side_effect=load), \
+                patch('ig.feeds.random.random', return_value=0.1):
+            result = feeds._pool_more(pool)
+        strangers = [name for name in loaded if name.startswith('stranger')]
+        self.assertLessEqual(len(strangers), 1, 'at most one off-topic trial is loaded')
+        self.assertLessEqual(len(loaded), 3)
+        self.assertGreaterEqual(len({p['owner'] for p in result['posts']} & set(saved)), 2,
+                                'the remaining requests load saved accounts')

@@ -399,6 +399,9 @@ class Handler(BaseHTTPRequestHandler):
                 data = self._media(code)
             return self._send(200, json.dumps(data).encode(),
                               "application/json")
+        except (BrokenPipeError, ConnectionResetError):
+            # The page stopped waiting (closed, reloaded, or changed feeds).
+            log.debug("Client went away before %s finished", self.path)
         except (ValueError, TypeError, AttributeError) as error:
             log.info("Bad request to %s: %s", self.path, error)
             return self._send(400, json.dumps({"error": "invalid request"}).encode(), "application/json")

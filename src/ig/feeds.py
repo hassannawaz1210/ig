@@ -12,6 +12,8 @@ log = logging.getLogger(__name__)
 # Unclear failures (odd replies, network trouble) are retried in later
 # batches; an account is dropped for the session only after this many.
 MAX_FAILURES = 3
+REQUESTS_PER_BATCH = 3        # Instagram requests one batch may make, including pagination
+TRIAL_REQUESTS_PER_BATCH = 1  # of those, how many may load a creator you haven't saved
 UNCERTAIN_TRIAL_SHARE = 0.25  # batches that may include one unconfirmed creator
 TRIAL_FIRST_SHARE = 0.25      # later picks in a batch that prefer a new creator
 
@@ -166,14 +168,21 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     # for every tagged profile. Sponsor-only leads face an additional gate.
     allow_uncertain = random.random() < UNCERTAIN_TRIAL_SHARE
     uncertain_used = False
-    requests_left = 3  # Bound slow Instagram requests, including pagination.
+    # Bound slow Instagram requests. New-creator trials get only a small share,
+    # so failed topic checks can't use up the batch before saved accounts load.
+    requests_left = REQUESTS_PER_BATCH
+    trial_requests_left = TRIAL_REQUESTS_PER_BATCH
+    cached = None
     while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded)
         if not candidates:
             break
-        if requests_left <= 0:
-            cached = PROFILES.cache.fresh_usernames()
-            candidates = [a for a in candidates if a in STATE or a in cached]
+        if requests_left <= 0 or trial_requests_left <= 0:
+            if cached is None:
+                cached = PROFILES.cache.fresh_usernames()
+            loaded = [a for a in candidates if a in STATE or a in cached]
+            candidates = loaded if requests_left <= 0 else \
+                loaded + [a for a in candidates if a in saved and a not in STATE and a not in cached]
             if not candidates:
                 break
         # Avoid repeating recent creators when alternatives are available.
@@ -207,6 +216,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
                 state, used_network = PROFILES.load(username)
                 if used_network:
                     requests_left -= 1
+                    if username not in saved:
+                        trial_requests_left -= 1
         except RateLimited as error:
             log.warning("Skipping @%s for now: %s", username, error)
             requests_left = 0  # More requests in this batch would be refused too.
