@@ -825,7 +825,7 @@ async function toggleComments(i) {
     body.innerHTML = p._comments.length ? p._comments.map(comment => `<article class="comment-row">
       <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
       ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-      <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('') : 'No comments available.';
+      <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('') : 'Nothing to show yet.';
   } catch (error) {
     if (panel.hidden || panel.dataset.code !== p.shortcode) return;
     body.textContent = error.message + ' · close and reopen to retry';

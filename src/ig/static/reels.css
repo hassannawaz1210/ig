@@ -172,7 +172,6 @@
 #comments-panel[hidden] { display:flex;visibility:hidden;pointer-events:none;transform:translateX(100%);
   transition:transform .24s ease, visibility 0s linear .24s; }
 .comments-heading { display:flex;justify-content:space-between;gap:12px;padding:18px;border-bottom:1px solid #ffffff18; }
-.comments-heading small { display:block;color:#9696a5;font-size:11px;margin-top:5px; }
 .comments-heading button { background:transparent;color:#ccc;border:0;font-size:18px;cursor:pointer;align-self:flex-start; }
 #comments-body { padding:18px;overflow-y:auto;overscroll-behavior:contain;font-size:13px;line-height:1.5; }
 .comment-row + .comment-row { margin-top:20px; }
