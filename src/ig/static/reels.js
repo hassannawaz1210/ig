@@ -212,7 +212,7 @@ function slideHtml(p, i) {
       <a class="user" href="/u/${esc(p.owner)}" target="_blank"
         rel="noopener">@${esc(p.owner)}</a>
       <span class="date">${fdate(p.taken_at)}</span>
-      ${p.caption ? `<details class="caption"><summary>Caption</summary><div class="cap">${esc(p.caption)}</div></details>` : ''}
+      ${p.caption ? `<button type="button" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption" onclick="toggleCaption(${i})">${esc(p.caption)}</button>` : ''}
       <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
       <div class="why" id="why${i}" hidden></div>
     </div>
@@ -315,7 +315,22 @@ function preloadAhead() {
     }
   });
 }
+function toggleCaption(i) {
+  const caption = document.getElementById('caption'+i);
+  if (!caption) return;
+  const expanded = caption.classList.toggle('full');
+  caption.setAttribute('aria-expanded', String(expanded));
+  caption.title = expanded ? 'Collapse caption' : 'Expand caption';
+}
+function collapseCaptions() {
+  document.querySelectorAll('.cap').forEach(caption => {
+    caption.classList.remove('full');
+    caption.setAttribute('aria-expanded', 'false');
+    caption.title = 'Expand caption';
+  });
+}
 async function activate(i) {
+  collapseCaptions();
   const panel = document.getElementById('comments-panel');
   if (panel.dataset.code !== posts[i]?.shortcode) closeComments();
   if (isHidden(posts[i])) return;
