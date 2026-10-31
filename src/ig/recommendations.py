@@ -452,6 +452,7 @@ TOPIC_WORDS = {
     'memes': r'memes?|comedy|comedian|humou?r|satire|satirical|shitpost(?:ing)?|brainrot',
     'programming': r'programming|coding|coder|developer|software|computer science|python|javascript',
     'electronics': r'electronics?|circuits?|microcontrollers?|arduino|raspberry pi|soldering|pcb|robotics',
+    'islam': r"islam(?:ic)?|muslims?|qur[’']?an|hadith|tafsir|sunnah|salah|ramadan|dhikr|dua|dawah",
     'movie_edits': EDIT_WORDS,
     'edits': EDIT_WORDS + r'|(?:car|bike|motorcycle|automotive|auto|moto) ?edits?|car cinematics?|automotive cinematography',
     'gaming': (r'gaming|gamers?|video ?games?|e-?sports?|twitch|streamers?|gameplay|playstation|ps[45]|'

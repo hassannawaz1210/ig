@@ -30,6 +30,12 @@ class RecommendationTests(unittest.TestCase):
         rec.set_feedback('liked1', 'clear')
         self.assertEqual(rec.discovery_accounts(), set())
 
+    def test_islam_discovery_topic(self):
+        for bio in ['Islamic reminders', "Qur'an lessons", 'Qur’an recitation', 'Hadith and tafsir']:
+            with self.subTest(bio=bio):
+                self.assertEqual(rec.topic_evidence({'biography': bio}, 'islam'), 'bio')
+        self.assertIsNone(rec.topic_evidence({'biography': 'Motorcycle edits'}, 'islam'))
+
     def test_positive_and_negative_topic_matching(self):
         liked = {'shortcode':'liked1','owner':'one','caption':'Squats and powerlifting #strength','audio_id':'music1'}
         disliked = {'shortcode':'hated1','owner':'two','caption':'Movie scenes #cinema','audio_id':'music2'}
