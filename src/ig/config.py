@@ -18,7 +18,7 @@ FEED_RE = re.compile(r"^[a-z0-9_-]{1,20}$")
 
 
 DEFAULT_FEEDS = {
-    "edits": ["v4ultfx", "aradz.cc", "gdb.vfx.ae", "editbyxeno", "seven_spokes", "woyshnis.media"],
+    "edits": ["v4ultfx", "aradz.cc", "gdb.vfx.ae", "editbyxeno", "adam.v4r1", "woyshnis.media"],
     "gaming": [
         "houseofgaming", "igndotcom", "gamespot",
         "playstation", "xbox", "nintendoamerica",
