@@ -3,14 +3,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Reels</title>
 <link rel="stylesheet" href="/static/reels.css"></head>
 <body>
-<div class="top"><b>Reels</b><span class="count" id="count"></span>
-  <div class="feed-choices" id="feed-choices" role="group" aria-label="Choose feeds" aria-busy="false">
-    <button type="button" class="feed-choice" data-all="true" aria-pressed="false">{{icon:check}}<span>All</span></button>
-    {{feed_choices}}
-  </div>
+<div class="top">
+  <details class="feed-menu" id="feed-menu">
+    <summary aria-label="Choose feeds"><span id="feed-selection-label">All feeds</span><svg class="feed-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div class="feed-panel">
+      <div class="feed-panel-heading">Your feeds<span>Pick one or mix a few</span></div>
+      <div class="feed-choices" id="feed-choices" role="group" aria-label="Choose feeds" aria-busy="false">
+        <button type="button" class="feed-choice" data-all="true" aria-pressed="false">{{icon:check}}<span>All feeds</span></button>
+        {{feed_choices}}
+      </div>
+      <div class="feed-panel-footer"><a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener">{{icon:bookmark}}<span>Saved reels library</span></a><span class="count" id="count"></span></div>
+    </div>
+  </details>
   <span class="feed-busy" id="feed-busy" hidden><span class="spinner" aria-hidden="true"></span><span class="visually-hidden">Switching feeds…</span></span>
   <span id="preference-status" role="status" aria-live="polite"></span>
-  <a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener" title="Saved reels" aria-label="Saved reels">{{icon:bookmark}}</a>
   <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{{icon:keyboard}}</button>
   <span id="action-status" role="status" aria-live="polite"></span>
   <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{{icon:muted}}</button></div>

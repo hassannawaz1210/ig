@@ -16,6 +16,7 @@ function createPage(respond, {chips = []} = {}) {
       textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null}) : '', style: {}, dataset: {},
       getBoundingClientRect() {return {top:0,bottom:800,height:800};},
       scrollIntoView() {},
+      listeners: {}, addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); },
       setAttribute(name, value) { this[name] = value; },
       remove() { this.removed = true; },
       querySelector: () => null, querySelectorAll: () => [],
@@ -44,6 +45,7 @@ function createPage(respond, {chips = []} = {}) {
     fetch: async (url, options) => {
       calls.push({url, options});
       return respond(url, options);
+
     },
   });
   vm.runInContext(source, ctx);
@@ -180,6 +182,49 @@ const {ctx, element, calls, timers} = createPage(async url =>
     assert.equal(ctx.event.prevented,true);
   }
   assert.deepEqual(Array.from(vm.runInContext('keyCalls.slice(-2)',ctx)),['save:0','download'],'S saves and D downloads the current reel');
+  // A wheel or trackpad burst (events less than 150ms apart) moves one reel.
+  const feedEl = element('feed');
+  const wheelAt = (time, deltaY) => {
+    ctx.performance.now = () => time;
+    const event = {deltaY, deltaX:0, target:{parentElement:null}, preventDefault() {this.prevented = true;}};
+    feedEl.listeners.wheel.forEach(listener => listener(event));
+    return event;
+  };
+  assert.equal(wheelAt(5000, 4).prevented, true, 'wheel events must not scroll natively');
+  [5016, 5032, 5048, 5064].forEach(time => wheelAt(time, 4));
+  assert.equal(vm.runInContext('current',ctx),1,'one trackpad swipe moves one reel');
+  wheelAt(5300, -100);
+  assert.equal(vm.runInContext('current',ctx),0,'the next wheel notch moves one more reel');
+  // Vimium handles j/k itself and scrolls in small scrollBy() steps, one per
+  // frame. Mandatory snapping turns each step into a whole reel; the burst may
+  // still move only one reel, in either direction.
+  vm.runInContext("posts.push({shortcode:'third', owner:'creator'}, {shortcode:'fourth', owner:'creator'})", ctx);
+  feedEl.scrollTop = 0;
+  for (let i = 0; i < 4; i++) {
+    element('s'+i).getBoundingClientRect = () => ({top:i*800 - feedEl.scrollTop, bottom:(i+1)*800 - feedEl.scrollTop, height:800});
+    element('s'+i).scrollIntoView = () => { feedEl.scrollTop = i*800; };
+  }
+  const frames = [];
+  ctx.requestAnimationFrame = callback => frames.push(callback);
+  const extensionScroll = (start, step) => {
+    for (let n = 0; n < 6; n++) {
+      ctx.performance.now = () => start + 16*n;
+      feedEl.scrollTop = Math.max(0, Math.min(3*800, feedEl.scrollTop + step*800)); // a snapped scrollBy
+      feedEl.listeners.scroll.forEach(listener => listener());
+      frames.splice(0).forEach(callback => callback());
+    }
+    ctx.performance.now = () => start + 1000;
+    frames.splice(0).forEach(callback => callback()); // the burst ends
+  };
+  vm.runInContext('current=0; lastScrollTop=0', ctx);
+  extensionScroll(6000, 1);
+  assert.equal(feedEl.scrollTop, 800, 'one extension scroll down moves one reel');
+  vm.runInContext('current=1', ctx); // the observer's job in a browser
+  extensionScroll(8000, -1);
+  assert.equal(feedEl.scrollTop, 0, 'one extension scroll up moves one reel');
+  ctx.performance.now = () => 2000;
+  vm.runInContext('posts.length = 2', ctx);
+
   vm.runInContext('current=1',ctx);
   vm.runInContext(`
     blockCurrent = realBlock;

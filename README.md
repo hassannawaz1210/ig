@@ -37,7 +37,7 @@ ig serve --port 7349       # foreground server
 ig stop                    # stop the background server
 ```
 
-A saved feed name opens the combined mix, matching the original tool. The mix ranks individual reels using your local feedback and rotates creators, with room for new-account trials. The interface supports video playback, carousels, adding and removing accounts. In the reels view, use arrow keys or `j`/`k` to move.
+A saved feed name opens the combined mix, matching the original tool. The mix ranks individual reels using your local feedback and rotates creators, with room for new-account trials. The interface supports video playback, carousels, adding and removing accounts. In the reels view, use arrow keys or `j`/`k` to move. Each key press, wheel notch, or swipe moves one reel, including when a keyboard-scrolling extension such as Vimium handles `j`/`k`.
 
 ## Local data
 
