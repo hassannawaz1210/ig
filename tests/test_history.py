@@ -54,6 +54,11 @@ class HistoryTests(unittest.TestCase):
             return {'posts': state['posts'][-1:]}
         with patch('ig.feeds.STATE', {'a': state}), \
              patch('ig.feeds.load_feeds', return_value={'memes': ['a']}), \
-             patch('ig.feeds.more_posts', side_effect=next_page):
-            result = feeds.pool_more(feeds.make_pool(['a']))
+             patch('ig.refill.more_posts', side_effect=next_page):
+            pool = feeds.make_pool(['a'])
+            result = feeds.pool_more(pool)
+            for future, _ in list(feeds.REFILL.pending.values()):
+                future.result(timeout=2)
+            if not result['posts']:
+                result = feeds.pool_more(pool)
         self.assertEqual([p['shortcode'] for p in result['posts']], ['fresh'])

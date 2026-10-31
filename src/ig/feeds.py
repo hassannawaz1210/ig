@@ -6,6 +6,7 @@ from .history import load_history, save_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, PROFILES, more_posts, InstagramError, RateLimited, ProfileUnavailable
 from .reasons import Reason
+from .refill import REFILL
 
 log = logging.getLogger(__name__)
 
@@ -124,7 +125,17 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     with BATCH_LOCK:
         history = load_history()
         pool["served"].update(history["codes"])
-        batch = _pool_more(pool, limit, set(excluded or ()))
+        excluded = set(excluded or ())
+        REFILL.collect(pool, _record_failure)
+        candidates = available_accounts(pool, excluded)
+        REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
+        batch = _pool_more(pool, limit, excluded, allow_network=False)
+        candidates = available_accounts(pool, excluded)
+        REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
+        waiting = REFILL.waiting(candidates)
+        batch['has_more'] = bool(batch['posts']) or waiting
+        if waiting:
+            batch['retry_after_ms'] = 750
         blocked = blocked_accounts()
         posts = batch["posts"] = [p for p in batch["posts"] if p.get("owner") not in blocked]
         # Prefer a different opening account whenever this batch has one.
@@ -144,7 +155,7 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         return batch
 
 
-def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
+def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True) -> dict:
     """Rank individual clips and serve one trial per creator in a varied batch."""
     excluded = set(excluded or ())
     preferred = False
@@ -170,7 +181,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     uncertain_used = False
     # Bound slow Instagram requests. New-creator trials get only a small share,
     # so failed topic checks can't use up the batch before saved accounts load.
-    requests_left = REQUESTS_PER_BATCH
+    requests_left = REQUESTS_PER_BATCH if allow_network else 0
     trial_requests_left = TRIAL_REQUESTS_PER_BATCH
     cached = None
     while len(out) < min(limit, 6):
@@ -220,6 +231,10 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         tried.add(username)
         try:
             state = STATE.get(username)
+            if not allow_network and state is None:
+                state = PROFILES.cached(username)
+                if state is None:
+                    continue
             # Over budget, an older in-memory copy is better than another request.
             if state is None or (requests_left > 0 and PROFILES.is_stale(state) and not any(
                     p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])):
@@ -286,6 +301,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if not state.get('has_more'):
                 pool['dead'].add(username)
             continue
+        pool.setdefault('accepted', set()).add(username)
         picked, exploratory = recommendations.pick_reel(fresh, model)
         # Copy: profile posts are shared with the profile view and the cache.
         post = dict(picked)
