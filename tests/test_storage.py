@@ -45,7 +45,7 @@ class StorageTests(unittest.TestCase):
             db.execute('PRAGMA user_version = 0')
         self.assertEqual(config.load_feeds(), {'code': ['current']})
         with sqlite3.connect(self.path / 'settings.sqlite3') as db:
-            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 1)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 2)
 
     def test_failed_migration_rolls_back_and_can_retry(self):
         self.write('feeds.json', {'custom': ['cs50']})
@@ -86,3 +86,14 @@ class StorageTests(unittest.TestCase):
             list(executor.map(save, range(20)))
         self.write('history.json', {'codes': ['should_not_import'], 'last_owner': 'other'})
         self.assertEqual(set(history.load_history()['codes']), {'old'} | {str(i) for i in range(20)})
+
+    def test_feed_selection_migration_preserves_existing_meme_preference(self):
+        config.save_feeds({'memes': ['brainrot'], 'electronics': ['adafruit']})
+        config.set_prefer_memes(True)
+        with sqlite3.connect(self.path / 'settings.sqlite3') as db:
+            db.execute('DROP TABLE text_preferences')
+            db.execute('PRAGMA user_version = 1')
+        self.assertEqual(config.selected_feeds(), ['memes'])
+        self.assertEqual(config.load_feeds(), {'memes': ['brainrot'], 'electronics': ['adafruit']})
+        config.set_selected_feeds(['electronics'])
+        self.assertEqual(config.selected_feeds(), ['electronics'])

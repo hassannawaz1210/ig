@@ -19,13 +19,13 @@ class RecommendationTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         config.save_feeds({'memes': ['saved']})
 
-    def test_like_discovers_tagged_creators_without_following_them(self):
+    def test_like_approves_creator_without_approving_tags(self):
         rec.remember_reels([{'shortcode':'liked1', 'owner':'creator',
                             'caption':'Funny gym story by @newcreator #powerlifting',
                             'tagged_users':['collaborator']}])
         self.assertEqual(rec.discovery_accounts(), set())
         rec.set_feedback('liked1', 'like')
-        self.assertEqual(rec.discovery_accounts(), {'creator','newcreator','collaborator'})
+        self.assertEqual(rec.discovery_accounts(), {'creator'})
         self.assertEqual(config.load_feeds(), {'memes':['saved']})
         rec.set_feedback('liked1', 'clear')
         self.assertEqual(rec.discovery_accounts(), set())
@@ -62,7 +62,7 @@ class RecommendationTests(unittest.TestCase):
         rec.remember_song('clip01',{'status':'matched','title':'Song','artist':'Artist'})
         liked = rec.liked_reels()[0]
         self.assertEqual(liked['caption'],'Squats')
-        self.assertIn('trainer',rec.discovery_accounts())
+        self.assertNotIn('trainer',rec.discovery_accounts())
         self.assertIn('song:song:artist',rec.preference_model()[0])
         self.assertIn('audio:42',rec.preference_model()[0])
 
@@ -107,7 +107,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_saved_reel_credits_supply_persistent_discovery(self):
         rec.remember_reels([{'shortcode':'credit1','owner':'saved','caption':'Credit @newmeme', 'tagged_users':['another']}])
-        self.assertEqual(rec.related_accounts({'saved'}), {'newmeme', 'another'})
+        self.assertEqual(rec.related_accounts({'saved'}), {'newmeme'})
         self.assertEqual(config.load_feeds(), {'memes':['saved']})
         rec.set_feedback('credit1','dislike')
         self.assertEqual(rec.related_accounts({'saved'}), set())
@@ -115,9 +115,63 @@ class RecommendationTests(unittest.TestCase):
     def test_new_creator_gets_trial_even_when_random_choice_favors_saved(self):
         states = {u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
                   for u in ['saved','newmeme']}
+        states['newmeme']['biography'] = 'I make ironic memes and comedy'
         pool = feeds.make_pool(['saved'])
         feeds.discover_into(pool, ['newmeme'], meme_source=True)
         with patch('ig.feeds.STATE', states), patch('ig.feeds.random.random',return_value=1):
             result = feeds._pool_more(pool,limit=1)
         self.assertEqual(result['posts'][0]['owner'], 'newmeme')
         self.assertEqual(config.load_feeds(), {'memes':['saved']})
+
+    def test_sponsor_mentions_and_plain_tags_are_not_leads(self):
+        for caption in ['Thanks @brand', 'Collab with @brand', 'Sponsored by @brand. Credit @editor',
+                        'Paid partnership with @brand', 'Credit @editor #ad']:
+            self.assertEqual(rec.creator_credits({'caption':caption, 'tagged_users':['brand']}), set())
+        self.assertEqual(rec.creator_credits({'caption':'Video by @editor'}), {'editor'})
+
+    def test_credit_requires_independent_topic_evidence(self):
+        rec.remember_reels([{'shortcode':'source','owner':'saved','caption':'Credit @brand'}])
+        states = {u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
+                  for u in ['saved','brand']}
+        states['brand']['biography'] = 'Chocolate and snacks'
+        with patch('ig.feeds.STATE',states):
+            result = feeds._pool_more(feeds.make_pool(['saved']))
+        self.assertEqual([p['owner'] for p in result['posts']], ['saved'])
+
+    def test_ironic_saved_memes_do_not_need_literal_topic_words(self):
+        config.save_feeds({'memes':['brainrot'],'programming':['coder']})
+        config.set_selected_feeds(['memes'])
+        state={'posts':[{'shortcode':'irony','owner':'brainrot','caption':'Singapore gardens and modern architecture', 'is_video':True}], 'has_more':False}
+        with patch('ig.feeds.STATE',{'brainrot':state}):
+            result=feeds._pool_more(feeds.make_pool(['brainrot']))
+        self.assertEqual([p['owner'] for p in result['posts']], ['brainrot'])
+
+    def test_selected_feeds_exclude_other_saved_accounts_even_if_liked(self):
+        config.save_feeds({'memes':['brainrot'],'programming':['coder'],'electronics':['maker']})
+        config.set_selected_feeds(['programming','electronics'])
+        rec.remember_reels([{'shortcode':'liked','owner':'brainrot'}])
+        rec.set_feedback('liked','like')
+        pool=feeds.feed_pool(feeds.MIX)
+        self.assertEqual(feeds.available_accounts(pool,set()), ['coder','maker'])
+        self.assertFalse(set(feeds.MEME_TRIAL_ACCOUNTS) & pool['discovered'])
+        states={u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
+                for u in ['brainrot','coder','maker']}
+        with patch('ig.feeds.STATE',states):
+            result=feeds._pool_more(pool)
+        self.assertEqual({p['owner'] for p in result['posts']},{'coder','maker'})
+
+    def test_switching_feeds_discards_previous_discovery_pool(self):
+        config.save_feeds({'memes':['brainrot'],'programming':['coder']})
+        config.set_selected_feeds(['memes'])
+        old=feeds.feed_pool(feeds.MIX)
+        feeds.discover_into(old,['unrelated'])
+        config.set_selected_feeds(['programming'])
+        new=feeds.feed_pool(feeds.MIX)
+        self.assertNotIn('unrelated',new['discovered'])
+        self.assertNotIn('brainrot',feeds.available_accounts(new,set()))
+
+    def test_candidate_cannot_enter_selected_topic_from_one_caption(self):
+        state={'biography':'Chocolate company','posts':[{'is_video':True,'caption':'memes'}]}
+        self.assertEqual(rec.matching_topics(state,['memes']),set())
+        state['biography']='I make ironic comedy'
+        self.assertEqual(rec.matching_topics(state,['memes']),{'memes'})

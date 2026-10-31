@@ -10,7 +10,7 @@ import sys
 import time
 from urllib.parse import urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, prefer_memes, set_prefer_memes, blocked_accounts, set_blocked
+from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, prefer_memes, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
 from .feeds import MIX, feed_pool, pool_more, discover_into, feed_accounts
 from .instagram import STATE, init_state, more_posts, media_info
 from .recognition import recognize_song
@@ -87,6 +87,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/feeds":
             return self._send(200, json.dumps(sorted(set(load_feeds()) | {"saved"})).encode(),
                               "application/json")
+        if self.path == "/preferences":
+            return self._send(200, json.dumps({"selected_feeds": selected_feeds(),
+                                              "feeds": list(load_feeds())}).encode(), "application/json")
         if self.path == "/ping":
             return self._send(200, b"ok", "text/plain")
         if self.path in ("/", "/reels"):  # the one reels page: everything mixed
@@ -119,13 +122,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _media(self, code: str, pool: dict) -> dict:
         data = media_info(code)
-        meme_accounts = set(accounts_from_feed(load_feeds().get("memes")))
-        meme_source = data.get("owner") in meme_accounts | pool["meme_discoveries"]
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
-        # Saved creators bootstrap exploration; liked reels supply persistent leads.
-        if data.get('owner') in feed_accounts() or recommendations.feedback_for([code]).get(code) == 'like':
-            discover_into(pool, data.get('tagged_users') or [], meme_source=meme_source)
+        # Discovery examines stored creator credits and validates candidates;
+        # arbitrary tags and sponsor mentions are not endorsements.
         data.pop('commenters', None)
         return data
 
@@ -179,9 +179,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 < length <= 1024:
                     raise ValueError("bad body length")
                 body = json.loads(self.rfile.read(length))
-                if not isinstance(body, dict) or type(body.get("prefer_memes")) is not bool:
-                    raise ValueError("prefer_memes must be true or false")
-                set_prefer_memes(body["prefer_memes"])
+                if not isinstance(body, dict):
+                    raise ValueError("invalid preference")
+                if "selected_feeds" in body:
+                    set_selected_feeds(body["selected_feeds"])
+                    body = {"selected_feeds": selected_feeds()}
+                elif type(body.get("prefer_memes")) is bool:
+                    # Compatibility for already-open tabs from the old UI.
+                    set_prefer_memes(body["prefer_memes"])
+                    set_selected_feeds(["memes"] if body["prefer_memes"] and "memes" in load_feeds() else None)
+                else:
+                    raise ValueError("choose selected_feeds")
                 return self._send(200, json.dumps(body).encode(), "application/json")
             except (ValueError, TypeError):
                 return self._send(400, b"invalid preference", "text/plain")

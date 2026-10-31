@@ -81,6 +81,14 @@ def _initial_schema(db):
         db.execute("INSERT INTO settings VALUES ('migrated', 1)")
 
 
+def _feed_selection_schema(db):
+    db.execute("CREATE TABLE IF NOT EXISTS text_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    preferred = db.execute("SELECT value FROM settings WHERE key = 'prefer_memes'").fetchone()
+    memes_exist = db.execute("SELECT 1 FROM feeds WHERE name = 'memes'").fetchone()
+    selection = ['memes'] if preferred and preferred[0] and memes_exist else None
+    db.execute("INSERT OR IGNORE INTO text_preferences VALUES ('selected_feeds', ?)", (json.dumps(selection),))
+
+
 @contextmanager
 def database():
     """Open a transaction, importing legacy files exactly once, atomically."""
@@ -89,7 +97,7 @@ def database():
     try:
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("BEGIN IMMEDIATE")
-        migrate(db, (_initial_schema,))
+        migrate(db, (_initial_schema, _feed_selection_schema))
         yield db
         db.commit()
     except BaseException:
@@ -116,6 +124,28 @@ def edit_feeds():
         feeds = _read_feeds(db)
         yield feeds
         _write_feeds(db, feeds)
+
+
+def selected_feeds() -> list[str] | None:
+    """None means All; an empty result after deletions deliberately shows none."""
+    with database() as db:
+        selection = json.loads(db.execute("SELECT value FROM text_preferences WHERE key = 'selected_feeds'").fetchone()[0])
+        if selection is None:
+            return None
+        existing = {row[0] for row in db.execute('SELECT name FROM feeds')}
+        return [name for name in selection if name in existing]
+
+
+def set_selected_feeds(names: list[str] | None) -> None:
+    if names is not None and (not isinstance(names, list) or not names or
+                              any(not isinstance(name, str) for name in names)):
+        raise ValueError('Choose one or more feeds, or All')
+    with database() as db:
+        existing = {row[0] for row in db.execute('SELECT name FROM feeds')}
+        if names is not None and any(name not in existing for name in names):
+            raise ValueError('Unknown feed')
+        selection = None if names is None else sorted(set(names))
+        db.execute("UPDATE text_preferences SET value = ? WHERE key = 'selected_feeds'", (json.dumps(selection),))
 
 
 def prefer_memes() -> bool:

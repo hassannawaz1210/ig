@@ -1,6 +1,6 @@
 import random
 import threading
-from . import recommendations
+from . import recommendations, config
 from .history import load_history, save_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, init_state, more_posts
@@ -11,10 +11,24 @@ def feed_accounts() -> set[str]:
             for account in accounts_from_feed(value)}
 
 
+def active_feeds():
+    feeds = load_feeds()
+    selected = config.selected_feeds()
+    return {name: accounts_from_feed(value) for name, value in feeds.items()
+            if selected is None or name in selected}
+
+
+def active_accounts():
+    return {a for values in active_feeds().values() for a in values}
+
+
 def available_accounts(pool: dict, tried: set) -> list[str]:
-    """Eligible saved and discovered accounts, excluding blocks and failed trials."""
-    return sorted((feed_accounts() | pool["discovered"] | recommendations.discovery_accounts())
-                  - tried - pool.get("dead", set()) - blocked_accounts())
+    """Never use saved accounts from unselected feeds as discovery backdoors."""
+    saved = active_accounts()
+    other_saved = feed_accounts() - saved
+    candidates = saved | pool['discovered'] | recommendations.discovery_accounts()
+    return sorted(candidates - other_saved - tried - pool.get('dead', set())
+                  - blocked_accounts()) if active_feeds() else []
 
 
 def make_pool(seeds):
@@ -35,24 +49,22 @@ MEME_TRIAL_ACCOUNTS = ("sainthoax", "epicfunnypage", "sarcasm_only", "fuckjerry"
 def _pool_seeds(name: str) -> list[str]:
     feeds = load_feeds()
     if name == MIX:
-        return sorted({a for val in feeds.values() for a in accounts_from_feed(val)})
+        return sorted(active_accounts())
     return accounts_from_feed(feeds.get(name))
 
 
 def feed_pool(name: str) -> dict:
-    signature = tuple((name, tuple(accounts_from_feed(value))) for name, value in load_feeds().items())
+    selection = config.selected_feeds()
+    signature = (tuple((name, tuple(accounts_from_feed(value))) for name, value in load_feeds().items()),
+                 tuple(selection) if selection is not None else None)
     p = POOLS.get(name)
     if p is not None and p.get("signature") == signature:
         return p
     fresh = make_pool(_pool_seeds(name))
-    if p is not None:  # saved feeds changed: keep memory, honor removals
-        fresh["served"] = p["served"]
-        fresh["meme_discoveries"] = p["meme_discoveries"] - p["seeds"]
-        # carry over only TRUE discoveries; old seeds that vanished from
-        # saved feeds were removed by the user and must stay gone
-        for u in p["discovered"] - p["seeds"]:
-            fresh["discovered"].add(u)
-    if accounts_from_feed(load_feeds().get('memes')):
+    if p is not None:
+        fresh['served'] = p['served']
+    # Rebuild candidates on selection changes; don't carry unrelated old leads.
+    if active_feeds().get('memes'):
         discover_into(fresh, MEME_TRIAL_ACCOUNTS, meme_source=True)
     fresh["signature"] = signature
     POOLS[name] = fresh
@@ -120,18 +132,18 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
 def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     """Rank individual clips and serve one trial per creator in a varied batch."""
     excluded = set(excluded or ())
-    preferred = prefer_memes()
-    saved = feed_accounts()
+    preferred = False
+    selected = active_feeds()
+    saved = active_accounts()
     # Credits from saved/liked reels survive restarts and do not require the
     # user to open each reel's media before we can discover its creator.
-    meme_sources = set(accounts_from_feed(load_feeds().get('memes')))
     discover_into(pool, recommendations.related_accounts(saved))
-    discover_into(pool, recommendations.related_accounts(meme_sources), meme_source=True)
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
     out = []
     tried = set()
+    used_topics = {name: 0 for name in selected}
     requests_left = 3  # Bound slow Instagram requests, including pagination.
     while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded)
@@ -155,6 +167,11 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         # batch to chance. Failed trials may fall back to saved creators.
         if rested_trials and (not out or random.random() < 0.25):
             candidates = rested_trials
+        groups = [(name, [a for a in candidates if a in members]) for name, members in selected.items()]
+        groups = [(name, group) for name, group in groups if group]
+        if groups and not (rested_trials and candidates == rested_trials):
+            least = min(used_topics[name] for name, _ in groups)
+            _, candidates = random.choice([(name, group) for name, group in groups if used_topics[name] == least])
         username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:
@@ -166,6 +183,14 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         except (Exception, SystemExit):
             pool['dead'].add(username)
             continue
+        memberships = {name for name, accounts in selected.items() if username in accounts}
+        if not memberships:
+            # Curated meme starters are known candidates. Other credit/liked
+            # leads must establish relevance independently of the source tag.
+            memberships = {'memes'} if username in MEME_TRIAL_ACCOUNTS and selected.get('memes') else recommendations.matching_topics(state, selected)
+            if not memberships:
+                pool['dead'].add(username)
+                continue
         fresh = [p for p in state['posts']
                  if p.get('is_video') and p['shortcode'] not in pool['served']]
         if not fresh and state.get('has_more') and requests_left > 0:
@@ -185,5 +210,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         post = recommendations.choose_reel(fresh, model)
         pool['served'].add(post['shortcode'])
         out.append(post)
+        for topic in memberships:
+            used_topics[topic] += 1
     random.shuffle(out)
     return {'posts': out, 'has_more': bool(available_accounts(pool, excluded))}

@@ -1,5 +1,5 @@
 from .icons import icon, icons_js
-from .config import prefer_memes, blocked_accounts
+from .config import prefer_memes, blocked_accounts, load_feeds, selected_feeds
 import json
 from .feeds import feed_accounts
 
@@ -378,8 +378,10 @@ def reels_html(posts: list[dict]) -> str:
     seed = json.dumps(posts, ensure_ascii=False).replace("</", "<\\/")
     feeded = json.dumps(sorted(feed_accounts()))
     blocked = json.dumps(sorted(blocked_accounts()))
-    preference = json.dumps(prefer_memes())
-    checked = "checked" if prefer_memes() else ""
+    selection = json.dumps(selected_feeds())
+    names = list(load_feeds())
+    from html import escape
+    choices = ''.join(f'<button type="button" class="feed-choice" data-feed="{escape(name, quote=True)}" aria-pressed="false">{escape(name.replace("_", " "))}</button>' for name in names)
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Reels</title>
 <style>
@@ -430,6 +432,12 @@ def reels_html(posts: list[dict]) -> str:
   .top b {{ font-size:16px; }}
   .top {{ flex-wrap:wrap; }}
   #preference-status {{ font-size:12px; color:#ccc; }}
+  .feed-choices {{ display:flex;gap:6px;align-items:center;flex-wrap:wrap; }}
+  .feed-choice, #apply-feeds {{ color:#ccc;background:#19191ddd;border:1px solid #45454d;border-radius:20px;padding:6px 11px;font:inherit;cursor:pointer; }}
+  .feed-choice[aria-pressed="true"] {{ background:#c4b5fd;color:#171321;border-color:#c4b5fd; }}
+  #apply-feeds {{ background:#655191;color:#fff; }}
+  #apply-feeds:disabled {{ opacity:.45;cursor:default; }}
+  .feed-choice:focus-visible, #apply-feeds:focus-visible {{ outline:2px solid #fff;outline-offset:2px; }}
   .count {{ color:#9a9aa5; }}
   #mute {{ margin-left:auto; border:0; background:#000a; color:#fff;
             border-radius:50%; width:40px; height:40px; display:grid; place-items:center; cursor:pointer; }}
@@ -440,11 +448,11 @@ def reels_html(posts: list[dict]) -> str:
 </style></head>
 <body>
 <div class="top"><b>Reels</b><span class="count" id="count"></span>
-  <label title="More saved memes and new accounts discovered through meme posts">
-    <input id="prefer-memes" type="checkbox" {checked} onchange="togglePreference(this)">
-    Prefer memes
-  </label><span id="preference-status" role="status" aria-live="polite"></span>
-  
+  <div class="feed-choices" role="group" aria-label="Choose feeds">
+    <button type="button" class="feed-choice" data-all="true" aria-pressed="false">All</button>
+    {choices}
+    <button id="apply-feeds" type="button" onclick="applyFeedSelection()" disabled>Apply</button>
+  </div><span id="preference-status" role="status" aria-live="polite"></span>
   <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{icon("keyboard")}</button>
   <span id="action-status" role="status" aria-live="polite"></span>
   <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{icon("muted")}</button></div>
@@ -482,7 +490,9 @@ accountChanged = (username, saved) => {{
   saved ? feeded.add(username) : feeded.delete(username);
   syncAccountButtons();
 }};
-let preferMemes = {preference};
+let selectedFeeds = {selection};
+let draftFeeds = selectedFeeds === null ? null : [...selectedFeeds];
+let savingFeeds = false;
 let blockedAccounts = new Set({blocked});
 let sessionBlocked = new Set();
 try {{ sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); }} catch (_) {{}}
@@ -490,20 +500,48 @@ function isHidden(p) {{ return p && (p.feedback === 'dislike' || blockedAccounts
 function visibleIndices() {{ return posts.map((p,i) => isHidden(p) ? -1 : i).filter(i => i >= 0); }}
 function actionStatus(message) {{ document.getElementById('action-status').textContent = message; }}
 
-async function togglePreference(input) {{
+function renderFeedSelection() {{
+  document.querySelectorAll('.feed-choice').forEach(button => {{
+    const selected = button.dataset.all ? draftFeeds === null : draftFeeds?.includes(button.dataset.feed);
+    button.setAttribute('aria-pressed', String(Boolean(selected)));
+    button.disabled = savingFeeds;
+  }});
+  const changed = JSON.stringify(draftFeeds) !== JSON.stringify(selectedFeeds);
+  document.getElementById('apply-feeds').disabled = savingFeeds || !changed;
+}}
+function chooseFeedSelection(name) {{
+  if (savingFeeds) return;
+  if (name === null) draftFeeds = null;
+  else if (draftFeeds === null) draftFeeds = [name];
+  else if (draftFeeds.includes(name)) {{
+    draftFeeds = draftFeeds.filter(value => value !== name);
+    if (!draftFeeds.length) draftFeeds = null;
+  }} else draftFeeds = [...draftFeeds, name].sort();
+  renderFeedSelection();
+}}
+document.querySelectorAll('.feed-choice').forEach(button => {{
+  button.addEventListener('click', () => chooseFeedSelection(button.dataset.all ? null : button.dataset.feed));
+}});
+renderFeedSelection();
+async function applyFeedSelection() {{
+  if (savingFeeds) return;
+  savingFeeds = true;
+  renderFeedSelection();
   const status = document.getElementById('preference-status');
-  input.disabled = true;
+  status.textContent = 'Saving…';
   try {{
     const r = await fetch('/preferences', {{method:'POST',
       headers:{{'Content-Type':'application/json'}},
-      body:JSON.stringify({{prefer_memes:input.checked}})}});
+      body:JSON.stringify({{selected_feeds:draftFeeds}})}});
     if (!r.ok) throw new Error('Could not save');
-    preferMemes = input.checked;
-    status.textContent = 'Saved · applies to new batches';
+    // Discard the old batch immediately so it cannot leak unselected feeds.
+    document.querySelectorAll('video').forEach(video => video.pause());
+    window.location.reload();
   }} catch (error) {{
-    input.checked = preferMemes;
     status.textContent = 'Could not save · try again';
-  }} finally {{ input.disabled = false; }}
+    savingFeeds = false;
+    renderFeedSelection();
+  }}
 }}
 
 function slideHtml(p, i) {{

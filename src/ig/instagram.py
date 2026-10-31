@@ -198,6 +198,7 @@ def init_state(username: str) -> dict:
         "session": s, "lsd": lsd,
         "csrf": s.cookies.get("csrftoken", ""),
         "user_id": user["id"], "username": user.get("username", username),
+        "biography": user.get("biography") or "",
         "posts": [slim(e["node"]) for e in conn.get("edges") or []],
         "cursor": (conn.get("page_info") or {}).get("end_cursor"),
         "has_more": (conn.get("page_info") or {}).get("has_next_page", False),

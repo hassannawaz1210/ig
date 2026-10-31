@@ -143,5 +143,14 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   assert.equal(vm.runInContext("blockedAccounts.has('another')",ctx),true);
   assert.equal(element('s0').hidden,true,'permanent block hides loaded clip');
   assert.equal(calls.filter(c=>c.url === '/block').length,1);
-  console.log('Reel preloading, keyboard shortcuts, and both block modes passed');
+  vm.runInContext("selectedFeeds=null; draftFeeds=null; chooseFeedSelection('memes'); chooseFeedSelection('electronics')",ctx);
+  assert.deepEqual(Array.from(vm.runInContext('draftFeeds',ctx)),['electronics','memes'],'combine selected feeds');
+  ctx.window = {location:{reload(){ctx.didReload=true;}}};
+  await vm.runInContext('applyFeedSelection()',ctx);
+  assert.deepEqual(JSON.parse(calls.filter(call=>call.url==='/preferences').at(-1).options.body),
+                   {selected_feeds:['electronics','memes']});
+  assert.equal(ctx.didReload,true,'selection reloads to discard old mixed reels');
+  vm.runInContext('savingFeeds=false; chooseFeedSelection(null)',ctx);
+  assert.equal(vm.runInContext('draftFeeds',ctx),null,'All clears the selection');
+  console.log('Reel preloading, keyboard shortcuts, blocks, and feed selection passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});

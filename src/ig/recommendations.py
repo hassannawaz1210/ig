@@ -89,20 +89,25 @@ def liked_reels():
 
 
 def discovery_accounts():
-    """New creators are leads from liked reels, not people who commented on them."""
-    accounts = set()
-    for post in liked_reels():
-        caption = post.get('caption') or ''
-        accounts.update(post.get('tagged_users') or [])
-        accounts.update(re.findall(r'@([A-Za-z0-9._]{1,30})', caption))
-        # A liked creator gets future trials, without becoming a saved account.
-        if post.get('owner'):
-            accounts.add(post['owner'])
-    return {a.lower() for a in accounts if isinstance(a, str) and config.USER_RE.fullmatch(a)}
+    """A like approves the reel's creator, never every account tagged in it."""
+    return {p['owner'].lower() for p in liked_reels()
+            if isinstance(p.get('owner'), str) and config.USER_RE.fullmatch(p['owner'])}
+
+
+def creator_credits(post):
+    """Explicit attribution supplies leads; tags, sponsors and collabs do not."""
+    caption = post.get('caption') or ''
+    # Promotional captions are particularly ambiguous: prefer missing a lead
+    # to treating a paid partner as a recommended creator.
+    if re.search(r'(?i)(#ad\b|#sponsored\b|paid partnership|sponsored by|partnering with|promo code|discount code)', caption):
+        return set()
+    return {name.lower() for name in re.findall(
+        r'(?i)(?:credits?|video by|created by|original by|creator)\s*[:：-]?\s*@([A-Za-z0-9._]{1,30})', caption)
+        if config.USER_RE.fullmatch(name)}
 
 
 def related_accounts(owners):
-    """Recover creator credits from stored reels, including across restarts."""
+    """Recover explicit creator credits, not arbitrary tags or mentions."""
     owners = set(owners)
     if not owners:
         return set()
@@ -112,11 +117,40 @@ def related_accounts(owners):
                                   "WHERE COALESCE(f.action, '') != 'dislike' ORDER BY r.updated DESC LIMIT 3000")
         for (raw,) in rows:
             post = json.loads(raw)
-            if post.get('owner') not in owners:
-                continue
-            accounts.update(post.get('tagged_users') or [])
-            accounts.update(re.findall(r'@([A-Za-z0-9._]{1,30})', post.get('caption') or ''))
-    return {a.lower() for a in accounts if isinstance(a, str) and config.USER_RE.fullmatch(a)} - owners
+            if post.get('owner') in owners:
+                accounts.update(creator_credits(post))
+    return accounts - owners
+
+
+TOPIC_WORDS = {
+    'memes': r'memes?|comedy|comedian|humou?r|satire|satirical|shitpost(?:ing)?|brainrot',
+    'programming': r'programming|coding|coder|developer|software|computer science|python|javascript',
+    'electronics': r'electronics?|circuits?|microcontrollers?|arduino|raspberry pi|soldering|pcb|robotics',
+    'movie_edits': r'movies?|cinema|cinematic|film|films|filmmaker',
+    'edits': r'movies?|cinema|cinematic|film|films|filmmaker',
+    'gym': r'gym|fitness|bodybuilding|powerlifting|weightlifting|strength training',
+}
+
+
+def matching_topics(state, names):
+    """Conservative candidate check. Saved membership bypasses this heuristic.
+
+    A self-described topic in the bio or at least three matching recent video
+    captions is needed. This cannot understand visual irony and is therefore
+    never used to reject the user's own saved accounts.
+    """
+    result = set()
+    bio = state.get('biography') or ''
+    videos = [p for p in state.get('posts', []) if p.get('is_video')][:12]
+    for name in names:
+        words = TOPIC_WORDS.get(name)
+        if not words:
+            continue  # Unknown custom categories need explicit saved membership.
+        pattern = re.compile(r'\b(?:' + words + r')\b', re.I)
+        matches = sum(bool(pattern.search((p.get('caption') or '').split('\n\n')[0])) for p in videos)
+        if pattern.search(bio) or (matches >= 3 and matches >= len(videos) / 2):
+            result.add(name)
+    return result
 
 
 def features(post):
