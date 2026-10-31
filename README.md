@@ -30,6 +30,7 @@ ig post SHORTCODE          # post JSON (also accepts a post URL)
 ig feed nasa               # full archive JSON; may take a while
 ig tags                    # top hashtags seen locally
 ig tag gymmemes            # local reels and creators using #gymmemes
+ig saved-reels             # list reels you saved with S
 ig phone                   # use ig on your phone over the same Wi-Fi
 ig logs                    # show the latest server log lines
 ig serve --port 7349       # foreground server
@@ -40,7 +41,7 @@ A saved feed name opens the combined mix, matching the original tool. The mix ra
 
 ## Local data
 
-Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. The `movie_edits` feed is for fan and cinematic edits (velocity, After Effects, CapCut, scene edits), not studios or clip channels; it starts with `cinemaedits` and `cinematicedits`. The `gaming` feed starts with `houseofgaming`, `igndotcom`, `gamespot`, `playstation`, `xbox`, and `nintendoamerica`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profiles are cached in `~/.cache/ig/profiles.sqlite3` (see below); feedback, liked-reel discovery leads, and the local hashtag index persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. The `movie_edits` feed is for fan and cinematic edits (velocity, After Effects, CapCut, scene edits), not studios or clip channels; it starts with `cinemaedits` and `cinematicedits`. The `gaming` feed starts with `houseofgaming`, `igndotcom`, `gamespot`, `playstation`, `xbox`, and `nintendoamerica`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profiles are cached in `~/.cache/ig/profiles.sqlite3` (see below); feedback, liked-reel discovery leads, the local hashtag index, and Saved reels persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
 
 All SQLite databases track their schema with `PRAGMA user_version`. Ordered migrations run automatically in a transaction; failures roll back and newer unsupported versions are rejected. Existing unversioned databases are adopted without replacing their data or repeating completed JSON imports. To change a schema, append a migration after `_initial_schema` in that database’s migration sequence; do not edit an already released migration.
 
@@ -104,6 +105,8 @@ Opening batches avoid the previous batch’s opening account when another accoun
 - **?**: open the shortcut list (or click the keyboard icon); **Esc** closes it.
 - **L**: like or unlike an individual reel locally.
 - **N**: mark this reel as not interesting and move on.
+- **S**: save or unsave this reel in Saved reels (see below).
+- **D**: download this reel (same as its download button).
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
 - **R**: remove the current account from all saved feeds (does not block it).
@@ -118,6 +121,12 @@ Shortcuts do not intercept typing or controls in the feed picker. Blocking hides
 Permanent blocks are stored in `~/.config/ig/settings.sqlite3` and take priority over saved feeds. Use `ig blocked` to list them, `ig block <username>` to add one, and `ig unblock <username>` to remove one. Reload after unblocking to update the open view. Blocking does not delete feed membership.
 
 Session blocks are stored in the tab's `sessionStorage` and sent with its batch requests. They survive page refreshes and do not change the permanent list or other existing tabs. Closing the tab normally clears them; browser session restoration may restore them with the tab.
+
+## Saved reels
+
+Press **S** or the bookmark button on a reel to keep it in **Saved reels**; press it again to remove it. This saves that one reel, not its account; the `saved` feed of accounts is unrelated. Saving is not a like: it does not change feeds, likes, or the ranking. Open the list with the bookmark icon in the reels top bar (or `/saved-reels`), newest first; click a reel to play it. `ig saved-reels` prints each one's shortcode, account and link.
+
+Saved reels are stored with their caption, link, date, like and comment counts and thumbnail in `~/.config/ig/recommendations.sqlite3`, and are never pruned. Instagram thumbnail links expire after a while, so older entries show a plain placeholder instead of the picture; the reel itself still plays.
 
 ## Automatic song recognition
 

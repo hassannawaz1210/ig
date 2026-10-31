@@ -56,6 +56,11 @@
             border-radius:50%; width:40px; height:40px; display:grid; place-items:center; cursor:pointer; }
   #shortcuts { display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;background:transparent;color:#ccc;cursor:pointer; }
   #shortcuts:hover { background:#ffffff20; }
+  #saved-reels-link { display:grid;place-items:center;width:36px;height:36px;border-radius:50%;color:#ccc;flex-shrink:0; }
+  #saved-reels-link:hover { background:#ffffff20; }
+  #saved-reels-link:focus-visible { outline:2px solid #c4b5fd;outline-offset:2px; }
+  button.reel-save[aria-pressed="true"] { color:#c4b5fd; }
+  button.reel-save[aria-pressed="true"] .icon { fill:currentColor; }
   #mute:hover { background:#ffffff20; }
   #mute:focus-visible { outline:2px solid #c4b5fd;outline-offset:3px; }
   .why { margin-top:10px;padding:10px 12px;max-width:520px;border-radius:12px;background:#17171dd9;

@@ -116,6 +116,9 @@ function slideHtml(p, i) {
              title="add this account to your feed"
              onclick="addAcc('${esc(p.owner)}', this)">
              <span class="em">${icon('plus')}</span><span>add</span></div>`}
+      <button class="ico reel-save" type="button" title="Save to Saved reels (S)"
+        aria-label="Save this reel" aria-pressed="${Boolean(p.saved)}" onclick="toggleSavedReel(${i})">
+        <span class="em">${icon('bookmark')}</span><span>${p.saved ? 'saved' : 'save'}</span></button>
       <button class="ico download" type="button" title="Download video" aria-label="Download video"
         onclick="downloadReel(${i}, this)">
         <span class="em">${icon('download')}</span><span>download</span></button>
@@ -402,6 +405,41 @@ async function downloadReel(i, button) {
   } catch (error) { actionStatus(error.message || 'Download failed · try again'); }
   finally { button.disabled = false; label.textContent = 'download'; }
 }
+function downloadCurrent() {
+  const p = posts[current];
+  if (!p || isHidden(p)) return;
+  const button = document.getElementById('s'+current)?.querySelector('.download');
+  // A disabled button means this reel's download is already running.
+  if (button && !button.disabled) downloadReel(current, button);
+}
+function showSavedState(code, saved) {
+  posts.forEach((post, index) => {
+    if (post.shortcode !== code) return;
+    post.saved = saved;
+    const button = document.getElementById('s'+index)?.querySelector('.reel-save');
+    if (!button) return;
+    button.setAttribute('aria-pressed', String(saved));
+    const label = button.querySelector('span:last-child');
+    if (label) label.textContent = saved ? 'saved' : 'save';
+  });
+}
+async function toggleSavedReel(i) {
+  const p = posts[i];
+  if (!p || isHidden(p) || p._saveBusy) return;
+  p._saveBusy = true;
+  const saved = !p.saved;
+  let message = 'Could not update Saved reels · try again';
+  try {
+    const r = await fetch('/saved-reels', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:p.shortcode, saved})});
+    if (r.status === 404) message = 'Reload the page, then try saving this reel again';
+    if (!r.ok) throw new Error(message);
+    const result = await r.json();
+    showSavedState(p.shortcode, result.saved === true);
+    actionStatus(result.saved ? 'Added to Saved reels' : 'Removed from Saved reels');
+  } catch (_) { actionStatus(message); }
+  finally { p._saveBusy = false; }
+}
 function togglePlayback() {
   const p = posts[current];
   if (!p || isHidden(p)) return;
@@ -506,6 +544,7 @@ function handleReelKey(e) {
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a')) return;
   const actions = {'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
+    s:()=>toggleSavedReel(current), d:downloadCurrent,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1)};
   if (!actions[key]) return;

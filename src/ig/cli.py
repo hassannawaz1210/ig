@@ -1,5 +1,6 @@
 """Command-line entry point, including the original shell launcher's shortcuts."""
 import json
+import sqlite3
 import sys
 from .config import FEED_RE, USER_RE, load_feeds, edit_feeds, accounts_from_feed, blocked_accounts, set_blocked
 from .feeds import MIX, POOLS
@@ -22,6 +23,7 @@ HELP = """ig — browse Instagram logged out
   ig feed <username>       full archive JSON (may be slow)
   ig tags                  top hashtags seen locally
   ig tag <name>            local reels and creators using #<name>
+  ig saved-reels           list reels you saved with S
   ig phone                  use ig on your phone over the same Wi-Fi
   ig phone --new-code       same, with a new access code (signs out other devices)
   ig logs                   show the latest server log lines
@@ -44,7 +46,7 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "phone", "logs"}
+    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
@@ -148,6 +150,16 @@ def _run(args):
         for reel in reels[:12]:
             mark = {"like": "✓", "dislike": "✗", "skip": "·"}.get(reel["feedback"], " ")
             print(f"  {mark} {reel['shortcode']:14} @{reel['owner']}")
+    elif cmd == "saved-reels":
+        from . import recommendations
+        try:
+            reels = recommendations.saved_reels()
+        except (sqlite3.Error, RuntimeError) as error:
+            raise SystemExit(f"ig: could not read Saved reels: {error}")
+        if not reels:
+            print("No saved reels yet. Press S on a reel to save it.")
+        for reel in reels:
+            print(f"{reel['shortcode']:14} @{reel['owner']:24} {reel['url']}")
     elif cmd == "phone":
         from .phone import share
         options = argv[2:]

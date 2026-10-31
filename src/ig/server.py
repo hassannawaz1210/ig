@@ -16,13 +16,37 @@ from . import logs
 from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
 from .feeds import MIX, feed_pool, pool_more, feed_accounts
 from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
-                        ProfileUnavailable, NetworkError)
+                        ProfileUnavailable, NetworkError, PROFILES, STATE)
 from .recognition import recognize_song
 from .views import viewer_html, reels_html, static_file
 
 log = logging.getLogger(__name__)
 
 INTERNAL_ERROR = "Something went wrong. Details are in the server log (run: ig logs)."
+POST_CODE = re.compile(r"[A-Za-z0-9_-]{5,30}")
+MAX_SAVED_REEL_BODY = 1024
+SAVED_REEL_DETAILS = ("caption", "url", "taken_at", "like_count", "comment_count", "image")
+
+
+def saved_reel_details(code: str) -> dict:
+    """Display metadata for a loaded reel, from profiles already in memory or
+    on disk. Never contacts Instagram; returns {} when nothing is known."""
+    reel = recommendations.stored_reel(code)
+    if reel is None:
+        raise KeyError("Reel has not been loaded")
+    owner = reel.get("owner")
+    if not isinstance(owner, str) or not USER_RE.fullmatch(owner):
+        return {}
+    try:
+        state = STATE.get(owner) or PROFILES.cached(owner)
+    except Exception:
+        # The reel can still be saved with the metadata stored for it.
+        log.warning("Could not read the cached profile of @%s for saved reel %s", owner, code, exc_info=True)
+        return {}
+    for post in (state or {}).get("posts", []):
+        if post.get("shortcode") == code:
+            return {key: post.get(key) for key in SAVED_REEL_DETAILS}
+    return {}
 
 
 def error_status(error: Exception) -> tuple[int, str]:
@@ -144,6 +168,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/preferences":
             return self._send(200, json.dumps({"selected_feeds": selected_feeds(),
                                               "feeds": list(load_feeds())}).encode(), "application/json")
+        if self.path == "/saved-reels":
+            try:
+                reels = recommendations.saved_reels()
+                html = viewer_html("Saved reels", "reels you saved with S · click one to play",
+                                   reels, paged=False,
+                                   empty_message="No saved reels yet. Press S on a reel to save it.")
+                return self._send(200, html.encode(), "text/html; charset=utf-8")
+            except Exception as error:
+                return self._fail(error, context="Opening Saved reels")
         if self.path in ("/", "/reels"):  # the one reels page: everything mixed
             try:
                 batch = pool_more(feed_pool(MIX), 12)
@@ -179,6 +212,33 @@ class Handler(BaseHTTPRequestHandler):
         data.pop('commenters', None)
         return data
 
+    def _set_reel_saved(self):
+        """POST /saved-reels {code, saved}: save or unsave one reel locally."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_SAVED_REEL_BODY:
+                raise ValueError("invalid request size")
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise ValueError("invalid request")
+            code = body.get("code")
+            saved = body.get("saved")
+            if not isinstance(code, str) or not POST_CODE.fullmatch(code):
+                raise ValueError("invalid post code")
+            if type(saved) is not bool:
+                raise ValueError("saved must be true or false")
+            details = saved_reel_details(code) if saved else None
+            result = recommendations.set_reel_saved(code, saved, details)
+            return self._send(200, json.dumps({"saved": result}).encode(), "application/json")
+        except (ValueError, TypeError) as error:
+            log.info("Bad Saved reels request: %s", error)
+            return self._send(400, b"invalid Saved reels request", "text/plain")
+        except KeyError:
+            return self._send(404, b"load this reel first", "text/plain")
+        except Exception:
+            log.exception("Could not update Saved reels")
+            return self._send(500, b"could not update Saved reels", "text/plain")
+
     def do_POST(self):
         if self.access is not None and self.path == "/sign-in":
             return self.access.sign_in(self)
@@ -207,6 +267,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 log.exception("Could not save feedback")
                 return self._send(500, b'could not save feedback', 'text/plain')
+        if self.path == "/saved-reels":
+            return self._set_reel_saved()
         if self.path.startswith("/recognize/"):
             code = self.path.removeprefix("/recognize/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
@@ -305,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
             username, action = m.group(1).lower(), m.group(2)
         elif rm:
             username, action = MIX, rm.group(2)
+        elif self.path == "/saved-reels/media":  # the Saved reels page's video lookups
+            action = "media"
         else:
             return self._send(404, b"not found", "text/plain")
         try:

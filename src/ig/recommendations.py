@@ -76,6 +76,21 @@ def _tag_index_schema(connection):
     connection.executemany('INSERT OR REPLACE INTO tag_index VALUES (?, ?, ?, ?)', rows)
 
 
+def _saved_reels_schema(connection):
+    """v3: reels the user saved with S, kept with their metadata.
+
+    A copy of the display metadata is kept here, so saved reels survive the
+    pruning of the reels table and can be listed without contacting Instagram."""
+    connection.execute('CREATE TABLE IF NOT EXISTS saved_reels '
+                       '(code TEXT PRIMARY KEY, owner TEXT NOT NULL, caption TEXT, url TEXT NOT NULL, '
+                       'taken_at INTEGER, like_count INTEGER, comment_count INTEGER, image TEXT, '
+                       'saved_at REAL NOT NULL)')
+    connection.execute('CREATE INDEX IF NOT EXISTS saved_reels_saved_at ON saved_reels (saved_at)')
+
+
+MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema)
+
+
 @contextmanager
 def database():
     config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,7 +98,7 @@ def database():
     try:
         with connection:
             connection.execute('BEGIN IMMEDIATE')
-            migrate(connection, (_initial_schema, _tag_index_schema))
+            migrate(connection, MIGRATIONS)
             yield connection
     finally:
         connection.close()
@@ -117,7 +132,8 @@ def remember_reels(posts):
 
 
 def _prune_reels(connection):
-    """Bound unreviewed reels and their hashtag rows; keep reels with feedback.
+    """Bound unreviewed reels and their hashtag rows; keep reels with feedback
+    and saved reels.
 
     Runs only after the table has grown past a margin, instead of scanning
     both tables on every call."""
@@ -125,6 +141,7 @@ def _prune_reels(connection):
         return
     old = [(row[0],) for row in connection.execute(
         'SELECT code FROM reels WHERE code NOT IN (SELECT code FROM feedback) '
+        'AND code NOT IN (SELECT code FROM saved_reels) '
         'AND code NOT IN (SELECT code FROM reels ORDER BY updated DESC LIMIT ?)', (MAX_REELS,))]
     connection.executemany('DELETE FROM reels WHERE code = ?', old)
     connection.executemany('DELETE FROM tag_index WHERE code = ?', old)
@@ -149,6 +166,75 @@ def set_feedback(code, action):
             return None
         connection.execute('INSERT OR REPLACE INTO feedback VALUES (?, ?, ?)', (code, action, time.time()))
         return action
+
+
+def stored_reel(code):
+    """The stored recommendation metadata of a loaded reel, or None."""
+    with database() as connection:
+        row = connection.execute('SELECT data FROM reels WHERE code = ?', (code,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def _whole_number(value):
+    """An integer field from Instagram data, or None for anything else."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _text(value):
+    return value if isinstance(value, str) else None
+
+
+def set_reel_saved(code, saved, details=None):
+    """Save or unsave one reel locally and return whether it is saved.
+
+    Saving is separate from likes: it changes no feedback, feeds or ranking.
+    details holds display metadata (caption, image, counts...) known for the
+    reel; anything missing falls back to the stored reel data. Raises KeyError
+    when saving a reel that has never been loaded."""
+    if type(saved) is not bool:
+        raise ValueError('saved must be true or false')
+    with database() as connection:
+        if not saved:
+            connection.execute('DELETE FROM saved_reels WHERE code = ?', (code,))
+            return False
+        row = connection.execute('SELECT data FROM reels WHERE code = ?', (code,)).fetchone()
+        if not row:
+            raise KeyError('Reel has not been loaded')
+        data = {**json.loads(row[0]), **{k: v for k, v in (details or {}).items() if v is not None}}
+        image = _text(data.get('image'))
+        url = _text(data.get('url'))
+        values = (code, _text(data.get('owner')) or '', _text(data.get('caption')),
+                  url if url and url.startswith('https://') else f'https://www.instagram.com/p/{code}/',
+                  _whole_number(data.get('taken_at')), _whole_number(data.get('like_count')),
+                  _whole_number(data.get('comment_count')),
+                  image if image and image.startswith('https://') else None, time.time())
+        # Saving again refreshes the metadata but keeps the original saved time.
+        connection.execute('INSERT INTO saved_reels VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+                           'ON CONFLICT (code) DO UPDATE SET owner = excluded.owner, caption = excluded.caption, '
+                           'url = excluded.url, taken_at = excluded.taken_at, like_count = excluded.like_count, '
+                           'comment_count = excluded.comment_count, image = excluded.image', values)
+        return True
+
+
+def saved_codes(codes):
+    """Which of these shortcodes are saved reels."""
+    if not codes:
+        return set()
+    with database() as connection:
+        return {row[0] for row in connection.execute(
+            'SELECT code FROM saved_reels WHERE code IN (' + ','.join('?' for _ in codes) + ')', list(codes))}
+
+
+def saved_reels():
+    """All saved reels, newest saved first, shaped like profile posts."""
+    with database() as connection:
+        rows = connection.execute(
+            'SELECT code, owner, caption, url, taken_at, like_count, comment_count, image, saved_at '
+            'FROM saved_reels ORDER BY saved_at DESC').fetchall()
+    return [{'shortcode': code, 'owner': owner, 'caption': caption, 'url': url, 'taken_at': taken_at,
+             'like_count': like_count, 'comment_count': comment_count, 'image': image,
+             'saved_at': saved_at, 'is_video': True, 'saved': True}
+            for code, owner, caption, url, taken_at, like_count, comment_count, image, saved_at in rows]
 
 
 def feedback_for(codes):
