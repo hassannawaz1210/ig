@@ -39,7 +39,7 @@ class PreferenceTests(ProjectTests):
         handler = Handler.__new__(Handler)
         with patch('ig.server.media_info', return_value={
             'owner': 'meme', 'tagged_users': ['newmeme'], 'commenters': ['viewer']}):
-            handler._media('code', pool)
+            handler._media('code')
         self.assertEqual(pool['meme_discoveries'], set())
         self.assertNotIn('newmeme', pool['discovered'])
         self.assertNotIn('viewer', pool['discovered'])

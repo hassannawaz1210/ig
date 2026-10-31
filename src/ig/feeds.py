@@ -1,9 +1,16 @@
+import logging
 import random
 import threading
 from . import recommendations, config
 from .history import load_history, save_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
-from .instagram import STATE, init_state, more_posts
+from .instagram import STATE, PROFILES, more_posts, InstagramError, RateLimited, ProfileUnavailable
+
+log = logging.getLogger(__name__)
+
+# Unclear failures (odd replies, network trouble) are retried in later
+# batches; an account is dropped for the session only after this many.
+MAX_FAILURES = 3
 
 
 def feed_accounts() -> set[str]:
@@ -33,7 +40,7 @@ def available_accounts(pool: dict, tried: set) -> list[str]:
 
 def make_pool(seeds):
     return {"discovered": set(seeds), "seeds": set(seeds),
-            "served": set(), "dead": set(), "meme_discoveries": set()}
+            "served": set(), "dead": set(), "meme_discoveries": set(), "failures": {}}
 
 
 POOLS: dict[str, dict] = {}
@@ -156,7 +163,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         if not candidates:
             break
         if requests_left <= 0:
-            candidates = [a for a in candidates if a in STATE]
+            cached = PROFILES.cache.fresh_usernames()
+            candidates = [a for a in candidates if a in STATE or a in cached]
             if not candidates:
                 break
         # Avoid repeating recent creators when alternatives are available.
@@ -184,12 +192,25 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:
-            if username in STATE:
-                state = STATE[username]
-            else:
-                requests_left -= 1
-                state = init_state(username)
-        except (Exception, SystemExit):
+            state = STATE.get(username)
+            # Over budget, an older in-memory copy is better than another request.
+            if state is None or (requests_left > 0 and PROFILES.is_stale(state)):
+                state, used_network = PROFILES.load(username)
+                if used_network:
+                    requests_left -= 1
+        except RateLimited as error:
+            log.warning("Skipping @%s for now: %s", username, error)
+            requests_left = 0  # More requests in this batch would be refused too.
+            continue
+        except ProfileUnavailable as error:
+            log.info("Dropping @%s for this session: %s", username, error)
+            pool['dead'].add(username)
+            continue
+        except InstagramError as error:
+            _record_failure(pool, username, error)
+            continue
+        except Exception:
+            log.exception("Unexpected error loading @%s; dropping it for this session", username)
             pool['dead'].add(username)
             continue
         uncertain = False
@@ -214,7 +235,15 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             requests_left -= 1
             try:
                 more_posts(username)
-            except (Exception, SystemExit):
+            except RateLimited as error:
+                log.warning("Could not page @%s: %s", username, error)
+                requests_left = 0
+                continue
+            except InstagramError as error:
+                _record_failure(pool, username, error)
+                continue
+            except Exception:
+                log.exception("Unexpected error paging @%s", username)
                 continue
             fresh = [p for p in state['posts']
                      if p.get('is_video') and p['shortcode'] not in pool['served']]
@@ -224,7 +253,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if not state.get('has_more'):
                 pool['dead'].add(username)
             continue
-        post = recommendations.choose_reel(fresh, model)
+        # Copy: profile posts are shared with the profile view and the cache.
+        post = dict(recommendations.choose_reel(fresh, model))
         pool['served'].add(post['shortcode'])
         out.append(post)
         if uncertain:
@@ -233,3 +263,13 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             used_topics[topic] += 1
     random.shuffle(out)
     return {'posts': out, 'has_more': bool(available_accounts(pool, excluded))}
+
+
+def _record_failure(pool, username, error):
+    failures = pool.setdefault('failures', {})
+    failures[username] = failures.get(username, 0) + 1
+    if failures[username] >= MAX_FAILURES:
+        log.warning("Dropping @%s for this session after %d failures: %s", username, failures[username], error)
+        pool['dead'].add(username)
+    else:
+        log.info("Could not load @%s (attempt %d): %s", username, failures[username], error)

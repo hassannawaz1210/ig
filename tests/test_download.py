@@ -1,3 +1,4 @@
+import contextlib
 import io
 import unittest
 from unittest.mock import MagicMock, patch
@@ -29,7 +30,9 @@ class DownloadTests(unittest.TestCase):
     def test_missing_video_and_invalid_host(self):
         for data, status in [({}, 404), ({'video': 'https://example.com/video'}, 502)]:
             handler = self.handler()
-            with patch('ig.server.media_info', return_value=data):
+            with patch('ig.server.media_info', return_value=data), \
+                    self.assertNoLogs('ig.server', 'ERROR'), \
+                    self.assertLogs('ig.server', 'DEBUG') if status == 502 else contextlib.nullcontext():
                 handler._download('abcde123')
             self.assertEqual(handler._send.call_args.args[0], status)
 

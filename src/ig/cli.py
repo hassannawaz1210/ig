@@ -3,7 +3,7 @@ import json
 import sys
 from .config import FEED_RE, USER_RE, load_feeds, edit_feeds, accounts_from_feed, blocked_accounts, set_blocked
 from .feeds import MIX, POOLS
-from .instagram import profile, post, feed
+from .instagram import profile, post, feed, InstagramError
 from .server import open_user, serve, stop_server
 
 HELP = """ig — browse Instagram logged out
@@ -22,6 +22,7 @@ HELP = """ig — browse Instagram logged out
   ig feed <username>       full archive JSON (may be slow)
   ig tags                  top hashtags seen locally
   ig tag <name>            local reels and creators using #<name>
+  ig logs                   show the latest server log lines
   ig serve [--port N]      run in foreground (default: 7349)
   ig stop                   stop the background server
 """
@@ -32,13 +33,32 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag"}
+    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "logs"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
         args.insert(0, "go")
     if args and args[0] in {"profile", "post", "feed", "open", "go", "add", "rm", "block", "unblock", "tag"} and len(args) < 2:
         raise SystemExit(f"missing argument for ig {args[0]} (see ig --help)")
+    try:
+        return _run(args)
+    except InstagramError as error:
+        raise SystemExit(f"ig: {error}")
+
+
+def _option_value(args, name):
+    """The value after --name, validated as a port number."""
+    i = args.index(name)
+    try:
+        value = int(args[i + 1])
+    except (IndexError, ValueError):
+        raise SystemExit(f"ig: {name} needs a number, for example {name} 7350")
+    if not 1 <= value <= 65535:
+        raise SystemExit(f"ig: {name} must be between 1 and 65535")
+    return value
+
+
+def _run(args):
     argv = ["ig", *args]
     cmd = argv[1] if len(argv) > 1 else ""
     arg = argv[2] if len(argv) > 2 else ""
@@ -117,8 +137,13 @@ def main(args=None):
         for reel in reels[:12]:
             mark = {"like": "✓", "dislike": "✗", "skip": "·"}.get(reel["feedback"], " ")
             print(f"  {mark} {reel['shortcode']:14} @{reel['owner']}")
+    elif cmd == "logs":
+        from . import logs
+        lines = logs.tail(60)
+        print("\n".join(lines) if lines else "No server log yet.")
+        print(f"\n(log file: {logs.log_file()})", file=sys.stderr)
     elif cmd == "serve":
-        port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 7349
+        port = _option_value(argv, "--port") if "--port" in argv else 7349
         serve(port)
     elif cmd == "stop":
         stop_server()

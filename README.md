@@ -30,6 +30,7 @@ ig post SHORTCODE          # post JSON (also accepts a post URL)
 ig feed nasa               # full archive JSON; may take a while
 ig tags                    # top hashtags seen locally
 ig tag gymmemes            # local reels and creators using #gymmemes
+ig logs                    # show the latest server log lines
 ig serve --port 7349       # foreground server
 ig stop                    # stop the background server
 ```
@@ -38,11 +39,21 @@ A saved feed name opens the combined mix, matching the original tool. The mix ra
 
 ## Local data
 
-Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profile state stays in memory; feedback, liked-reel discovery leads, and the local hashtag index persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profiles are cached in `~/.cache/ig/profiles.sqlite3` (see below); feedback, liked-reel discovery leads, and the local hashtag index persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
 
-All four SQLite databases track their schema with `PRAGMA user_version`. Ordered migrations run automatically in a transaction; failures roll back and newer unsupported versions are rejected. Existing unversioned databases are adopted without replacing their data or repeating completed JSON imports. To change a schema, append a migration after `_initial_schema` in that database’s migration sequence; do not edit an already released migration.
+All SQLite databases track their schema with `PRAGMA user_version`. Ordered migrations run automatically in a transaction; failures roll back and newer unsupported versions are rejected. Existing unversioned databases are adopted without replacing their data or repeating completed JSON imports. To change a schema, append a migration after `_initial_schema` in that database’s migration sequence; do not edit an already released migration.
 
 No virtual environment, personal feed configuration, or runtime cache is included in the project. The original installation is left in place.
+
+## Profile cache and rate limits
+
+Fetched profiles (bio, post metadata and the pagination cursor, but never sessions or tokens) are saved to `~/.cache/ig/profiles.sqlite3`, so restarting the server doesn't download every account again. A cached profile is used for an hour, then refreshed. While Instagram is rate limiting, copies up to a day old are shown instead. Entries older than a week are removed, and at most 1,000 profiles are kept.
+
+When Instagram rate limits a request (HTTP 429, or a redirect to its login page), every request pauses together: 30 seconds at first, doubling up to 10 minutes, and any normal response resets it. A rate-limited account is retried in a later batch. Missing or private accounts are dropped for the session, and other failures drop an account only after three tries.
+
+## Logs
+
+The server writes to `~/.cache/ig/server.log`, rotating at 1 MB and keeping three old files. `ig logs` prints the latest lines. Set `IG_LOG_LEVEL=DEBUG` before `ig serve` to log every Instagram request. Browser error messages stay short; unexpected errors are logged in full and the page points to `ig logs`.
 
 ## Development
 
@@ -56,6 +67,7 @@ No virtual environment, personal feed configuration, or runtime cache is include
 - `src/ig/feeds.py`: varied batches and account discovery
 - `src/ig/views.py`: existing HTML, CSS, and JavaScript views
 - `src/ig/server.py`: local HTTP routes and server lifecycle
+- `src/ig/logs.py`: server log file
 
 The server binds to `127.0.0.1`. Instagram fetching uses `curl_cffi` browser impersonation and undocumented page payloads; login walls, rate limits, and upstream changes can interrupt browsing. The pagination query ID is in `instagram.py` and may need refreshing when Instagram changes it. Automated tests use fixtures and mocks rather than making Instagram requests. Node.js enables the JavaScript preloading regression check; that check is skipped if Node is unavailable.
 

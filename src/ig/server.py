@@ -1,6 +1,8 @@
 from . import recommendations
 from .media import fetch_video
 import json
+import logging
+import os
 import shutil
 import tempfile
 from curl_cffi import requests as cr
@@ -10,24 +12,55 @@ import sys
 import time
 from urllib.parse import urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, prefer_memes, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
-from .feeds import MIX, feed_pool, pool_more, discover_into, feed_accounts
-from .instagram import STATE, init_state, more_posts, media_info
+from . import logs
+from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
+from .feeds import MIX, feed_pool, pool_more, feed_accounts
+from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
+                        ProfileUnavailable, NetworkError)
 from .recognition import recognize_song
 from .views import viewer_html, reels_html
 
+log = logging.getLogger(__name__)
+
+INTERNAL_ERROR = "Something went wrong. Details are in the server log (run: ig logs)."
+
+
+def error_status(error: Exception) -> tuple[int, str]:
+    """HTTP status and a message that is safe to show in the browser."""
+    if isinstance(error, RateLimited):
+        return 429, str(error)
+    if isinstance(error, ProfileUnavailable):
+        return 404, str(error)
+    if isinstance(error, NetworkError):
+        return 503, str(error)
+    if isinstance(error, InstagramError):
+        return 502, str(error)
+    return 500, INTERNAL_ERROR
+
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):  # quiet
-        pass
+    def log_message(self, fmt, *args):
+        log.debug("%s %s", self.address_string(), fmt % args)
 
-    def _send(self, code: int, body: bytes, ctype: str):
+    def _send(self, code: int, body: bytes, ctype: str, headers=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _fail(self, error: Exception, *, as_json: bool = False, context: str = ""):
+        status, message = error_status(error)
+        if status == 500:
+            log.error("Unexpected error: %s", context or self.path, exc_info=error)
+        else:
+            log.info("%s failed: %s", context or self.path, error)
+        if as_json:
+            return self._send(status, json.dumps({"error": message}).encode(), "application/json")
+        return self._send(status, message.encode(), "text/plain; charset=utf-8")
 
     def _download(self, code):
         try:
@@ -41,11 +74,13 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.scheme != "https" or not any(
                     host.endswith("." + domain) or host == domain
                     for domain in ("cdninstagram.com", "fbcdn.net")):
+                log.warning("Refused video from unexpected host %s", host)
                 return self._send(502, b"Unexpected video host", "text/plain")
             with tempfile.TemporaryFile() as file, cr.Session(impersonate="chrome") as session:
                 response = fetch_video(session, url)
                 try:
                     if response.status_code != 200:
+                        log.warning("Video download for %s returned HTTP %s", code, response.status_code)
                         return self._send(502, b"Could not fetch video. Try again.", "text/plain")
                     for chunk in response.iter_content():
                         file.write(chunk)
@@ -64,10 +99,16 @@ class Handler(BaseHTTPRequestHandler):
                 shutil.copyfileobj(file, self.wfile)
         except (BrokenPipeError, ConnectionResetError):
             pass  # Browser cancelled the download.
-        except (Exception, SystemExit):
+        except InstagramError as error:
+            log.info("Download of %s failed: %s", code, error)
+            return self._send(502, b"Download failed. Please try again.", "text/plain")
+        except Exception:
+            log.exception("Unexpected error downloading %s", code)
             return self._send(502, b"Download failed. Please try again.", "text/plain")
 
     def do_GET(self):
+        if self.path == "/ping":
+            return self._send(200, b"ok", "text/plain")
         if self.path.startswith("/download/"):
             code = self.path.removeprefix("/download/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
@@ -90,28 +131,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/preferences":
             return self._send(200, json.dumps({"selected_feeds": selected_feeds(),
                                               "feeds": list(load_feeds())}).encode(), "application/json")
-        if self.path == "/ping":
-            return self._send(200, b"ok", "text/plain")
         if self.path in ("/", "/reels"):  # the one reels page: everything mixed
             try:
                 batch = pool_more(feed_pool(MIX), 12)
                 html = reels_html(batch["posts"])
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
-            except (Exception, SystemExit) as e:
-                return self._send(500, f"error: {e}".encode(), "text/plain")
+            except Exception as error:
+                return self._fail(error, context="Opening the reels page")
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)", self.path)
         if m and USER_RE.match(m.group(1)):
+            username = m.group(1).lower()
             try:
-                username = m.group(1).lower()
-                state = STATE.get(username) or init_state(username)
+                state = load_profile(username)
                 html = viewer_html(f"@{username} — logged-out feed",
                                    "50 more per click · click a post to zoom",
                                    state["posts"], username)
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
-            except SystemExit as e:
-                return self._send(502, str(e).encode(), "text/plain")
-            except Exception as e:
-                return self._send(500, f"error: {e}".encode(), "text/plain")
+            except Exception as error:
+                return self._fail(error, context=f"Opening @{username}")
         legacy = {"/edits": "/"}
         if self.path in legacy:
             self.send_response(301)
@@ -120,7 +157,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         return self._send(404, b"not found", "text/plain")
 
-    def _media(self, code: str, pool: dict) -> dict:
+    def _media(self, code: str) -> dict:
         data = media_info(code)
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
@@ -151,13 +188,17 @@ class Handler(BaseHTTPRequestHandler):
             except KeyError:
                 return self._send(404, b'load this reel first', 'text/plain')
             except Exception:
+                log.exception("Could not save feedback")
                 return self._send(500, b'could not save feedback', 'text/plain')
         if self.path.startswith("/recognize/"):
             code = self.path.removeprefix("/recognize/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                 return self._send(400, b"invalid post code", "text/plain")
             result = recognize_song(code)
-            recommendations.remember_song(code, result)
+            try:
+                recommendations.remember_song(code, result)
+            except Exception:
+                log.exception("Could not store the song for %s", code)  # The result is still useful.
             return self._send(200, json.dumps(result).encode(), "application/json")
         if self.path in ("/block", "/unblock"):
             try:
@@ -171,7 +212,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps({"blocked": sorted(blocked)}).encode(), "application/json")
             except (ValueError, TypeError):
                 return self._send(400, b"invalid block request", "text/plain")
-            except OSError:
+            except Exception:
+                log.exception("Could not save the blocklist")
                 return self._send(500, b"could not save blocklist", "text/plain")
         if self.path == "/preferences":
             try:
@@ -193,7 +235,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(body).encode(), "application/json")
             except (ValueError, TypeError):
                 return self._send(400, b"invalid preference", "text/plain")
-            except OSError:
+            except Exception:
+                log.exception("Could not save the feed selection")
                 return self._send(500, b"could not save preference", "text/plain")
         if self.path == "/remove":  # remove account from every feed
             try:
@@ -213,9 +256,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(
                     {"ok": True, "removed": removed}).encode(),
                     "application/json")
-            except Exception as e:
-                return self._send(500, json.dumps({"error": str(e)}).encode(),
-                                  "application/json")
+            except (ValueError, TypeError, AttributeError):
+                return self._send(400, b"invalid request", "text/plain")
+            except Exception as error:
+                return self._fail(error, as_json=True, context="Removing an account")
         if self.path == "/add":  # add account to the "saved" feed (the mix)
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -233,13 +277,13 @@ class Handler(BaseHTTPRequestHandler):
                         feeds[destination] = cur + [username]
                 result = {"ok": True, "duplicate": True} if duplicate else {"ok": True, "added": username}
                 return self._send(200, json.dumps(result).encode(), "application/json")
-            except Exception as e:
-                return self._send(500, json.dumps({"error": str(e)}).encode(),
-                                  "application/json")
+            except (ValueError, TypeError, AttributeError):
+                return self._send(400, b"invalid request", "text/plain")
+            except Exception as error:
+                return self._fail(error, as_json=True, context="Adding an account")
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)/(more|media)", self.path)
         rm = re.fullmatch(r"/(reels|all)/(more|media)", self.path)
         username = action = None
-        pool = feed_pool(MIX)  # one pool: the mix (discovery included)
         if m and USER_RE.match(m.group(1)):
             username, action = m.group(1).lower(), m.group(2)
         elif rm:
@@ -257,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(excluded, list) or len(excluded) > 1000 or any(
                             not isinstance(u, str) or not USER_RE.fullmatch(u) for u in excluded):
                         return self._send(400, b"invalid session blocklist", "text/plain")
-                    data = pool_more(pool, excluded={u.lower() for u in excluded})
+                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded})
                 else:
                     data = more_posts(username)
                 if username == MIX:
@@ -270,21 +314,27 @@ class Handler(BaseHTTPRequestHandler):
                 code = str(body.get("code", ""))
                 if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                     return self._send(400, b"bad code", "text/plain")
-                data = self._media(code, pool)
+                data = self._media(code)
             return self._send(200, json.dumps(data).encode(),
                               "application/json")
-        except (Exception, SystemExit) as e:
-            return self._send(500, json.dumps({"error": str(e)}).encode(),
-                              "application/json")
+        except (ValueError, TypeError, AttributeError) as error:
+            log.info("Bad request to %s: %s", self.path, error)
+            return self._send(400, json.dumps({"error": "invalid request"}).encode(), "application/json")
+        except Exception as error:
+            return self._fail(error, as_json=True)
 
 
 def serve(port: int) -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
+    logs.setup(console=sys.stderr.isatty())
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     SERVER_JSON.write_text(json.dumps(
-        {"port": srv.server_address[1], "pid": __import__("os").getpid()}))
-    sys.stderr.write(f"ig server on http://127.0.0.1:{srv.server_address[1]}\n")
-    srv.serve_forever()
+        {"port": srv.server_address[1], "pid": os.getpid()}))
+    log.info("ig server on http://127.0.0.1:%d (log: %s)", srv.server_address[1], logs.log_file())
+    try:
+        srv.serve_forever()
+    finally:
+        log.info("ig server stopped")
 
 
 def _alive(port: int) -> bool:
@@ -314,7 +364,7 @@ def ensure_server() -> int:
         if _alive(port):
             return port
         time.sleep(0.1)
-    raise SystemExit("server failed to start")
+    raise SystemExit(f"server failed to start; see the log: {logs.log_file()}")
 
 
 def open_in_browser(url: str) -> bool:
@@ -354,7 +404,6 @@ def open_user(target: str) -> None:
 
 
 def stop_server() -> None:
-    import os
     import signal
     if SERVER_JSON.exists():
         info = json.loads(SERVER_JSON.read_text())
