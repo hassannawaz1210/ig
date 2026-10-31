@@ -5,14 +5,15 @@
 <body>
 <div class="top">
   <details class="feed-menu" id="feed-menu">
-    <summary aria-label="Choose feeds"><span id="feed-selection-label">All feeds</span><svg class="feed-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <summary aria-label="Choose feeds" aria-keyshortcuts="," title="Choose feeds (,)"><span id="feed-selection-label">All feeds</span><svg class="feed-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
     <div class="feed-panel">
-      <div class="feed-panel-heading">Your feeds<span>Pick one or mix a few</span></div>
+      <div class="feed-panel-heading">Feeds <kbd>esc</kbd></div>
       <div class="feed-choices" id="feed-choices" role="group" aria-label="Choose feeds" aria-busy="false">
         <button type="button" class="feed-choice" data-all="true" aria-pressed="false">{{icon:check}}<span>All feeds</span></button>
         {{feed_choices}}
       </div>
-      <div class="feed-panel-footer"><a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener">{{icon:bookmark}}<span>Saved reels library</span></a><span class="count" id="count"></span></div>
+      <div class="feed-key-hints"><span><kbd>↑ ↓</kbd> move</span><span><kbd>Space</kbd> mix</span><span><kbd>Enter</kbd> only</span></div>
+      <div class="feed-panel-footer"><a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener">{{icon:bookmark}}<span>Saved reels</span></a><span class="count" id="count"></span></div>
     </div>
   </details>
   <span class="feed-busy" id="feed-busy" hidden><span class="spinner" aria-hidden="true"></span><span class="visually-hidden">Switching feeds…</span></span>

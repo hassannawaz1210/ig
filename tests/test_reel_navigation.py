@@ -63,15 +63,20 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         if self.path == '/reels':
             boot = views._page_data({'posts': fake_posts(12), 'feed_accounts': [], 'blocked': [],
                                      'selected_feeds': None})
-            page = views.render('reels.html', feed_choices='', boot=boot)
+            choices = ''.join(f'<button type="button" class="feed-choice" data-feed="{name}" '
+                              f'aria-pressed="false">{views.icon("check")}<span>{name}</span></button>'
+                              for name in ['memes', 'saved', 'gym', 'programming', 'electronics', 'edits', 'gaming', 'islam'])
+            page = views.render('reels.html', feed_choices=choices, boot=boot)
             return self.reply(200, page.encode(), 'text/html; charset=utf-8')
         self.reply(404, b'not found', 'text/plain')
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length') or 0))
+        body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
         if self.path == '/reels/more':
             FakeReelsServer.batches += 1
             data = {'posts': fake_posts(12, 12 * FakeReelsServer.batches), 'has_more': True}
+        elif self.path == '/preferences':
+            data = json.loads(body)
         elif self.path == '/reels/media':
             data = {'error': 'no video in this test'}
         else:

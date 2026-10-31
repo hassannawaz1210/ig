@@ -37,6 +37,7 @@ function showShortcuts() {
     <dt><kbd>W</kbd></dt><dd>Why am I seeing this?</dd>
     <dt><kbd>B</kbd></dt><dd>Block account permanently</dd>
     <dt><kbd>Shift+B</kbd></dt><dd>Block for this session</dd>
+    <dt><kbd>,</kbd></dt><dd>Choose feeds: ↑/↓ move, Space mixes, Enter selects only that feed, Esc closes</dd>
     <dt><kbd>?</kbd></dt><dd>Show shortcuts</dd>
     <dt><kbd>Esc</kbd></dt><dd>Close this window</dd>
   </dl><button type="button">Done</button>`;

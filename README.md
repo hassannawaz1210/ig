@@ -109,6 +109,7 @@ Opening batches avoid the previous batch’s opening account when another accoun
 ## Reel shortcuts and blocklists
 
 - **?**: open the shortcut list (or click the keyboard icon); **Esc** closes it.
+- **,**: open the feed selector. **↑/↓** moves between feeds, **Space** toggles a feed in your mix, **Enter** switches to that feed alone, and **Esc** closes the selector. **Home/End** jumps to the first/last feed.
 - **L**: like or unlike an individual reel locally.
 - **N**: mark this reel as not interesting and move on.
 - **S**: save or unsave this reel in Saved reels (see below).

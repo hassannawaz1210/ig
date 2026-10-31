@@ -77,8 +77,58 @@ document.addEventListener('click', event => {
   const menu = document.getElementById('feed-menu');
   if (menu.open && !menu.contains(event.target)) menu.open = false;
 });
+function closeFeedMenu() {
+  const menu = document.getElementById('feed-menu');
+  menu.open = false;
+  menu.querySelector('summary').focus();
+}
+function openFeedMenu() {
+  const menu = document.getElementById('feed-menu');
+  menu.open = true;
+  (menu.querySelector('.feed-choice[aria-pressed="true"]') || menu.querySelector('.feed-choice'))?.focus();
+}
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') document.getElementById('feed-menu').open = false;
+  if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing ||
+      document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
+      event.target?.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
+  const menu = document.getElementById('feed-menu');
+  if (event.key === ',') {
+    event.preventDefault();
+    if (!event.repeat) menu.open ? closeFeedMenu() : openFeedMenu();
+    return;
+  }
+  if (!menu.open) {
+    if (menu.contains(event.target) && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      event.preventDefault();
+      openFeedMenu();
+    }
+    return;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeFeedMenu();
+    return;
+  }
+  const choices = [...menu.querySelectorAll('.feed-choice')];
+  const at = choices.indexOf(document.activeElement);
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 :
+      (at + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
+    choices[next]?.focus();
+  } else if (at >= 0 && [' ', 'Enter'].includes(event.key)) {
+    event.preventDefault();
+    if (event.repeat) return;
+    const name = choices[at].dataset.all ? null : choices[at].dataset.feed;
+    if (event.key === ' ') chooseFeedSelection(name);
+    else {
+      chosenFeeds = name === null ? null : [name];
+      renderFeedSelection();
+      clearTimeout(selectionTimer);
+      saveFeedSelection();
+      closeFeedMenu();
+    }
+  }
 });
 function renderFeedSelection() {
   document.getElementById('feed-selection-label').textContent = feedSelectionLabel();
@@ -696,7 +746,7 @@ function openProfile() {
 const heldKeys = new Set();
 function releaseReelKey(e) { heldKeys.delete(e.code || e.key.toLowerCase()); }
 function handleReelKey(e) {
-  if (e.ctrlKey || e.altKey || e.metaKey ||
+  if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey ||
       document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
       e.target?.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
   const key = e.key.toLowerCase();

@@ -64,6 +64,12 @@ const KEYS = {
   j: {key: 'j', code: 'KeyJ', windowsVirtualKeyCode: 74, text: 'j'},
   k: {key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, text: 'k'},
   ArrowDown: {key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40},
+  ArrowUp: {key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38},
+  ',': {key: ',', code: 'Comma', windowsVirtualKeyCode: 188, text: ','},
+  Space: {key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '},
+  Enter: {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13},
+  Escape: {key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27},
+  End: {key: 'End', code: 'End', windowsVirtualKeyCode: 35},
 };
 
 (async () => {
@@ -145,6 +151,39 @@ const KEYS = {
     await evaluate(`document.querySelector('#feed-menu summary').click()`);
     await key('k'); await expectReel(6, 'K resumes navigation with the feed menu open');
     assert.equal(await evaluate(`document.getElementById('feed-menu').open`), false);
-    console.log('Reel navigation moved one reel per key press, wheel notch and scroll');
+    await key(',');
+    assert.ok(await evaluate(`document.activeElement.dataset.all`), 'picker focuses All initially');
+    await key('ArrowDown');
+    assert.equal(await evaluate(`document.activeElement.dataset.feed`), 'memes');
+    await key('Space');
+    assert.deepEqual(await evaluate('chosenFeeds'), ['memes']);
+    await key('End');
+    await key('Space');
+    assert.deepEqual(await evaluate('chosenFeeds'), ['islam', 'memes']);
+    assert.equal(await evaluate('current'), 6, 'picker arrows and Space never navigate the reel');
+    await key('Escape');
+    assert.ok(await evaluate(`document.activeElement.matches('#feed-menu summary')`), 'Escape restores trigger focus');
+    await key(',');
+    await key('End');
+    await key('Enter');
+    await sleep(500);
+    assert.deepEqual(await evaluate('selectedFeeds'), ['islam'], 'Enter saves the highlighted feed alone');
+    assert.equal(await evaluate(`document.getElementById('feed-menu').open`), false);
+    await key(',');
+    if (process.env.IG_TEST_SCREENSHOT) {
+      const capture = await send('Page.captureScreenshot', {format: 'png'});
+      fs.writeFileSync(process.env.IG_TEST_SCREENSHOT, Buffer.from(capture.data, 'base64'));
+    }
+    await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
+    await sleep(200);
+    assert.ok(await evaluate(`(() => {
+      const r = document.querySelector('.feed-panel').getBoundingClientRect();
+      return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    })()`), 'picker fits the mobile viewport');
+    if (process.env.IG_TEST_SCREENSHOT) {
+      const capture = await send('Page.captureScreenshot', {format: 'png'});
+      fs.writeFileSync(process.env.IG_TEST_SCREENSHOT.replace('.png', '-mobile.png'), Buffer.from(capture.data, 'base64'));
+    }
+    console.log('Reel navigation and keyboard feed selection passed');
   } finally { browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
