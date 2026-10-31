@@ -342,16 +342,17 @@ function maybeMore() {
   if (fetching || exhausted || current < 0 || retryTimer) return;
   if (visibleIndices().filter(i => i > current).length < BUFFER_AHEAD) more();
 }
-function retryMore() {
+function retryMore(delay = RETRY_DELAY_MS) {
   if (!retryTimer) retryTimer = setTimeout(() => {
     retryTimer = null; if (current < 0) more(); else maybeMore();
-  }, RETRY_DELAY_MS);
+  }, delay);
 }
 async function more() {
   if (fetching || exhausted) return;
   fetching = true;
   const version = selectionVersion;
   let retry = false;
+  let retryDelay = RETRY_DELAY_MS;
   updateFeedStatus();
   try {
     const r = await fetch(base + '/more', {method:'POST',
@@ -363,6 +364,7 @@ async function more() {
     if (version !== selectionVersion) return;
     if (!r.ok || d.error) throw new Error(d.error || `server error (HTTP ${r.status})`);
     loadFailures = 0;
+    if (Number.isFinite(d.retry_after_ms)) retryDelay = Math.max(500, Math.min(30000, d.retry_after_ms));
     if (d.feed_accounts) {
       feeded = new Set(d.feed_accounts);
       // A batch started before an add/remove may contain an older account list.
@@ -372,7 +374,6 @@ async function more() {
     if (d.blocked) { blockedAccounts = new Set(d.blocked); hideFilteredReels(); }
     if (d.posts?.length) append(d.posts);
     exhausted = d.has_more === false;
-    if (exhausted && !visibleIndices().length) actionStatus('No reels available right now');
     retry = (!d.posts?.length || !visibleIndices().length) && !exhausted;
     if (exhausted || visibleIndices().some(i => i > current)) switchingFeeds = false;
     preloadAhead();
@@ -386,7 +387,7 @@ async function more() {
     // An older request must not touch the state of the newer one.
     if (version === selectionVersion) {
       fetching = false;
-      if (retry) retryMore();
+      if (retry) retryMore(retryDelay);
       else maybeMore();
       renderFeedSelection();
       updateFeedStatus();
