@@ -1,4 +1,4 @@
-// Page data from the server: {posts, username}.
+// Page data from the server: {posts, username, empty_message}.
 const boot = JSON.parse(document.getElementById('boot').textContent);
 const incoming = boot.posts;
 
@@ -34,12 +34,20 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
 
 let rendered = 0;
+// Instagram image links expire, so old thumbnails (e.g. in Saved reels) can fail.
+function showMissingImage(img) {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'missing';
+  placeholder.textContent = 'no preview';
+  img.replaceWith(placeholder);
+}
 function card(p, i) {
   const badge = p.is_video ? '▶'
               : p.is_carousel ? `⧉ ${p.carousel_count || ''}` : '';
   return `<div class="card" onclick="lb(${i})">
     ${badge ? `<div class="badge">${badge}</div>` : ''}
-    <div class="imgwrap"><img loading="lazy" src="${esc(p.image)}" alt=""></div>
+    <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
+      onerror="showMissingImage(this)">` : '<div class="missing">no preview</div>'}</div>
     <div class="meta"><div class="stats">${icon('heart')} ${fmt(p.like_count)} &nbsp; ${icon('comment')} ${fmt(p.comment_count)}
       &nbsp; <span class="date">${fdate(p.taken_at)}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,140))}</div></div></div>`;
@@ -50,6 +58,12 @@ function render() {
   grid.insertAdjacentHTML('beforeend', chunk.map((p,k)=>card(p, rendered+k)).join(''));
   rendered += chunk.length;
   count.textContent = fmt(rendered) + ' posts';
+  if (!rendered && boot.empty_message) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = boot.empty_message;
+    grid.append(empty);
+  }
 }
 render();
 
@@ -82,10 +96,12 @@ function lb(i) {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({code: p.shortcode}),
     }).then(r => r.json()).then(d => {
-      if (d.error) { box.innerHTML = `<div class="loading">${d.error}</div>`; return; }
+      if (d.error) { box.innerHTML = `<div class="loading">${esc(d.error)}</div>`; return; }
       Object.assign(p, d, {_rich: true});
       if (!document.getElementById('lb').hidden && cur === i)
         box.innerHTML = richHtml(p);
+    }).catch(() => {
+      if (cur === i) box.innerHTML = '<div class="loading">Could not load media · try again</div>';
     });
   } else {
     box.innerHTML = `<img src="${esc(p.image)}" alt="">`;
@@ -109,7 +125,8 @@ document.getElementById('lb').addEventListener('click', e => {
   if (e.target.id === 'lb') closeLb();  // backdrop click
 });
 
-btn.addEventListener('click', async () => {
+// Pages that show every post at once (Saved reels) have no Load more button.
+if (btn) btn.addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = 'loading…';
   try {
     const r = await fetch(location.pathname + '/more', {method: 'POST'});

@@ -28,6 +28,8 @@ function showShortcuts() {
     <dt><kbd>M</kbd></dt><dd>Mute / unmute</dd>
     <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>
     <dt><kbd>N</kbd></dt><dd>Not interested in this reel</dd>
+    <dt><kbd>S</kbd></dt><dd>Save / unsave in Saved reels</dd>
+    <dt><kbd>D</kbd></dt><dd>Download this reel</dd>
     <dt><kbd>A</kbd></dt><dd>Add account to a feed</dd>
     <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>

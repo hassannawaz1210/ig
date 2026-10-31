@@ -89,6 +89,37 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   response = {feedback:null};
   await vm.runInContext("rateReel(1, 'clear')",ctx);
   assert.equal(likeButton['aria-pressed'],'false');
+  const saveButton = {label:{textContent:'save'}, setAttribute(name,value){this[name]=value;}, querySelector(){return this.label;}};
+  const downloadButton = {disabled:false};
+  const queryBeforeSave = element('s1').querySelector;
+  element('s1').querySelector = selector => selector === '.reel-save' ? saveButton
+    : selector === '.download' ? downloadButton : queryBeforeSave(selector);
+  response = {saved:true};
+  await vm.runInContext('toggleSavedReel(1)',ctx);
+  assert.equal(calls.at(-1).url,'/saved-reels');
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body),{code:'second',saved:true});
+  assert.equal(vm.runInContext('posts[1].saved',ctx),true);
+  assert.equal(saveButton['aria-pressed'],'true');
+  assert.equal(saveButton.label.textContent,'saved');
+  assert.equal(vm.runInContext('posts[1].feedback',ctx),null,'saving a reel is not a like');
+  response = {saved:false};
+  await vm.runInContext('toggleSavedReel(1)',ctx);
+  assert.equal(JSON.parse(calls.at(-1).options.body).saved,false);
+  assert.equal(saveButton['aria-pressed'],'false');
+  const workingFetch = ctx.fetch;
+  ctx.fetch = async () => ({ok:false, status:500});
+  await vm.runInContext('toggleSavedReel(1)',ctx);
+  assert.equal(vm.runInContext('posts[1].saved',ctx),false,'a failed save keeps the old state');
+  assert.equal(element('action-status').textContent,'Could not update Saved reels · try again');
+  ctx.fetch = workingFetch;
+  vm.runInContext('var realDownload = downloadReel; var downloads = []; downloadReel = i => downloads.push(i);',ctx);
+  downloadButton.disabled = true;
+  vm.runInContext('current=1; downloadCurrent()',ctx);
+  assert.equal(vm.runInContext('downloads.length',ctx),0,'D ignores a download that is already running');
+  downloadButton.disabled = false;
+  vm.runInContext('downloadCurrent()',ctx);
+  assert.deepEqual(Array.from(vm.runInContext('downloads',ctx)),[1],'D downloads the current reel');
+  vm.runInContext('downloadReel = realDownload',ctx);
   vm.runInContext('posts[1]._viewStarted=1000; recordQuickSkip(1); recordQuickSkip(1)',ctx);
   assert.equal(calls.filter(c=>c.url==='/feedback' && JSON.parse(c.options.body).action==='skip').length,1,'record each quick skip only once');
   vm.runInContext(`
@@ -125,6 +156,13 @@ vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), ctx);
   vm.runInContext('current=1; handleReelKey(event); handleReelKey(event); releaseReelKey(event)',ctx);
   assert.equal(ctx.event.prevented,true);
   assert.equal(vm.runInContext('current',ctx),0,'focused controls still navigate exactly one reel');
+  vm.runInContext("toggleSavedReel = i => keyCalls.push('save:' + i); downloadCurrent = () => keyCalls.push('download');",ctx);
+  for (const [key, code] of [['s','KeyS'],['D','KeyD']]) {
+    ctx.event = {key, code, shiftKey:key === 'D', target:{closest:()=>null}, preventDefault(){this.prevented=true;}};
+    vm.runInContext('handleReelKey(event); releaseReelKey(event)',ctx);
+    assert.equal(ctx.event.prevented,true);
+  }
+  assert.deepEqual(Array.from(vm.runInContext('keyCalls.slice(-2)',ctx)),['save:0','download'],'S saves and D downloads the current reel');
   vm.runInContext('current=1',ctx);
   vm.runInContext(`
     blockCurrent = realBlock;

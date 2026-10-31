@@ -129,9 +129,12 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
                 posts[0], posts[i] = posts[i], posts[0]
                 break
         recommendations.remember_reels(posts)
-        reactions = recommendations.feedback_for([p['shortcode'] for p in posts])
+        codes = [p['shortcode'] for p in posts]
+        reactions = recommendations.feedback_for(codes)
+        saved = recommendations.saved_codes(codes)
         for post in posts:
             post['feedback'] = reactions.get(post['shortcode'])
+            post['saved'] = post['shortcode'] in saved
         recommendations.record_deliveries(posts)
         save_history(history, posts)
         return batch

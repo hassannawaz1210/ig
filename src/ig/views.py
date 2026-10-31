@@ -49,7 +49,9 @@ def static_file(name: str) -> tuple[bytes, str] | None:
 
 
 def viewer_html(title: str, subtitle: str, posts: list[dict],
-                username: str = "") -> str:
+                username: str = "", paged: bool = True, empty_message: str = "") -> str:
+    """The post grid page. paged=False shows every post at once, without a
+    Load more button; empty_message is shown when there are no posts."""
     add_button = ""
     if username:
         saved = username in feed_accounts()
@@ -59,7 +61,9 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                       + "</button>")
     return render("profile.html", title=escape(title), subtitle=escape(subtitle),
                   add_button=add_button,
-                  boot=_page_data({"posts": posts, "username": username}))
+                  more_button='<button id="more">Load more</button>' if paged else "",
+                  boot=_page_data({"posts": posts, "username": username,
+                                   "empty_message": empty_message}))
 
 
 def reels_html(posts: list[dict]) -> str:
