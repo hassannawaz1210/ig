@@ -215,9 +215,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if state is None or (requests_left > 0 and PROFILES.is_stale(state)):
                 state, used_network = PROFILES.load(username)
                 if used_network:
-                    requests_left -= 1
-                    if username not in saved:
-                        trial_requests_left -= 1
+                    requests_left, trial_requests_left = _spend_request(
+                        requests_left, trial_requests_left, username in saved)
         except RateLimited as error:
             log.warning("Skipping @%s for now: %s", username, error)
             requests_left = 0  # More requests in this batch would be refused too.
@@ -225,9 +224,13 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         except ProfileUnavailable as error:
             log.info("Dropping @%s for this session: %s", username, error)
             pool['dead'].add(username)
+            requests_left, trial_requests_left = _spend_request(requests_left, trial_requests_left, username in saved)
             continue
         except InstagramError as error:
+            # A failed load still cost a request; without this a batch keeps
+            # trying broken accounts one after another.
             _record_failure(pool, username, error)
+            requests_left, trial_requests_left = _spend_request(requests_left, trial_requests_left, username in saved)
             continue
         except Exception:
             log.exception("Unexpected error loading @%s; dropping it for this session", username)
@@ -299,6 +302,11 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             used_topics[topic] += 1
     random.shuffle(out)
     return {'posts': out, 'has_more': bool(available_accounts(pool, excluded))}
+
+
+def _spend_request(requests_left, trial_requests_left, saved):
+    """Count one Instagram request against the batch; trials also use their share."""
+    return requests_left - 1, trial_requests_left - (0 if saved else 1)
 
 
 def _record_failure(pool, username, error):

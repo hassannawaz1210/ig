@@ -254,3 +254,18 @@ class RequestBudgetTests(TempDirs):
         self.assertLessEqual(len(loaded), 3)
         self.assertGreaterEqual(len({p['owner'] for p in result['posts']} & set(saved)), 2,
                                 'the remaining requests load saved accounts')
+
+
+class FailedLoadBudgetTests(TempDirs):
+    def test_failed_loads_count_against_the_batch_limit(self):
+        names = [f'broken{i}' for i in range(10)]
+        config.save_feeds({'memes': names})
+        tries = []
+
+        def load(username):
+            tries.append(username)
+            raise UnexpectedResponse('no posts')
+        with patch('ig.feeds.STATE', {}), patch.object(feeds.PROFILES, 'load', side_effect=load), \
+                self.assertLogs('ig.feeds', 'INFO'):
+            feeds._pool_more(feeds.make_pool(names))
+        self.assertEqual(len(tries), feeds.REQUESTS_PER_BATCH)
