@@ -212,8 +212,7 @@ function slideHtml(p, i) {
       <a class="user" href="/u/${esc(p.owner)}" target="_blank"
         rel="noopener">@${esc(p.owner)}</a>
       <span class="date">${fdate(p.taken_at)}</span>
-      <div class="cap" onclick="event.stopPropagation();
-        this.classList.toggle('full')">${esc(p.caption)}</div>
+      ${p.caption ? `<details class="caption"><summary>Caption</summary><div class="cap">${esc(p.caption)}</div></details>` : ''}
       <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
       <div class="why" id="why${i}" hidden></div>
     </div>
@@ -687,7 +686,7 @@ function handleReelKey(e) {
   const key = e.key.toLowerCase();
   // Space retains native activation for a focused button/link; navigation keys
   // must always use our one-step handler, including after clicking controls.
-  if (key === ' ' && e.target?.closest('button, a')) return;
+  if (key === ' ' && e.target?.closest('button, a, summary')) return;
   const actions = {'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
     s:()=>toggleSavedReel(current), d:downloadCurrent,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
