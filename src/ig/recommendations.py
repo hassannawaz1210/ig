@@ -26,6 +26,21 @@ likeforlikes tiktok youtube shorts reels reel viral trending funny memes meme'''
 
 MAX_REELS = 10000
 PRUNE_SLACK = 500
+DATABASE_TIMEOUT = 10  # seconds to wait for another process's write
+
+# A tag is "generic" once this many creators use it, or this share of all
+# creators in the index, whichever is larger.
+GENERIC_TAG_MIN_CREATORS = 8
+GENERIC_TAG_CREATOR_SHARE = 0.15
+MAX_ANCHOR_TAGS = 60       # your most-used specific tags considered for leads
+MAX_TAG_LEADS = 60         # creators recruited through shared tags per batch
+LIKED_TAG_WEIGHT = 2       # a liked reel's tags count this many times
+TAG_LEAD_BASE = 0.5        # strength of a lead sharing one tag
+TAG_LEAD_STEP = 0.25       # added per extra shared tag
+TAG_LEAD_MAX = 1.5         # below an explicit credit (2.0)
+TAGS_SHOWN_IN_REASON = 3
+EXPLORATORY_SHARE = 0.2    # share of picks made at random on purpose
+LIKED_FEATURE_MIN_WEIGHT = 0.25
 
 
 def caption_tags(text):
@@ -64,7 +79,7 @@ def _tag_index_schema(connection):
 @contextmanager
 def database():
     config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(config.CONFIG_DIR / 'recommendations.sqlite3', timeout=10)
+    connection = sqlite3.connect(config.CONFIG_DIR / 'recommendations.sqlite3', timeout=DATABASE_TIMEOUT)
     try:
         with connection:
             connection.execute('BEGIN IMMEDIATE')
@@ -224,7 +239,7 @@ def _generic_tags(connection, tags):
     if not tags:
         return set()
     total = connection.execute("SELECT COUNT(DISTINCT owner) FROM tag_index WHERE owner != ''").fetchone()[0]
-    limit = max(8, 0.15 * total)
+    limit = max(GENERIC_TAG_MIN_CREATORS, GENERIC_TAG_CREATOR_SHARE * total)
     placeholders = ','.join('?' for _ in tags)
     spread = connection.execute(f'SELECT tag, COUNT(DISTINCT owner) FROM tag_index WHERE tag IN ({placeholders}) '
                                 'GROUP BY tag', list(tags)).fetchall()
@@ -242,10 +257,10 @@ def _tag_leads(connection, posts, owners):
     for post, action in posts:
         if action == 'like' or post.get('owner') in owners:
             for tag in caption_tags(post.get('caption')):
-                counts[tag] += 2 if action == 'like' else 1
+                counts[tag] += LIKED_TAG_WEIGHT if action == 'like' else 1
     generic = _generic_tags(connection, list(counts))
     # The most used specific tags, not the alphabetically first ones.
-    anchor_tags = [tag for tag, _ in counts.most_common() if tag not in generic][:60]
+    anchor_tags = [tag for tag, _ in counts.most_common() if tag not in generic][:MAX_ANCHOR_TAGS]
     if not anchor_tags:
         return {}
     placeholders = ','.join('?' for _ in anchor_tags)
@@ -257,11 +272,11 @@ def _tag_leads(connection, posts, owners):
         shared.setdefault(owner, []).append(tag)
     rank = {tag: i for i, tag in enumerate(anchor_tags)}
     leads = {}
-    for owner, tags in sorted(shared.items(), key=lambda item: -len(item[1]))[:60]:
+    for owner, tags in sorted(shared.items(), key=lambda item: -len(item[1]))[:MAX_TAG_LEADS]:
         if owner in owners or not config.USER_RE.fullmatch(owner):
             continue
         tags.sort(key=rank.get)
-        leads[owner] = (min(1.5, 0.5 + 0.25 * (len(tags) - 1)), tags[:3])
+        leads[owner] = (min(TAG_LEAD_MAX, TAG_LEAD_BASE + TAG_LEAD_STEP * (len(tags) - 1)), tags[:TAGS_SHOWN_IN_REASON])
     return leads
 
 
@@ -436,17 +451,17 @@ def score(post, model):
     return sum(topics.get(token, 0) for token in tokens) / math.sqrt(max(1, len(tokens))) + creators.get(post.get('owner'), 0)
 
 
-def liked_features(post, model, limit=3):
+def liked_features(post, model, limit=TAGS_SHOWN_IN_REASON):
     """This reel's features that most resemble reels you liked."""
     topics = model[0]
     weights = [(topics.get(token, 0), token) for token in features(post)]
-    return [token for weight, token in sorted(weights, reverse=True) if weight >= 0.25][:limit]
+    return [token for weight, token in sorted(weights, reverse=True) if weight >= LIKED_FEATURE_MIN_WEIGHT][:limit]
 
 
 def pick_reel(posts, model):
     """Return (reel, exploratory). One fifth of picks are random on purpose."""
-    # Keep one fifth of selections exploratory, including topics not yet liked.
-    if random.random() < 0.2:
+    # Keep some selections exploratory, including topics not yet liked.
+    if random.random() < EXPLORATORY_SHARE:
         return random.choice(posts), True
     return max(random.sample(posts, len(posts)), key=lambda post: score(post, model)), False
 

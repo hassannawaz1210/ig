@@ -4,6 +4,7 @@ The shared server asks for an access code once per device, then remembers it
 with a cookie. Scanning the QR code (or opening the full link) skips typing."""
 import hmac
 import logging
+import secrets
 import shutil
 import socket
 import sys
@@ -18,7 +19,33 @@ from . import config, logs
 log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 7350
+PORTS_TO_TRY = 10                 # 7350–7359 when no --port is given
 COOKIE = "ig_phone"
+COOKIE_MAX_AGE = 365 * 24 * 60 * 60  # seconds a device stays signed in
+PING_TIMEOUT = 2                  # seconds to check for a running share
+
+
+class AccessCode:
+    """The code phones type once. Stored in settings until renewed.
+
+    Easy to type on a phone: no 0/o or 1/l/i look-alikes. 8 characters from
+    31 give about 39 bits, and PhoneAccess limits wrong guesses."""
+
+    ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+    LENGTH = 8
+    SETTING = "phone_access_code"
+
+    @classmethod
+    def generate(cls) -> str:
+        return "".join(secrets.choice(cls.ALPHABET) for _ in range(cls.LENGTH))
+
+    @classmethod
+    def current(cls, renew: bool = False) -> str:
+        code = None if renew else config.text_preference(cls.SETTING)
+        if code is None:
+            code = cls.generate()
+            config.set_text_preference(cls.SETTING, code)
+        return code
 
 
 class PhoneAccess:
@@ -61,7 +88,7 @@ class PhoneAccess:
     def _cookie_header(self) -> str:
         # Lax (not Strict) so the cookie survives opening the link from a QR
         # scanner; cross-site POSTs still never carry it.
-        return f"{COOKIE}={self.code}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax"
+        return f"{COOKIE}={self.code}; Max-Age={COOKIE_MAX_AGE}; Path=/; HttpOnly; SameSite=Lax"
 
     def allow(self, handler) -> bool:
         """True to continue; otherwise a reply (redirect or sign-in) was sent."""
@@ -120,7 +147,8 @@ class PhoneAccess:
     @staticmethod
     def _page(handler, status: int, message: str, target: str | None = None) -> bool:
         target = target or urlsplit(handler.path).path or "/"
-        body = SIGN_IN_PAGE.format(message=escape(message), next=escape(target, quote=True)).encode()
+        body = SIGN_IN_PAGE.format(message=escape(message), next=escape(target, quote=True),
+                                  max_length=AccessCode.LENGTH * 2).encode()
         handler._send(status, body, "text/html; charset=utf-8")
         return False
 
@@ -143,7 +171,7 @@ button {{ width:100%;margin-top:14px;padding:13px;border:0;border-radius:12px;ba
   <h1>Open ig</h1>
   <p>Enter the access code shown in the terminal where you ran <b>ig phone</b>.</p>
   <input name="code" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-    inputmode="text" maxlength="20" required autofocus aria-label="Access code">
+    inputmode="text" maxlength="{max_length}" required autofocus aria-label="Access code">
   <input type="hidden" name="next" value="{next}">
   <button type="submit">Continue</button>
   <p class="error" role="alert">{message}</p>
@@ -182,7 +210,7 @@ def _qr(text: str) -> str:
 def _already_running(port: int) -> bool:
     from curl_cffi import requests as cr
     try:
-        return cr.get(f"http://127.0.0.1:{port}/ping", timeout=2).status_code == 200
+        return cr.get(f"http://127.0.0.1:{port}/ping", timeout=PING_TIMEOUT).status_code == 200
     except Exception:
         return False
 
@@ -223,10 +251,10 @@ def share(port: int | None = None, new_code: bool = False) -> int:
             print("ig: sharing is already running in another terminal. Stop it there with Ctrl+C,\n"
                   "    then run ig phone --new-code again.", file=sys.stderr)
             return 1
-        print(instructions(address, DEFAULT_PORT, config.phone_access_code(), running_elsewhere=True))
+        print(instructions(address, DEFAULT_PORT, AccessCode.current(), running_elsewhere=True))
         return 0
-    code = config.phone_access_code(renew=new_code)
-    ports = [port] if port else list(range(DEFAULT_PORT, DEFAULT_PORT + 10))
+    code = AccessCode.current(renew=new_code)
+    ports = [port] if port else list(range(DEFAULT_PORT, DEFAULT_PORT + PORTS_TO_TRY))
     server = None
     for candidate in ports:
         try:

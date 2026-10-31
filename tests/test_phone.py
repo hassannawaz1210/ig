@@ -127,11 +127,12 @@ class ServerErrorTests(LiveServer):
 
 class PhoneCommandTests(TempConfig):
     def test_code_is_kept_until_renewed(self):
-        first = config.phone_access_code()
-        self.assertEqual(len(first), config.PHONE_CODE_LENGTH)
-        self.assertTrue(set(first) <= set(config.PHONE_CODE_ALPHABET))
-        self.assertEqual(config.phone_access_code(), first)
-        self.assertNotEqual(config.phone_access_code(renew=True), first)
+        first = phone.AccessCode.current()
+        self.assertEqual(len(first), phone.AccessCode.LENGTH)
+        self.assertTrue(set(first) <= set(phone.AccessCode.ALPHABET))
+        self.assertEqual(phone.AccessCode.current(), first)
+        self.assertEqual(config.text_preference(phone.AccessCode.SETTING), first)
+        self.assertNotEqual(phone.AccessCode.current(renew=True), first)
 
     def test_instructions_show_link_and_code(self):
         text = phone.instructions('192.168.1.5', 7350, 'abcd2345')

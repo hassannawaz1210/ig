@@ -12,6 +12,8 @@ log = logging.getLogger(__name__)
 # Unclear failures (odd replies, network trouble) are retried in later
 # batches; an account is dropped for the session only after this many.
 MAX_FAILURES = 3
+UNCERTAIN_TRIAL_SHARE = 0.25  # batches that may include one unconfirmed creator
+TRIAL_FIRST_SHARE = 0.25      # later picks in a batch that prefer a new creator
 
 
 def feed_accounts() -> set[str]:
@@ -159,7 +161,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
     used_topics = {name: 0 for name in selected}
     # At most one uncertain trial in a quarter of batches, not a fresh lottery
     # for every tagged profile. Sponsor-only leads face an additional gate.
-    allow_uncertain = random.random() < 0.25
+    allow_uncertain = random.random() < UNCERTAIN_TRIAL_SHARE
     uncertain_used = False
     requests_left = 3  # Bound slow Instagram requests, including pagination.
     while len(out) < min(limit, 6):
@@ -183,7 +185,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         rested_trials = [a for a in unfamiliar if a not in cooldowns and a not in recent]
         # Reserve the first attempt for discovery instead of leaving an entire
         # batch to chance. Failed trials may fall back to saved creators.
-        if rested_trials and (not out or random.random() < 0.25):
+        if rested_trials and (not out or random.random() < TRIAL_FIRST_SHARE):
             candidates = rested_trials
         groups = [(name, [a for a in candidates if a in members]) for name, members in selected.items()]
         groups = [(name, group) for name, group in groups if group]

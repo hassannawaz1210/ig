@@ -21,6 +21,16 @@ POSTS_DOC_ID = "28904005159232689"
 POSTS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWProfilePostsTabContentQuery_connection"
 
 
+REQUEST_TIMEOUT = 30          # seconds for one Instagram request
+PAGE_SIZE = 50                # posts per pagination request
+PAGINATION_PAUSE = (1.0, 2.2) # random wait in seconds; stays under the hourly cap
+FIRST_BACKOFF = 30.0          # seconds to pause after the first rate limit
+LONGEST_BACKOFF = 600.0       # the pause doubles up to this many seconds
+# Fixed IDs Instagram's own web app sends with GraphQL requests.
+WEB_APP_ID = "936619743392459"
+ASBD_ID = "359341"
+
+
 UA_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                    "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -56,7 +66,7 @@ class Backoff:
     Each consecutive limit doubles the pause (30 s up to 10 min); any normal
     response resets it."""
 
-    def __init__(self, first=30.0, longest=600.0):
+    def __init__(self, first=FIRST_BACKOFF, longest=LONGEST_BACKOFF):
         self.first, self.longest = first, longest
         self.until = 0.0
         self.strikes = 0
@@ -97,7 +107,7 @@ def _new_session():
 def request(session, method: str, url: str, **kwargs):
     """One Instagram request with shared rate-limit handling."""
     BACKOFF.check()
-    kwargs.setdefault("timeout", 30)
+    kwargs.setdefault("timeout", REQUEST_TIMEOUT)
     try:
         response = session.request(method, url, **kwargs)
     except cr.exceptions.RequestException as error:
@@ -299,6 +309,7 @@ class ProfileCache:
     Sessions and tokens stay in memory. Fresh entries are used directly; older
     ones are only a fallback while Instagram is rate limiting."""
 
+    DATABASE_TIMEOUT = 10  # seconds to wait for another process's write
     FRESH_FOR = 60 * 60
     FALLBACK_FOR = 24 * 60 * 60
     KEEP_FOR = 7 * 24 * 60 * 60
@@ -317,7 +328,7 @@ class ProfileCache:
     @contextmanager
     def _database(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=10)
+        connection = sqlite3.connect(self.path, timeout=self.DATABASE_TIMEOUT)
         try:
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -447,10 +458,10 @@ class ProfileStore:
             if not state.get("has_more") or not state.get("cursor"):
                 return {"posts": [], "has_more": False}
             self._ensure_session(username, state)
-            time.sleep(random.uniform(1.0, 2.2))  # stay under the hourly cap
+            time.sleep(random.uniform(*PAGINATION_PAUSE))
             lsd = state["lsd"]
             variables = json.dumps({
-                "after": state["cursor"], "first": 50, "id": state["user_id"],
+                "after": state["cursor"], "first": PAGE_SIZE, "id": state["user_id"],
                 "__relay_internal__pv__PolarisSEOIsCrawlerrelayprovider": False,
             }, separators=(",", ":"))
             body = urlencode({
@@ -467,7 +478,7 @@ class ProfileStore:
                             "content-type": "application/x-www-form-urlencoded",
                             "x-fb-friendly-name": POSTS_FRIENDLY_NAME,
                             "x-fb-lsd": lsd, "x-csrftoken": state["csrf"],
-                            "x-ig-app-id": "936619743392459", "x-asbd-id": "359341",
+                            "x-ig-app-id": WEB_APP_ID, "x-asbd-id": ASBD_ID,
                             "origin": "https://www.instagram.com",
                             "referer": f"https://www.instagram.com/{username}/",
                         })

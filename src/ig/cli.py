@@ -161,7 +161,7 @@ def _run(args):
         return share(port=port, new_code="--new-code" in options)
     elif cmd == "logs":
         from . import logs
-        lines = logs.tail(60)
+        lines = logs.tail()
         print("\n".join(lines) if lines else "No server log yet.")
         print(f"\n(log file: {logs.log_file()})", file=sys.stderr)
     elif cmd == "serve":
