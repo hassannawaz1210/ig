@@ -698,9 +698,15 @@ function releaseReelKey(e) { heldKeys.delete(e.code || e.key.toLowerCase()); }
 function handleReelKey(e) {
   if (e.ctrlKey || e.altKey || e.metaKey ||
       document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
-      document.getElementById('feed-menu').open ||
       e.target?.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
   const key = e.key.toLowerCase();
+  const menu = document.getElementById('feed-menu');
+  // Multi-select leaves this menu open. J/K resumes watching immediately;
+  // other keys retain their normal behavior inside the selector.
+  if (menu.open) {
+    if (key !== 'j' && key !== 'k') return;
+    menu.open = false;
+  }
   // Space retains native activation for a focused button/link; navigation keys
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;

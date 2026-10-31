@@ -134,6 +134,17 @@ const KEYS = {
     await wheel(-100); await expectReel(5, 'one wheel notch up moves one reel');
     for (let n = 0; n < 12; n++) { await wheel(8); await sleep(16); }
     await expectReel(6, 'one trackpad swipe moves one reel');
+
+    // The feed selector stays open while choosing multiple feeds. Resuming
+    // J/K navigation must dismiss it instead of silently swallowing the key.
+    await evaluate(`document.querySelector('#feed-menu summary').click();
+      document.querySelector('#feed-menu summary').focus()`);
+    assert.ok(await evaluate(`document.getElementById('feed-menu').open`));
+    await key('j'); await expectReel(7, 'J resumes navigation with the feed menu open');
+    assert.equal(await evaluate(`document.getElementById('feed-menu').open`), false);
+    await evaluate(`document.querySelector('#feed-menu summary').click()`);
+    await key('k'); await expectReel(6, 'K resumes navigation with the feed menu open');
+    assert.equal(await evaluate(`document.getElementById('feed-menu').open`), false);
     console.log('Reel navigation moved one reel per key press, wheel notch and scroll');
   } finally { browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
