@@ -74,6 +74,7 @@ def reels_html() -> str:
         f'aria-pressed="false">{check}<span>{escape(name.replace("_", " "))}</span></button>'
         for name in load_feeds())
     return render("reels.html", feed_choices=choices, boot=_page_data({
+        "feeds": list(load_feeds()),
         "feed_accounts": sorted(feed_accounts()),
         "blocked": sorted(blocked_accounts()),
         "selected_feeds": selected_feeds(),

@@ -17,20 +17,7 @@ CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / 
 FEED_RE = re.compile(r"^[a-z0-9_-]{1,20}$")
 
 
-DEFAULT_FEEDS = {
-    "edits": ["v4ultfx", "aradz.cc", "gdb.vfx.ae", "editbyxeno", "adam.v4r1", "woyshnis.media"],
-    "gaming": [
-        "houseofgaming", "igndotcom", "gamespot",
-        "playstation", "xbox", "nintendoamerica",
-    ],
-    "memes": ["memes", "funnymemes", "9gag", "ladbible", "unilad"],
-    "electronics": ["adafruit", "sparkfun"],
-    "islam": [
-        "yaqeeninstitute", "muftimenkofficial", "onepathnetwork",
-        "muslimcentral", "mercifulservant", "belal.assaad", "assimalhakeem",
-    ],
-    "programming": ["cs50", "freecodecamp", "fireship_dev", "codewithharry"],
-}
+DEFAULT_FEEDS = {}  # New users create their own feeds.
 
 
 def accounts_from_feed(value) -> list[str]:
@@ -94,29 +81,14 @@ def _feed_selection_schema(db):
     db.execute("INSERT OR IGNORE INTO text_preferences VALUES ('selected_feeds', ?)", (json.dumps(selection),))
 
 
-# Migration 3 constants are frozen with the migration: later changes to
-# DEFAULT_FEEDS must not change what an old database is upgraded to.
+# Historical cleanup retained for databases that have not reached version 3.
 STUDIO_AND_CLIP_ACCOUNTS = ("imdb", "netflix", "marvelstudios", "movieclips")
-GAMING_STARTER_ACCOUNTS = (
-    "houseofgaming", "igndotcom", "gamespot",
-    "playstation", "xbox", "nintendoamerica",
-)
 
 
 def _edits_and_gaming_schema(db):
-    """Keep movie_edits to edit pages and add a gaming feed.
-
-    Only the four studio and clip accounts that were old defaults are
-    removed; accounts the user added stay. An existing gaming feed is left
-    exactly as it is."""
+    """Clean up the old movie feed without adding predefined memberships."""
     db.executemany("DELETE FROM feed_accounts WHERE feed = 'movie_edits' AND username = ?",
                    [(username,) for username in STUDIO_AND_CLIP_ACCOUNTS])
-    if db.execute("SELECT 1 FROM feeds WHERE name = 'gaming'").fetchone():
-        return
-    position = db.execute("SELECT COALESCE(MAX(position) + 1, 0) FROM feeds").fetchone()[0]
-    db.execute("INSERT INTO feeds VALUES ('gaming', ?)", (position,))
-    db.executemany("INSERT INTO feed_accounts VALUES ('gaming', ?, ?)",
-                   [(username, i) for i, username in enumerate(GAMING_STARTER_ACCOUNTS)])
 
 
 def _rename_edits_schema(db):

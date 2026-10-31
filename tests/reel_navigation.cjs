@@ -70,6 +70,9 @@ const KEYS = {
   Enter: {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13},
   Escape: {key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27},
   End: {key: 'End', code: 'End', windowsVirtualKeyCode: 35},
+  '+': {key: '+', code: 'Equal', windowsVirtualKeyCode: 187, text: '+'},
+  a: {key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, text: 'a'},
+  Tab: {key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9},
 };
 
 (async () => {
@@ -238,6 +241,35 @@ const KEYS = {
       const capture = await send('Page.captureScreenshot', {format: 'png'});
       fs.writeFileSync(process.env.IG_TEST_SCREENSHOT.replace('.png', '-mobile.png'), Buffer.from(capture.data, 'base64'));
     }
-    console.log('Reel navigation and keyboard feed selection passed');
+    await key('+');
+    assert.equal(await evaluate('document.activeElement.name'), 'feedname', 'plus opens creation with name focused');
+    await send('Input.insertText', {text: 'My feed'});
+    await key('Tab');
+    assert.equal(await evaluate('document.activeElement.name'), 'accounts');
+    await send('Input.insertText', {text: '@alpha @beta'});
+    if (process.env.IG_TEST_SCREENSHOT) {
+      const capture = await send('Page.captureScreenshot', {format:'png'});
+      fs.writeFileSync(process.env.IG_TEST_SCREENSHOT.replace('.png', '-create.png'), Buffer.from(capture.data, 'base64'));
+    }
+    const submitFeed = async () => {
+      await send('Input.dispatchKeyEvent', {type:'rawKeyDown', ...KEYS.Enter, modifiers:2});
+      await send('Input.dispatchKeyEvent', {type:'keyUp', ...KEYS.Enter});
+      for (let tries = 0; await evaluate(`!!document.getElementById('feed-picker')`); tries++) {
+        assert.ok(tries < 40, 'feed dialog did not save');
+        await sleep(50);
+      }
+      await sleep(150);
+    };
+    await submitFeed();
+    assert.ok(await evaluate(`!!document.querySelector('.feed-choice[data-feed="my_feed"]')`), 'new feed is selectable without reload');
+    assert.deepEqual(await evaluate('selectedFeeds'), ['islam'], 'creating a feed preserves the current selection');
+    await key('a');
+    await sleep(100);
+    assert.equal(await evaluate(`document.querySelector('#feed-picker textarea').value`),
+      await evaluate(`'@' + posts[current].owner`), 'A pre-fills the current account');
+    await submitFeed();
+    await evaluate('boot.feeds = []; updateFeedStatus()');
+    assert.equal(await evaluate(`document.getElementById('feed-create').hidden`), false, 'new users see Create feed');
+    console.log('Reel navigation, feed selection, creation and account entry passed');
   } finally { browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

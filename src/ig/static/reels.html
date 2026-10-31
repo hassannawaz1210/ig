@@ -13,6 +13,10 @@
         {{feed_choices}}
       </div>
       <div class="feed-key-hints"><span><kbd>↑ ↓</kbd> move</span><span><kbd>Space</kbd> mix</span><span><kbd>Enter</kbd> only</span></div>
+      <div class="feed-tools">
+        <button type="button" onclick="document.getElementById('feed-menu').open=false; chooseFeed('', true)">Create feed <kbd>+</kbd></button>
+        <button type="button" onclick="document.getElementById('feed-menu').open=false; chooseFeed()">Add accounts <kbd>Shift A</kbd></button>
+      </div>
       <div class="feed-panel-footer"><a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener">{{icon:bookmark}}<span>Saved reels</span></a><span class="count" id="count"></span></div>
     </div>
   </details>
@@ -30,6 +34,8 @@
   <span class="spinner" aria-hidden="true"></span>
   <span id="feed-status-text">Loading reels…</span>
   <button id="feed-retry" type="button" onclick="retryLoading()" hidden>Try again</button>
+  <button id="feed-create" type="button" onclick="chooseFeed('', true)" hidden>Create feed (+)</button>
+  <button id="feed-add" type="button" onclick="chooseFeed()" hidden>Add accounts (A)</button>
 </div>
 <script id="boot" type="application/json">{{boot}}</script>
 <script src="/static/icons.js"></script>

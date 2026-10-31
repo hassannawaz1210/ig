@@ -8,9 +8,6 @@ from unittest.mock import patch
 from ig import config, feeds, history
 
 
-# Settings migration 3 adds this feed to every upgraded database.
-GAMING = {'gaming': list(config.GAMING_STARTER_ACCOUNTS)}
-
 
 class StorageTests(unittest.TestCase):
     def setUp(self):
@@ -31,7 +28,7 @@ class StorageTests(unittest.TestCase):
         self.write('feeds.json', {'empty': [], 'code': {'accounts': ['cs50'], 'weight': 0}})
         self.write('blocked.json', ['UNWANTED'])
         self.write('preferences.json', {'prefer_memes': True})
-        self.assertEqual(config.load_feeds(), {'empty': [], 'code': ['cs50'], **GAMING})
+        self.assertEqual(config.load_feeds(), {'empty': [], 'code': ['cs50']})
         self.assertEqual(config.blocked_accounts(), {'unwanted'})
         self.assertTrue(config.prefer_memes())
         config.save_feeds({})
@@ -47,7 +44,7 @@ class StorageTests(unittest.TestCase):
         config.save_feeds({'code': ['current']})
         with sqlite3.connect(self.path / 'settings.sqlite3') as db:
             db.execute('PRAGMA user_version = 0')
-        self.assertEqual(config.load_feeds(), {'code': ['current'], **GAMING})
+        self.assertEqual(config.load_feeds(), {'code': ['current']})
         with sqlite3.connect(self.path / 'settings.sqlite3') as db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], len(config.SETTINGS_MIGRATIONS))
 
@@ -57,7 +54,7 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.load_feeds()
         self.write('blocked.json', [])
-        self.assertEqual(config.load_feeds(), {'custom': ['cs50'], **GAMING})
+        self.assertEqual(config.load_feeds(), {'custom': ['cs50']})
 
     def test_concurrent_edits_preserve_every_membership(self):
         config.save_feeds({'code': []})
@@ -98,6 +95,6 @@ class StorageTests(unittest.TestCase):
             db.execute('DROP TABLE text_preferences')
             db.execute('PRAGMA user_version = 1')
         self.assertEqual(config.selected_feeds(), ['memes'])
-        self.assertEqual(config.load_feeds(), {'memes': ['brainrot'], 'electronics': ['adafruit'], **GAMING})
+        self.assertEqual(config.load_feeds(), {'memes': ['brainrot'], 'electronics': ['adafruit']})
         config.set_selected_feeds(['electronics'])
         self.assertEqual(config.selected_feeds(), ['electronics'])

@@ -43,6 +43,7 @@ def fake_posts(count: int, start: int = 0) -> list[dict]:
 class FakeReelsServer(BaseHTTPRequestHandler):
     """The reels page and its static files, with stub JSON endpoints."""
     batches = 0
+    feed_names = ['memes', 'saved', 'gym', 'programming', 'electronics', 'edits', 'gaming', 'islam']
 
     def log_message(self, *args):
         pass
@@ -55,6 +56,8 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/feeds':
+            return self.reply(200, json.dumps(self.feed_names).encode(), 'application/json')
         if self.path.startswith('/static/'):
             found = views.static_file(self.path.removeprefix('/static/'))
             if found is None:
@@ -77,6 +80,13 @@ class FakeReelsServer(BaseHTTPRequestHandler):
             data = {'posts': fake_posts(12, 12 * FakeReelsServer.batches), 'has_more': True}
         elif self.path == '/preferences':
             data = json.loads(body)
+        elif self.path == '/feeds':
+            request = json.loads(body)
+            name = request['name'].lower().replace(' ', '_')
+            if name not in self.feed_names:
+                self.feed_names.append(name)
+            data = {'name': name, 'created': request.get('create', False),
+                    'accounts': [a.lstrip('@') for a in request['accounts'].split()]}
         elif self.path == '/reels/media':
             data = {'error': 'no video in this test'}
         else:

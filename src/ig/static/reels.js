@@ -150,6 +150,27 @@ document.querySelectorAll('.feed-choice').forEach(button => {
   button.addEventListener('click', () => chooseFeedSelection(button.dataset.all ? null : button.dataset.feed));
 });
 renderFeedSelection();
+window.addEventListener('ig-feeds-changed', async event => {
+  try {
+    const response = await fetch('/feeds');
+    if (!response.ok) throw new Error('Could not refresh feeds');
+    boot.feeds = await response.json();
+    const container = document.getElementById('feed-choices');
+    for (const name of boot.feeds) {
+      if ([...container.querySelectorAll('[data-feed]')].some(b => b.dataset.feed === name)) continue;
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'feed-choice'; button.dataset.feed = name;
+      button.innerHTML = icon('check') + '<span>' + esc(name.replaceAll('_', ' ')) + '</span>';
+      button.onclick = () => chooseFeedSelection(name);
+      container.append(button);
+    }
+    renderFeedSelection();
+    actionStatus(event.detail.created ? 'Created ' + event.detail.name.replaceAll('_', ' ') : 'Accounts added');
+    selectionVersion += 1;
+    fetching = false; // Ignore batches requested before the membership change.
+    retryLoading();
+  } catch (error) { actionStatus('Saved · refresh to update the feed list'); }
+});
 async function saveFeedSelection() {
   selectionTimer = null;
   // One save at a time; the running save checks for newer taps when it ends.
@@ -235,6 +256,19 @@ function updateFeedStatus() {
   box.dataset.state = state;
   document.getElementById('feed-status-text').textContent = text;
   document.getElementById('feed-retry').hidden = state === 'loading';
+  const empty = Array.isArray(boot.feeds) && boot.feeds.length === 0;
+  const needsAccounts = Array.isArray(boot.feeds) && boot.feeds.length > 0 && feeded.size === 0;
+  document.getElementById('feed-create').hidden = !empty;
+  document.getElementById('feed-add').hidden = !needsAccounts;
+  if (empty) {
+    box.hidden = false; box.dataset.state = 'empty';
+    document.getElementById('feed-status-text').textContent = 'Create your first feed to start watching';
+    document.getElementById('feed-retry').hidden = true;
+  } else if (needsAccounts) {
+    box.hidden = false; box.dataset.state = 'empty';
+    document.getElementById('feed-status-text').textContent = 'Add accounts to your feed to start watching';
+    document.getElementById('feed-retry').hidden = true;
+  }
 }
 function retryLoading() {
   clearTimeout(retryTimer);
@@ -711,7 +745,7 @@ async function blockCurrent(sessionOnly = false) {
 }
 function addCurrent() {
   const p = posts[current];
-  if (!p || isHidden(p)) return;
+  if (!p || isHidden(p)) { chooseFeed(); return; }
   const button = document.getElementById('s'+current)?.querySelector('.account-action');
   if (button) addAcc(p.owner, button);
 }
@@ -755,13 +789,13 @@ function handleReelKey(e) {
   // Multi-select leaves this menu open. J/K resumes watching immediately;
   // other keys retain their normal behavior inside the selector.
   if (menu.open) {
-    if (key !== 'j' && key !== 'k') return;
+    if (!['j', 'k', '+', 'a'].includes(key)) return;
     menu.open = false;
   }
   // Space retains native activation for a focused button/link; navigation keys
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;
-  const actions = {'?':showShortcuts, ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
+  const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
     s:()=>toggleSavedReel(current), d:downloadCurrent,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1)};

@@ -30,7 +30,9 @@ function showShortcuts() {
     <dt><kbd>N</kbd></dt><dd>Not interested in this reel</dd>
     <dt><kbd>S</kbd></dt><dd>Save / unsave in Saved reels</dd>
     <dt><kbd>D</kbd></dt><dd>Download this reel</dd>
-    <dt><kbd>A</kbd></dt><dd>Add account to a feed</dd>
+    <dt><kbd>A</kbd></dt><dd>Add current account to a feed (or enter accounts when no reel is loaded)</dd>
+    <dt><kbd>Shift+A</kbd></dt><dd>Enter accounts to add</dd>
+    <dt><kbd>+</kbd></dt><dd>Create a feed</dd>
     <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
     <dt><kbd>C</kbd></dt><dd>Show / hide comments</dd>
@@ -45,97 +47,105 @@ function showShortcuts() {
   dialog.querySelector('button').onclick = () => dialog.close();
   document.body.append(dialog); dialog.showModal();
 }
-async function chooseFeed(username) {
+async function chooseFeed(username = '', createNew = false) {
   if (document.getElementById('feed-picker')) return false;
-  if (!document.getElementById('feed-picker-style')) {
-    const style = document.createElement('style');
-    style.id = 'feed-picker-style';
-    style.textContent = `
-      #feed-picker {color-scheme:dark;box-sizing:border-box;width:400px;max-width:calc(100vw - 32px);
-        padding:0;border:1px solid #34343e;border-radius:22px;background:#17171d;color:#f5f5f7;
-        box-shadow:0 28px 100px #0009;font:14px/1.5 system-ui,sans-serif;overflow:hidden;}
-      #feed-picker::backdrop {background:#080810b8;backdrop-filter:blur(8px);}
-      #feed-picker .fp-head {padding:24px 24px 18px;position:relative;}
-      #feed-picker h2 {margin:0 36px 18px 0;font-size:21px;line-height:1.3;letter-spacing:-.4px;}
-      #feed-picker .fp-close {position:absolute;right:18px;top:18px;width:32px;height:32px;
-        border:0;border-radius:50%;background:#26262f;color:#a9a9b7;font-size:22px;cursor:pointer;}
-      #feed-picker .fp-account {display:flex;align-items:center;gap:12px;}
-      #feed-picker .fp-avatar {display:grid;place-items:center;width:42px;height:42px;
-        border-radius:14px;background:#302b48;color:#c4b5fd;font-size:20px;font-weight:600;}
-      #feed-picker .fp-username {font-weight:600;font-size:15px;overflow-wrap:anywhere;}
-      #feed-picker .fp-hint {color:#9696a6;font-size:12px;margin-top:2px;}
-      #feed-picker .fp-list {padding:0 12px 12px;max-height:45vh;overflow-y:auto;}
-      #feed-picker .fp-row {width:100%;display:flex;align-items:center;gap:12px;text-align:left;
-        padding:14px 12px;border:1px solid transparent;border-radius:12px;background:transparent;
-        color:inherit;font:inherit;cursor:pointer;}
-      #feed-picker .fp-row:hover:not(:disabled) {background:#24232f;border-color:#3b3552;}
-      #feed-picker button:focus-visible {outline:2px solid #b9a3ff;outline-offset:-2px;}
-      #feed-picker .fp-symbol {display:grid;place-items:center;width:36px;height:36px;
-        border-radius:10px;background:#262630;color:#c4b5fd;font-size:18px;}
-      #feed-picker .fp-name {font-weight:600;text-transform:capitalize;}
-      #feed-picker .fp-count {color:#858596;font-size:12px;}
-      #feed-picker .fp-action .icon {width:16px;height:16px;}
-      #feed-picker .fp-close {display:grid;place-items:center;}
-      #feed-picker .fp-action {margin-left:auto;color:#c4b5fd;font-size:13px;}
-      #feed-picker .fp-row:disabled {cursor:default;opacity:.6;}
-      #feed-picker .fp-footer {padding:14px 24px;border-top:1px solid #292932;color:#858596;font-size:12px;}
-      #feed-picker .fp-status {margin:0;padding:0 24px 12px;color:#c4b5fd;}
-      #feed-picker .fp-status:empty {display:none;}`;
-    document.head.append(style);
-  }
   const dialog = document.createElement('dialog');
   dialog.id = 'feed-picker';
   dialog.setAttribute('aria-labelledby', 'feed-picker-title');
-  dialog.innerHTML = `<div class="fp-head">
-    <h2 id="feed-picker-title">Add to a feed</h2>
-    <button class="fp-close" aria-label="Close">${icon('close')}</button>
-    <div class="fp-account"><span class="fp-avatar">${icon('user')}</span><div>
-      <div class="fp-username"></div><div class="fp-hint">Choose a feed for this account</div>
-    </div></div></div>
-    <div class="fp-list" aria-label="Your feeds"></div>
-    <p class="fp-status" role="status" aria-live="polite">Loading feeds…</p>
-    <div class="fp-footer">Select a feed to save · Esc to close</div>`;
-  document.body.append(dialog);
-  dialog.querySelector('.fp-username').textContent = '@' + username;
-  const list = dialog.querySelector('.fp-list');
+  dialog.innerHTML = `<style>
+    #feed-picker {color-scheme:dark;box-sizing:border-box;width:360px;max-width:calc(100vw - 24px);
+      padding:20px;border:1px solid #393939;border-radius:6px;background:#181818;color:#eee;font:13px/1.5 system-ui;}
+    #feed-picker::backdrop {background:#0009;}
+    #feed-picker h2 {font-size:16px;font-weight:600;margin:0 0 18px;}
+    #feed-picker label {display:block;margin-top:14px;color:#ccc;}
+    #feed-picker input,#feed-picker select,#feed-picker textarea {box-sizing:border-box;display:block;width:100%;
+      margin-top:5px;padding:9px;background:#111;border:1px solid #444;border-radius:3px;color:#eee;font:inherit;}
+    #feed-picker textarea {resize:vertical;min-height:74px;}
+    #feed-picker [hidden] {display:none;}
+    #feed-picker .fp-note {color:#999;font-size:11px;margin:6px 0;}
+    #feed-picker .fp-actions {display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:18px;}
+    #feed-picker button {padding:7px 12px;border:1px solid #444;border-radius:3px;background:#262626;color:#eee;font:inherit;cursor:pointer;}
+    #feed-picker button[type=submit] {background:#eee;color:#111;border-color:#eee;}
+    #feed-picker :focus-visible {outline:2px solid #bbb;outline-offset:2px;}
+    #feed-picker button:disabled {opacity:.5;cursor:wait;}
+    #feed-picker .fp-status {color:#ddd;min-height:18px;margin:10px 0 0;}
+  </style><form>
+    <h2 id="feed-picker-title">Add accounts</h2>
+    <label>Feed<select name="destination" aria-label="Feed" disabled></select></label>
+    <label class="fp-new" hidden>New feed name<input name="feedname" maxlength="20" placeholder="e.g. photography" autocomplete="off"></label>
+    <label>Instagram accounts<textarea name="accounts" rows="3" placeholder="@username or Instagram profile links"></textarea></label>
+    <p class="fp-note">Separate accounts with spaces, commas or new lines.</p>
+    <p class="fp-status" role="status">Loading feeds…</p>
+    <div class="fp-actions"><span class="fp-note">Ctrl+Enter to save</span><button type="button">Cancel</button><button type="submit" disabled>Add accounts</button></div>
+  </form>`;
+  const form = dialog.querySelector('form');
+  const select = form.elements.destination;
+  const name = form.elements.feedname;
+  const accounts = form.elements.accounts;
+  const submit = form.querySelector('[type=submit]');
   const status = dialog.querySelector('.fp-status');
+  accounts.value = username ? '@' + username : '';
   let saving = false;
+  function mode() {
+    const creating = select.value === '';
+    dialog.querySelector('.fp-new').hidden = !creating;
+    name.required = creating;
+    accounts.required = !creating;
+    dialog.querySelector('h2').textContent = creating ? 'Create feed' : 'Add accounts';
+    submit.textContent = creating ? 'Create feed' : 'Add accounts';
+  }
+  select.onchange = () => { mode(); if (!select.value) name.focus(); };
   const result = new Promise(resolve => {
     dialog.addEventListener('close', () => { dialog.remove(); resolve(dialog.returnValue === 'added'); }, {once:true});
-    dialog.querySelector('.fp-close').onclick = () => dialog.close('cancel');
   });
+  form.querySelector('[type=button]').onclick = () => dialog.close();
+  form.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (saving || submit.disabled) return;
+    saving = true;
+    submit.disabled = true;
+    select.disabled = true;
+    status.textContent = 'Saving…';
+    const creating = select.value === '';
+    try {
+      const response = await fetch('/feeds', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:creating ? name.value : select.value, create:creating, accounts:accounts.value})});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save. Try again.');
+      for (const account of data.accounts) notifyAccountChange(account, true);
+      window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail:data}));
+      if (dialog.isConnected) dialog.close(!username || data.accounts.includes(username.toLowerCase()) ? 'added' : 'saved');
+    } catch (error) { status.textContent = error.message; }
+    finally { saving = false; submit.disabled = false; select.disabled = false; }
+  };
+  document.body.append(dialog);
   dialog.showModal();
   try {
-    const r = await fetch('/feeds?username=' + encodeURIComponent(username));
-    if (!r.ok) throw new Error('Could not load feeds. Close and try again.');
-    const feeds = await r.json();
+    const response = await fetch('/feeds');
+    if (!response.ok) throw new Error('Could not load feeds. Close and try again.');
+    const names = await response.json();
     if (!dialog.isConnected) return result;
-    status.textContent = '';
-    feeds.forEach(feed => {
-      const row = document.createElement('button');
-      row.className = 'fp-row';
-      row.innerHTML = `<span class="fp-symbol">${icon('folder')}</span><span><span class="fp-name"></span>
-        <div class="fp-count"></div></span><span class="fp-action"></span>`;
-      row.querySelector('.fp-name').textContent = feed.name;
-      row.querySelector('.fp-count').textContent = feed.count + (feed.count === 1 ? ' account' : ' accounts');
-      row.querySelector('.fp-action').innerHTML = (feed.saved ? icon('check') : icon('plus')) + (feed.saved ? ' Added' : ' Add');
-      row.disabled = feed.saved;
-      row.onclick = async () => {
-        if (saving) return;
-        saving = true;
-        status.textContent = 'Adding to ' + feed.name + '…';
-        try {
-          const response = await fetch('/add', {method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({username, feed:feed.name})});
-          if (!response.ok) throw new Error('Could not save. Try again.');
-          notifyAccountChange(username, true);
-          if (dialog.isConnected) dialog.close('added');
-        } catch (error) { status.textContent = error.message; }
-        finally { saving = false; }
-      };
-      list.append(row);
-    });
-    list.querySelector('button:not(:disabled)')?.focus();
+    for (const value of names) {
+      const option = document.createElement('option');
+      option.value = value; option.textContent = value.replaceAll('_', ' ');
+      select.append(option);
+    }
+    const option = document.createElement('option');
+    option.value = ''; option.textContent = '+ Create new feed';
+    select.append(option);
+    if (createNew || !names.length) select.value = '';
+    else if (typeof chosenFeeds !== 'undefined' && chosenFeeds?.length === 1 && names.includes(chosenFeeds[0])) select.value = chosenFeeds[0];
+    select.disabled = false; submit.disabled = false; status.textContent = '';
+    mode();
+    if (!select.value) name.focus();
+    else if (username) select.focus();
+    else accounts.focus();
   } catch (error) { status.textContent = error.message; }
   return result;
 }

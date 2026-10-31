@@ -285,12 +285,12 @@ class Handler(BaseHTTPRequestHandler):
             feeds = load_feeds()
             rows = [{"name": name, "count": len(accounts_from_feed(feeds.get(name))),
                      "saved": username in accounts_from_feed(feeds.get(name))}
-                    for name in sorted(set(feeds) | {"saved"})]
+                    for name in sorted(feeds)]
             return self._send(200, json.dumps(rows).encode(), "application/json")
         if self.path == "/blocked":
             return self._send(200, json.dumps(sorted(blocked_accounts())).encode(), "application/json")
         if self.path == "/feeds":
-            return self._send(200, json.dumps(sorted(set(load_feeds()) | {"saved"})).encode(),
+            return self._send(200, json.dumps(sorted(load_feeds())).encode(),
                               "application/json")
         if self.path == "/preferences":
             return self._send(200, json.dumps({"selected_feeds": selected_feeds(),
@@ -447,6 +447,55 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 log.exception("Could not save the blocklist")
                 return self._send(500, b"could not save blocklist", "text/plain")
+        if self.path == "/feeds":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if not 0 < length <= 8192:
+                    raise ValueError("Request is too large")
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict) or not isinstance(body.get('name'), str):
+                    raise ValueError("Enter a feed name")
+                name = re.sub(r"\s+", "_", body['name'].strip().lower())
+                if not FEED_RE.fullmatch(name):
+                    raise ValueError("Use 1–20 letters, numbers, spaces, underscores or hyphens")
+                create = body.get('create', False)
+                if not isinstance(create, bool) or not isinstance(body.get('accounts', ''), str):
+                    raise ValueError("Invalid feed request")
+                accounts = []
+                for value in re.split(r"[\s,]+", body.get('accounts', '').strip()):
+                    if not value:
+                        continue
+                    if value.startswith(('instagram.com/', 'www.instagram.com/')):
+                        value = 'https://' + value
+                    if '://' in value:
+                        url = urlsplit(value)
+                        if url.scheme not in ('http', 'https') or url.hostname not in ('instagram.com', 'www.instagram.com'):
+                            raise ValueError("Use Instagram profile links or @handles")
+                        value = url.path.strip('/')
+                        if '/' in value or value in ('p', 'reel', 'reels', 'explore'):
+                            raise ValueError("Use a profile link, not a post link")
+                    value = value.lstrip('@').lower()
+                    if not USER_RE.fullmatch(value):
+                        raise ValueError("Invalid Instagram handle: " + value[:40])
+                    if value not in accounts:
+                        accounts.append(value)
+                if len(accounts) > 100:
+                    raise ValueError("Add at most 100 accounts at once")
+                if not create and not accounts:
+                    raise ValueError("Enter at least one account")
+                with edit_feeds() as feeds:
+                    if create and name in feeds:
+                        return self._send(409, b'{"error":"That feed already exists"}', 'application/json')
+                    if not create and name not in feeds:
+                        raise ValueError("Choose an existing feed")
+                    existing = accounts_from_feed(feeds.get(name))
+                    feeds[name] = list(dict.fromkeys(existing + accounts))
+                return self._send(200, json.dumps({'name': name, 'created': create,
+                    'accounts': accounts}).encode(), 'application/json')
+            except (ValueError, TypeError) as error:
+                return self._send(400, json.dumps({'error': str(error)}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context="Saving a feed")
         if self.path == "/preferences":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -501,7 +550,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, b"bad username", "text/plain")
                 with edit_feeds() as feeds:
                     destination = str(body.get("feed", "")).lower()
-                    if not FEED_RE.fullmatch(destination) or destination not in set(feeds) | {"saved"}:
+                    if not FEED_RE.fullmatch(destination) or destination not in feeds:
                         return self._send(400, b"choose a valid feed", "text/plain")
                     cur = accounts_from_feed(feeds.get(destination))
                     duplicate = username in cur

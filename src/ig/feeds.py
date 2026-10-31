@@ -56,7 +56,7 @@ MIX = "__mix__"
 
 # Public meme discovery candidates, not saved memberships. Unavailable profiles
 # are skipped by the normal trial loader; blocks always take precedence.
-MEME_TRIAL_ACCOUNTS = ("sainthoax", "epicfunnypage", "sarcasm_only", "fuckjerry", "meme")
+MEME_TRIAL_ACCOUNTS = ()  # Discovery comes from the user's accounts and feedback.
 
 
 def _pool_seeds(name: str) -> list[str]:

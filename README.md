@@ -42,7 +42,11 @@ A saved feed name opens the combined mix, matching the original tool. The mix ra
 
 ## Local data
 
-Feeds, account memberships, permanent blocks, and the meme preference are stored in `~/.config/ig/settings.sqlite3`. On first use, existing `feeds.json`, `blocked.json`, and `preferences.json` are imported together in one transaction. Original JSON files are retained as backups and are no longer read after migration. Both legacy feed formats are accepted; weights are discarded. Defaults are created only if there is no legacy feed file. Feed changes use database transactions and update the running mix automatically. The `programming` feed combines programming, computer science, and software engineering, starting with `cs50`, `freecodecamp`, `fireship_dev`, and `codewithharry`. The `edits` feed combines film/character tributes with cinematic car and motorcycle edits. Starters are `v4ultfx`, `aradz.cc`, `gdb.vfx.ae`, `woyshnis.media`, `editbyxeno`, and `adam.v4r1`. Migration 4 renames `movie_edits` to `edits`, merges existing memberships, and preserves feed selections. The `islam` feed starts with `yaqeeninstitute`, `muftimenkofficial`, `onepathnetwork`, `muslimcentral`, `mercifulservant`, `belal.assaad`, and `assimalhakeem` for Islamic reminders and educational videos. Sources start loading their next page below twelve unseen clips, ahead of new discovery accounts. The `gaming` feed starts with `houseofgaming`, `igndotcom`, `gamespot`, `playstation`, `xbox`, and `nintendoamerica`. Background server metadata lives in `~/.cache/ig/server.json`; downloaded profiles are cached in `~/.cache/ig/profiles.sqlite3` (see below); feedback, liked-reel discovery leads, the local hashtag index, and Saved reels persist in `~/.config/ig/recommendations.sqlite3`. The latest 5,000 delivered clip IDs are saved in `~/.cache/ig/history.sqlite3` to avoid repeats across restarts, with a one-time import from `history.json`. `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` can override these locations, including for isolated development.
+The local SQLite databases are your user profile. Feeds, memberships, permanent blocks and selections live in `~/.config/ig/settings.sqlite3`; feedback, discovery metadata and Saved reels live in `~/.config/ig/recommendations.sqlite3`. New databases start with no feeds or predefined accounts. Existing databases keep their memberships and data. Browser tabs and devices connected to the same server share that local profile; there are no browser-specific profiles or logins. A separate OS account or `XDG_CONFIG_HOME` gives another person their own settings. Also set `XDG_CACHE_HOME` when isolating viewing history.
+
+Use **+** or **Create feed** in the feed selector to create a feed. Accounts are optional at creation. **A** opens the add dialog with the current creator filled in (or a blank form if no reel is loaded); **Shift+A** always opens a blank account form. Choose an existing feed or **+ Create new feed**, paste handles or Instagram profile links separated by spaces, commas or new lines, then save with **Ctrl+Enter**. New feeds appear in the selector immediately. The dialog also works from a profile's Add button.
+
+Legacy `feeds.json`, `blocked.json`, and `preferences.json` files are imported once and retained as backups. Old schema upgrades preserve custom memberships and no longer seed a gaming feed. Background server metadata lives in `~/.cache/ig/server.json`; public profile metadata is cached in `~/.cache/ig/profiles.sqlite3`; the last 5,000 delivered clip IDs live in `~/.cache/ig/history.sqlite3`. Sources start loading their next page below twelve unseen clips, ahead of new discovery accounts.
 
 All SQLite databases track their schema with `PRAGMA user_version`. Ordered migrations run automatically in a transaction; failures roll back and newer unsupported versions are rejected. Existing unversioned databases are adopted without replacing their data or repeating completed JSON imports. To change a schema, append a migration after `_initial_schema` in that database’s migration sequence; do not edit an already released migration.
 
@@ -94,13 +98,13 @@ The reels view prepares the next five videos and requests another batch when few
 
 ## Choosing feeds
 
-Tap the feed chips at the top of the reels view; a change applies right away, with no Apply button. **All** includes every saved feed. Tapping a feed while All is active picks just that feed, further taps add or remove feeds, and removing the last one goes back to All. Quick taps within about a third of a second are saved as one change. Selected chips are filled and show a check; on narrow screens the row scrolls sideways.
+Open the compact feed selector at the top of the reels view; a change applies right away, with no Apply button. **All** includes every saved feed. Tapping a feed while All is active picks just that feed, further taps add or remove feeds, and removing the last one goes back to All. Quick taps within about a third of a second are saved as one change. Selected feeds show a check. Use the arrow keys to move, Space to toggle a feed in your mix, and Enter to select only that feed.
 
 Changing feeds does not reload the page. The reel you're watching and the ones before it stay; reels queued after it for the old choice are removed and a new batch for the new choice is added after the current reel. A batch that was requested before the change is thrown away when it arrives. Session blocks, likes and mute stay as they were. A small spinner shows while the switch is in progress; if saving fails, the chips go back to the saved choice and a short message says so. The choice persists in SQLite.
 
 The page opens immediately and fetches its first batch afterwards, showing **Loading reels…** in the middle of the screen until the first reel appears (and a small notice when a new feed choice has nothing queued yet). Failed requests retry every 3 seconds; after two failures in a row the reason is shown with a **Try again** button. Selected feeds receive roughly balanced opportunities when eligible creators are available; discovery must also match a selected topic. A saved account's membership is trusted, including ironic humour with literal-looking captions. Accounts saved only in unselected feeds are excluded even if previously liked.
 
-Settings migration v2 converts an enabled legacy meme preference into the Memes selection. Migration v3 removes the old studio and clip defaults (`imdb`, `netflix`, `marvelstudios`, `movieclips`) from `movie_edits`, keeping any accounts you added, and adds the `gaming` feed unless you already have one. Deleting the last selected feed does not silently enable All; choose another feed explicitly.
+Settings migration v2 converts an enabled legacy meme preference into the Memes selection. Migration v3 removes the old studio and clip defaults (`imdb`, `netflix`, `marvelstudios`, `movieclips`) from `movie_edits`, keeping any accounts you added, without adding predefined feeds. Deleting the last selected feed does not silently enable All; choose another feed explicitly.
 
 The Add button asks which feed to save an account to, in both reels and profile views. Liking a reel never adds its creator to a feed.
 
@@ -116,9 +120,12 @@ Opening batches avoid the previous batch’s opening account when another accoun
 - **D**: download this reel (same as its download button).
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
-- **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. Comments load on demand and remain cached for that reel in the tab; navigating to another reel closes the panel.
+- **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. Comments load on demand and remain cached for that reel in the tab; navigating to another reel keeps the panel open and loads that reel’s comments.
 - **R**: remove the current account from all saved feeds (does not block it).
-- **A**: open the feed picker for the current account, even if it is already saved elsewhere.
+- **A**: add the current account to a feed, or enter accounts when no reel is loaded.
+- **Shift+A**: enter handles or profile links to add.
+- **+**: create a feed, optionally with accounts.
+- **Ctrl+Enter**: save the create/add dialog.
 - **P**: open the current account's profile in a new tab.
 - **W**: show why this reel was picked (or tap **why**).
 - **B**: block the current account permanently.
@@ -176,7 +183,7 @@ Feedback affects new batches. Already loaded clips remain in place, except an ex
 
 **Discovery limits:** Instagram's hashtag, keyword-search, audio, and private API surfaces all require a login; logged-out tag pages are login shells and return no media. There is no global hashtag/audio search in this version, and none is possible without credentials. Tag-driven discovery therefore works from the local index of already-fetched captions: it can only recommend creators whose reels this app has seen, and the per-feed vocabularies fill in as feeds are actually watched. Credited accounts may still be private or unavailable, and topic heuristics can still make mistakes. No subscription or video-analysis service was added.
 
-Meme discovery also samples a small built-in set of public profile candidates when the memes feed is selected and nonempty. These are trial sources, never saved memberships. Creator credits from stored saved-account reels are recovered after restarts. Each batch first tries an eligible unfamiliar creator (subject to blocks, cooldowns, and the request budget), then fills from the normal mix. Discovery remains limited to public profiles and credits; this is not logged-in Explore access.
+There are no built-in creator candidates; discovery starts from your own saved accounts and feedback. Creator credits from stored saved-account reels are recovered after restarts. Each batch first tries an eligible unfamiliar creator (subject to blocks, cooldowns, and the request budget), then fills from the normal mix. Discovery remains limited to public profiles and credits; this is not logged-in Explore access.
 
 Batch loading prioritizes cached unseen clips and returns partial batches before requesting additional cold profiles. The browser continuously refills toward 24 queued reels while downloading only the next five videos. When the queue is empty, a compact loading notice remains visible. A cold profile or upstream rate limit can still delay refills.
 

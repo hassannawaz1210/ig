@@ -35,20 +35,18 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
         with sqlite3.connect(self.path / 'settings.sqlite3') as db:
             return db.execute('PRAGMA user_version').fetchone()[0]
 
-    def test_fresh_database_has_edit_pages_and_gaming(self):
+    def test_fresh_database_starts_empty(self):
         feeds = config.load_feeds()
-        self.assertEqual(feeds['edits'], config.DEFAULT_FEEDS['edits'])
-        self.assertEqual(feeds['gaming'], list(config.GAMING_STARTER_ACCOUNTS))
+        self.assertEqual(feeds, {})
         self.assertEqual(self.version(), 4)
 
-    def test_users_version_2_data_loses_studios_and_gains_gaming(self):
+    def test_legacy_upgrade_does_not_add_feeds(self):
         self.make_version_2({'movie_edits': USER_MOVIE_EDITS, 'saved': ['houseofgaming'], 'memes': ['memes']})
         feeds = config.load_feeds()
         self.assertEqual(feeds['edits'], ['cinemaedits', 'cinematicedits'])
         self.assertEqual(feeds['saved'], ['houseofgaming'])
         self.assertEqual(feeds['memes'], ['memes'])
-        self.assertEqual(list(feeds)[-1], 'gaming')  # New feed goes after the user's own.
-        self.assertEqual(feeds['gaming'], list(config.GAMING_STARTER_ACCOUNTS))
+        self.assertNotIn('gaming', feeds)
 
     def test_keeps_accounts_the_user_added_and_their_own_gaming_feed(self):
         self.make_version_2({'movie_edits': ['netflix', 'myedits', 'cinemaedits'],
@@ -60,10 +58,10 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
 
     def test_works_when_movie_edits_was_deleted(self):
         self.make_version_2({'code': ['cs50']})
-        self.assertEqual(config.load_feeds(), {'code': ['cs50'], 'gaming': list(config.GAMING_STARTER_ACCOUNTS)})
+        self.assertEqual(config.load_feeds(), {'code': ['cs50']})
 
     def test_running_again_changes_nothing(self):
-        self.make_version_2({'movie_edits': USER_MOVIE_EDITS})
+        self.make_version_2({'movie_edits': USER_MOVIE_EDITS, 'gaming':['mygamer']})
         first = config.load_feeds()
         with config.edit_feeds() as feeds:
             feeds['edits'].append('netflix')  # Re-added on purpose after upgrading.
