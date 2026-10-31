@@ -18,11 +18,12 @@ FEED_RE = re.compile(r"^[a-z0-9_-]{1,20}$")
 
 
 DEFAULT_FEEDS = {
-    "edits": [
+    "movie_edits": [
         "imdb", "netflix", "marvelstudios", "movieclips",
         "cinemaedits", "cinematicedits",
     ],
     "memes": ["memes", "funnymemes", "9gag", "ladbible", "unilad"],
+    "electronics": ["adafruit", "sparkfun"],
     "programming": ["cs50", "freecodecamp", "fireship_dev", "codewithharry"],
 }
 
