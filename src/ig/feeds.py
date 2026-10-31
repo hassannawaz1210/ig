@@ -185,6 +185,15 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
                 loaded + [a for a in candidates if a in saved and a not in STATE and a not in cached]
             if not candidates:
                 break
+        # Deliver already available clips before trying cold discovery profiles.
+        # A slow account must not hold playable reels behind a network request.
+        ready = [a for a in candidates if a in STATE and any(
+            p.get('is_video') and p['shortcode'] not in pool['served']
+            for p in STATE[a]['posts'])]
+        if ready:
+            candidates = ready
+        elif out:
+            break  # Return a partial batch now; the browser refills immediately.
         # Avoid repeating recent creators when alternatives are available.
         diverse = [a for a in candidates if a not in recent and a not in cooldowns]
         if diverse:
@@ -212,7 +221,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         try:
             state = STATE.get(username)
             # Over budget, an older in-memory copy is better than another request.
-            if state is None or (requests_left > 0 and PROFILES.is_stale(state)):
+            if state is None or (requests_left > 0 and PROFILES.is_stale(state) and not any(
+                    p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])):
                 state, used_network = PROFILES.load(username)
                 if used_network:
                     requests_left, trial_requests_left = _spend_request(

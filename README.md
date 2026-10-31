@@ -88,7 +88,7 @@ Every page and request needs the code, and wrong codes are limited to 10 every 1
 
 The server binds to `127.0.0.1`. Instagram fetching uses `curl_cffi` browser impersonation and undocumented page payloads; login walls, rate limits, and upstream changes can interrupt browsing. The pagination query ID is in `instagram.py` and may need refreshing when Instagram changes it. Automated tests use fixtures and mocks rather than making Instagram requests. Node.js enables the JavaScript preloading regression check; that check is skipped if Node is unavailable.
 
-The reels view prepares the next three videos and requests another batch when fewer than eight unread reels remain. Temporary empty batches and request failures retry automatically. Media outside the nearby slides is released to limit memory use.
+The reels view prepares the next five videos and requests another batch when fewer than 24 unread reels remain. Temporary empty batches and request failures retry automatically. Media outside the nearby slides is released to limit memory use.
 
 ## Choosing feeds
 
@@ -161,3 +161,5 @@ Feedback affects new batches. Already loaded clips remain in place, except an ex
 **Discovery limits:** Instagram's hashtag, keyword-search, audio, and private API surfaces all require a login; logged-out tag pages are login shells and return no media. There is no global hashtag/audio search in this version, and none is possible without credentials. Tag-driven discovery therefore works from the local index of already-fetched captions: it can only recommend creators whose reels this app has seen, and the per-feed vocabularies fill in as feeds are actually watched. Credited accounts may still be private or unavailable, and topic heuristics can still make mistakes. No subscription or video-analysis service was added.
 
 Meme discovery also samples a small built-in set of public profile candidates when the memes feed is selected and nonempty. These are trial sources, never saved memberships. Creator credits from stored saved-account reels are recovered after restarts. Each batch first tries an eligible unfamiliar creator (subject to blocks, cooldowns, and the request budget), then fills from the normal mix. Discovery remains limited to public profiles and credits; this is not logged-in Explore access.
+
+Batch loading prioritizes cached unseen clips and returns partial batches before requesting additional cold profiles. The browser continuously refills toward 24 queued reels while downloading only the next five videos. When the queue is empty, a compact loading notice remains visible. A cold profile or upstream rate limit can still delay refills.

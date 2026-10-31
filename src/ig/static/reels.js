@@ -157,7 +157,7 @@ function updateFeedStatus() {
   const queued = visible.some(i => i > current);
   let mode = null;
   if (!visible.length) mode = 'overlay';
-  else if (switchingFeeds && !queued) mode = 'compact';
+  else if (!queued && (switchingFeeds || fetching || retryTimer || exhausted)) mode = 'compact';
   let state = 'loading', text = 'Loading reels…';
   if (loadFailures >= FAILURES_BEFORE_ERROR) {
     state = 'error';
@@ -243,8 +243,10 @@ function append(chunk) {
   if (current < 0 && visibleIndices().length) showSlide(visibleIndices()[0]);
   updateFeedStatus();
 }
-const PRELOAD_AHEAD = 3;
-const BUFFER_AHEAD = 8;
+const PRELOAD_AHEAD = 5;
+// Keep metadata farther ahead than media: cheap queued reels absorb slow
+// profile requests without downloading dozens of videos at once.
+const BUFFER_AHEAD = 24;
 const RETRY_DELAY_MS = 3000;  // wait before asking again after an empty or failed batch
 let retryTimer = null;
 function setVideo(p, i, play = false) {
@@ -689,6 +691,10 @@ function goRel(d) {
   const i = indices[Math.max(0, Math.min(indices.length - 1, at + d))];
   // Commit the target before observers or incoming batches can change current.
   if (i !== undefined && i !== current) showSlide(i);
+  else if (d > 0 && !exhausted) {
+    maybeMore();
+    updateFeedStatus();
+  }
 }
 updateFeedStatus();
 more();

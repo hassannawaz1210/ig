@@ -201,6 +201,7 @@ const {ctx, element, calls, timers} = createPage(async url =>
   console.log('Reel preloading, keyboard shortcuts and blocks passed');
   await feedSelectionTests();
   await loadingStateTests();
+  await earlyRefillTests();
   console.log('Feed selection and loading state passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});
 
@@ -363,7 +364,20 @@ async function loadingStateTests() {
   runTimer(page, run('RETRY_DELAY_MS'));
   page.reply(page.next('/reels/more'), {posts: reels('x'), has_more: true});
   await settleAll();
-  assert.equal(status.hidden, true, 'notice hides when the first reel shows');
+  assert.equal(status.dataset.mode, 'compact', 'one reel with no buffer shows a compact refill notice');
   assert.equal(run('current'), 0);
   assert.equal(run('loadFailures'), 0);
+}
+
+
+async function earlyRefillTests() {
+  const page=createControlledPage();
+  page.reply(page.next('/reels/more'), {posts:reels(...Array.from({length:14},(_,i)=>'warm'+i)),has_more:true});
+  await settleAll();
+  assert.equal(vm.runInContext('current',page.ctx),0);
+  assert.ok(page.open.some(r=>r.url==='/reels/more'),'refill begins while thirteen reels remain, not near the end');
+  const requestCount=page.calls.filter(r=>r.url==='/reels/more').length;
+  vm.runInContext('maybeMore(); maybeMore()',page.ctx);
+  assert.equal(page.calls.filter(r=>r.url==='/reels/more').length,requestCount,'keep one refill request in flight');
+  assert.ok(page.calls.some(r=>r.url.endsWith('/media')&&JSON.parse(r.options.body).code==='warm5'), 'fifth upcoming video is prepared before navigation');
 }

@@ -185,7 +185,7 @@ class BatchFailureTests(TempDirs):
         config.save_feeds({'memes': ['saved', 'broken']})
 
     def run_batch(self, pool, error):
-        states = {'saved': {'posts': [{'shortcode': 'clip01', 'owner': 'saved', 'is_video': True}],
+        states = {'saved': {'posts': [],
                             'has_more': False}}
 
         def load(username):
@@ -198,7 +198,7 @@ class BatchFailureTests(TempDirs):
         pool = feeds.make_pool(['saved', 'broken'])
         with self.assertLogs('ig.feeds', 'WARNING'):
             result = self.run_batch(pool, RateLimited('wait'))
-        self.assertEqual([p['owner'] for p in result['posts']], ['saved'])
+        self.assertEqual(result['posts'], [])
         self.assertNotIn('broken', pool['dead'])
 
     def test_unavailable_accounts_are_dropped(self):
@@ -252,8 +252,8 @@ class RequestBudgetTests(TempDirs):
         strangers = [name for name in loaded if name.startswith('stranger')]
         self.assertLessEqual(len(strangers), 1, 'at most one off-topic trial is loaded')
         self.assertLessEqual(len(loaded), 3)
-        self.assertGreaterEqual(len({p['owner'] for p in result['posts']} & set(saved)), 2,
-                                'the remaining requests load saved accounts')
+        self.assertGreaterEqual(len({p['owner'] for p in result['posts']} & set(saved)), 1,
+                                'return the first playable saved account without waiting for more cold profiles')
 
 
 class FailedLoadBudgetTests(TempDirs):
@@ -269,3 +269,23 @@ class FailedLoadBudgetTests(TempDirs):
                 self.assertLogs('ig.feeds', 'INFO'):
             feeds._pool_more(feeds.make_pool(names))
         self.assertEqual(len(tries), feeds.REQUESTS_PER_BATCH)
+
+
+class FastBatchTests(TempDirs):
+    def test_ready_reels_never_wait_for_cold_profiles(self):
+        config.save_feeds({'memes':['ready','cold']})
+        states={'ready':{'posts':[{'shortcode':'ready01','owner':'ready','is_video':True}],
+                         'has_more':False, 'fetched_at':0}}
+        with patch('ig.feeds.STATE',states), patch.object(feeds.PROFILES,'load',side_effect=AssertionError('network blocks playback')):
+            result=feeds._pool_more(feeds.make_pool(['ready','cold']))
+        self.assertEqual([p['owner'] for p in result['posts']],['ready'])
+        self.assertTrue(result['has_more'])
+
+    def test_return_first_cold_result_before_loading_second(self):
+        config.save_feeds({'memes':['one','two']})
+        def load(name):
+            return {'posts':[{'shortcode':name+'01','owner':name,'is_video':True}], 'has_more':False}, True
+        with patch('ig.feeds.STATE',{}), patch.object(feeds.PROFILES,'load',side_effect=load) as network:
+            result=feeds._pool_more(feeds.make_pool(['one','two']))
+        self.assertEqual(network.call_count,1)
+        self.assertEqual(len(result['posts']),1)
