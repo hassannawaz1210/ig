@@ -383,11 +383,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self._allowed():
             return
         if self.path.startswith("/comments/"):
-            code = self.path.removeprefix("/comments/")
+            split = urlsplit(self.path)
+            code = split.path.removeprefix("/comments/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                 return self._send(400, b"invalid post code", "text/plain")
+            # The panel pages through comments as it scrolls; the cursor is
+            # Instagram's opaque JSON blob, so only bound its size.
+            after = (parse_qs(split.query).get("after") or [None])[0]
+            if after is not None and not 1 <= len(after) <= 2000:
+                return self._send(400, b"invalid comment cursor", "text/plain")
             try:
-                return self._send(200, json.dumps(instagram.post_comments(code)).encode(), "application/json")
+                result = instagram.post_comments(code, after=after)
+                return self._send(200, json.dumps(result).encode(), "application/json")
             except Exception as error:
                 return self._fail(error, as_json=True, context="Loading comments")
         if self.path == "/feedback":

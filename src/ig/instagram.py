@@ -264,12 +264,14 @@ def media_info(code: str) -> dict:
     return out
 
 
-def post_comments(code: str, first: int = 20) -> dict:
-    """Top-level comments of a post, without login.
+def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
+    """One page of a post's top-level comments, without login.
 
     Comments are not embedded in logged-out post pages; a separate GraphQL
     query on the post page's media id returns them. One page load seeds the
-    anonymous session (cookies and tokens), then the query runs on it."""
+    anonymous session (cookies and tokens), then the query runs on it.
+    Instagram serves about twenty comments per page no matter what `first`
+    asks for; pass the returned next_cursor as `after` to keep scrolling."""
     session = _new_session()
     html = _post_page(code)
     if '"LSD"' not in html:
@@ -287,7 +289,7 @@ def post_comments(code: str, first: int = 20) -> dict:
     lsd_m = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', html)
     lsd = lsd_m.group(1) if lsd_m else ""
     csrf = session.cookies.get("csrftoken", "")
-    variables = json.dumps({"after": None, "first": first, "media_id": str(pk)},
+    variables = json.dumps({"after": after, "first": first, "media_id": str(pk)},
                            separators=(",", ":"))
     body = urlencode({
         "av": "0", "__d": "www", "__user": "0", "__a": "1",
@@ -333,7 +335,11 @@ def post_comments(code: str, first: int = 20) -> dict:
             "created_at": node.get("created_at"),
             "is_owner": username == owner,
         })
-    return {"shortcode": media.get("code") or code, "owner": owner, "comments": comments}
+    page_info = connection.get("page_info") or {}
+    has_more = bool(page_info.get("has_next_page"))
+    return {"shortcode": media.get("code") or code, "owner": owner, "comments": comments,
+            "next_cursor": page_info.get("end_cursor") if has_more else None,
+            "has_more": has_more}
 
 
 def fetch_profile_page(username: str):

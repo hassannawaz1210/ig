@@ -858,6 +858,21 @@ function closeComments() {
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeComments();
 });
+function commentRow(comment) {
+  return `<article class="comment-row">
+    <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
+    ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
+    <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`;
+}
+function commentKey(comment) { return comment.username + '\u0000' + comment.text; }
+function commentsPage(p, after) {
+  return fetch('/comments/' + encodeURIComponent(p.shortcode) + (after ? '?after=' + encodeURIComponent(after) : ''),
+    {method:'POST', signal:AbortSignal.timeout(45000)}).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not load comments');
+      return data;
+    });
+}
 async function toggleComments(i) {
   const p = posts[i];
   if (!p || isHidden(p)) return;
@@ -869,21 +884,53 @@ async function toggleComments(i) {
   body.textContent = 'Loading comments…';
   try {
     if (!p._comments) {
-      if (!p._commentsLoading) p._commentsLoading = fetch('/comments/' + encodeURIComponent(p.shortcode),
-        {method:'POST', signal:AbortSignal.timeout(45000)}).then(async response => {
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(data.error || 'Could not load comments');
-          p._comments = data.comments || [];
-        }).finally(() => { p._commentsLoading = null; });
+      if (!p._commentsLoading) p._commentsLoading = commentsPage(p, null).then(data => {
+        p._comments = data.comments || [];
+        p._commentKeys = new Set(p._comments.map(commentKey));
+        p._commentCursor = data.next_cursor || null;
+      }).finally(() => { p._commentsLoading = null; });
       await p._commentsLoading;
     }
     if (panel.hidden || panel.dataset.code !== p.shortcode) return;
-    body.innerHTML = p._comments.length ? p._comments.map(comment => `<article class="comment-row">
-      <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
-      ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-      <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('') : 'Nothing to show yet.';
+    body.innerHTML = p._comments.length ? p._comments.map(commentRow).join('') : 'Nothing to show yet.';
+    // A short first page on a tall panel should already offer more.
+    if (p._commentCursor && body.scrollHeight <= body.clientHeight) loadMoreComments(p, body);
   } catch (error) {
     if (panel.hidden || panel.dataset.code !== p.shortcode) return;
     body.textContent = error.message + ' · close and reopen to retry';
   }
 }
+async function loadMoreComments(p, body) {
+  if (p._commentsLoading || !p._commentCursor) return;
+  document.getElementById('comments-more')?.remove();
+  const sentinel = document.createElement('div');
+  sentinel.id = 'comments-more';
+  sentinel.textContent = 'Loading more…';
+  body.appendChild(sentinel);
+  let failed = false;
+  p._commentsLoading = commentsPage(p, p._commentCursor).then(data => {
+    for (const comment of data.comments || []) {
+      if (p._commentKeys.has(commentKey(comment))) continue;  // cursors may repeat a row
+      p._commentKeys.add(commentKey(comment));
+      p._comments.push(comment);
+      sentinel.insertAdjacentHTML('beforebegin', commentRow(comment));
+    }
+    p._commentCursor = data.next_cursor || null;
+  }).catch(() => {
+    failed = true;
+  }).finally(() => {
+    sentinel.remove();
+    p._commentsLoading = null;
+    if (failed) body.insertAdjacentHTML('beforeend',
+      '<div id="comments-more" role="status">Couldn’t load more · scroll to retry</div>');
+  });
+  await p._commentsLoading;
+}
+document.getElementById('comments-body').addEventListener('scroll', event => {
+  const el = event.target;
+  const panel = document.getElementById('comments-panel');
+  const p = posts.find(x => x && x.shortcode === panel.dataset.code);
+  if (panel.hidden || !p || p._commentsLoading || !p._commentCursor) return;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight > 140) return;
+  loadMoreComments(p, el);
+});

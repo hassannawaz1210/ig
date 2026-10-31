@@ -25,13 +25,16 @@ def _post_html(pk="111222333", code="AbCdEfGhIjK", owner="creator"):
 POST_HTML = _post_html()
 
 
-def comments_payload(comments):
+def comments_payload(comments, more=True, cursor=None):
     edges = [{"node": {"pk": str(i), "text": text, "comment_like_count": likes,
                        "created_at": 1700000000 + i,
                        "user": {"username": username, "id": str(1000 + i)}},
               "cursor": "Q"} for i, (username, text, likes) in enumerate(comments)]
+    page = {"has_next_page": more}
+    if cursor:
+        page["end_cursor"] = cursor
     return {"data": {"xig_polaris_media": {"comments_connection":
-                                           {"edges": edges, "page_info": {"has_next_page": True}}}}}
+                                           {"edges": edges, "page_info": page}}}}
 
 
 class CommentFetchTests(unittest.TestCase):
@@ -68,6 +71,27 @@ class CommentFetchTests(unittest.TestCase):
             result = instagram.post_comments('AbCdEfGhIjK')
         self.assertEqual(result['comments'], [])
 
+    def test_pagination_cursor_round_trip(self):
+        from urllib.parse import unquote
+        response = MagicMock(status_code=200)
+        response.json.return_value = comments_payload([("fan", "nice", 1)],
+                                                      more=True, cursor='AQFPREVIOUS')
+        with patch.object(instagram, '_post_page', return_value=POST_HTML), \
+                patch.object(instagram, 'request', return_value=response) as req:
+            result = instagram.post_comments('AbCdEfGhIjK', after='{"server_cursor":"AQHR"}')
+        self.assertTrue(result['has_more'])
+        self.assertEqual(result['next_cursor'], 'AQFPREVIOUS')
+        variables = dict(pair.split('=', 1) for pair in
+                         req.call_args.kwargs['data'].split('&'))['variables']
+        self.assertIn('"after":"{\\"server_cursor\\":\\"AQHR\\"}"', unquote(variables))
+        # A last page has no cursor to follow.
+        response.json.return_value = comments_payload([("fan", "last", 0)], more=False)
+        with patch.object(instagram, '_post_page', return_value=POST_HTML), \
+                patch.object(instagram, 'request', return_value=response):
+            last = instagram.post_comments('AbCdEfGhIjK', after='AQFPREVIOUS')
+        self.assertFalse(last['has_more'])
+        self.assertIsNone(last['next_cursor'])
+
     def test_blocked_or_shapeless_reply_raises_typed_error(self):
         response = MagicMock(status_code=200)
         response.json.return_value = {"status": "fail", "require_login": True}
@@ -75,6 +99,37 @@ class CommentFetchTests(unittest.TestCase):
                 patch.object(instagram, 'request', return_value=response):
             with self.assertRaises(instagram.RateLimited):
                 instagram.post_comments('AbCdEfGhIjK')
+
+
+class CommentRouteTests(unittest.TestCase):
+    def handler(self, path):
+        handler = Handler.__new__(Handler)
+        handler.path = path
+        handler._send = MagicMock()
+        handler._fail = MagicMock()
+        return handler
+
+    def test_cursor_is_passed_through_and_returned(self):
+        from urllib.parse import quote
+        cursor = '{"server_cursor":"AQHR"}'
+        handler = self.handler(f'/comments/AbCdEfGhIj?after={quote(cursor)}')
+        page = {'shortcode': 'AbCdEfGhIj', 'owner': 'creator',
+                'comments': [{'username': 'fan', 'text': 'nice', 'like_count': 0}],
+                'next_cursor': 'AQFNEXT', 'has_more': True}
+        with patch.object(instagram, 'post_comments', return_value=page) as fetch:
+            handler.do_POST()
+        fetch.assert_called_once_with('AbCdEfGhIj', after=cursor)
+        status, body, _ = handler._send.call_args.args
+        self.assertEqual(status, 200)
+        self.assertEqual(__import__('json').loads(body)['next_cursor'], 'AQFNEXT')
+
+    def test_oversized_cursor_and_bad_code_are_rejected(self):
+        for path in (f'/comments/AbCdEfGhIj?after={"x" * 2001}', '/comments/bad code'):
+            handler = self.handler(path)
+            with patch.object(instagram, 'post_comments') as fetch:
+                handler.do_POST()
+            fetch.assert_not_called()
+            self.assertEqual(handler._send.call_args.args[0], 400)
 
 
 class CommentLeadTests(unittest.TestCase):

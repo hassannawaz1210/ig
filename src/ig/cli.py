@@ -215,6 +215,8 @@ def _run(args):
             print(f"{who}{owner_mark}{likes}")
             for line in (comment["text"] or "").splitlines()[:3]:
                 print(f"    {line}")
+        if result.get("has_more"):
+            print("…more comments exist; the reels panel loads them as you scroll")
     elif cmd == "feed":
         print(json.dumps(feed(arg), indent=2, ensure_ascii=False))
     else:

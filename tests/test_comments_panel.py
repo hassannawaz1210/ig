@@ -12,7 +12,7 @@ class CommentsPanelTests(unittest.TestCase):
         with patch.object(handler,'_allowed',return_value=True), patch.object(handler,'_send') as send, \
              patch('ig.server.instagram.post_comments',return_value=result) as fetch:
             handler.do_POST()
-        fetch.assert_called_once_with('clip001')
+        fetch.assert_called_once_with('clip001', after=None)
         self.assertEqual(send.call_args.args[0],200)
         self.assertEqual(json.loads(send.call_args.args[1]),result)
 
