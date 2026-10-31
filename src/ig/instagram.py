@@ -226,7 +226,9 @@ def media_info(code: str) -> dict:
     m = _post_media(code)
 
     def best(vlist):
-        return (max(vlist, key=lambda x: x.get("width") or 0).get("url")
+        # Renditions sometimes arrive without dimensions; the first entry then
+        # matches what every other entry would resolve to anyway.
+        return (max(vlist, key=lambda x: (x.get("width") or 0) * (x.get("height") or 0)).get("url")
                 if vlist else None)
 
     out = {
@@ -238,6 +240,9 @@ def media_info(code: str) -> dict:
         "taken_at": m.get("taken_at"),
         "caption": (m.get("caption") or {}).get("text"),
         "video": best(m.get("video_versions") or []),
+        # The manifest holds higher-quality renditions than the progressive
+        # URL; the server swaps the video URL for a locally assembled stream.
+        "video_dash_manifest": m.get("video_dash_manifest"),
         "poster": best((m.get("image_versions2") or {}).get("candidates") or []),
         "slides": [],
     }

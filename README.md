@@ -79,6 +79,7 @@ Every page and request needs the code, and wrong codes are limited to 10 every 1
 - `src/ig/cli.py`: commands and browser shortcuts
 - `src/ig/config.py`: paths and saved feeds
 - `src/ig/instagram.py`: page parsing, requests, and pagination
+- `src/ig/dash.py`: best-quality streams assembled from DASH manifests
 - `src/ig/feeds.py`: varied batches and account discovery
 - `src/ig/views.py`: fills the page templates and serves `/static` files
 - `src/ig/static/`: page templates (`*.html`), styles and browser scripts
@@ -133,6 +134,12 @@ Session blocks are stored in the tab's `sessionStorage` and sent with its batch 
 Press **S** or the bookmark button on a reel to keep it in **Saved reels**; press it again to remove it. This saves that one reel, not its account; the `saved` feed of accounts is unrelated. Saving is not a like: it does not change feeds, likes, or the ranking. Open the list with the bookmark icon in the reels top bar (or `/saved-reels`), newest first; click a reel to play it. `ig saved-reels` prints each one's shortcode, account and link.
 
 Saved reels are stored with their caption, link, date, like and comment counts and thumbnail in `~/.config/ig/recommendations.sqlite3`, and are never pruned. Instagram thumbnail links expire after a while, so older entries show a plain placeholder instead of the picture; the reel itself still plays.
+
+## Video quality
+
+Logged-out post pages only serve one progressive video rendition (720p), but the same payload carries a DASH manifest whose top representation matches the original upload resolution, typically 1080×1920 VP9. The app downloads that best video representation plus the best audio one, muxes them locally with the bundled ffmpeg, and plays the result instead of the progressive file; downloads (**D**) get the same best-quality file. Assembly happens in the background while a reel is still several slides away, and the last 48 assembled reels are cached in `~/.cache/ig/videos` for instant replay.
+
+When a reel has no manifest — carousels, some older posts, or if Instagram changes the manifest format — playback falls back to the progressive URL and nothing changes for the user. Seeking uses HTTP range requests on the assembled file.
 
 ## Automatic song recognition
 

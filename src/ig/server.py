@@ -20,6 +20,7 @@ from .feeds import MIX, feed_pool, pool_more, feed_accounts
 from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError, PROFILES, STATE)
 from .recognition import recognize_song
+from . import dash
 from .views import viewer_html, reels_html, static_file
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,26 @@ def saved_reel_details(code: str) -> dict:
 
 
 COMMENT_WORKERS = threading.BoundedSemaphore(2)
+STREAM_WORKERS = threading.BoundedSemaphore(2)
+
+
+def _schedule_stream_assembly(code: str, manifest: str) -> None:
+    """Pre-assemble a reel's best-quality stream in the background.
+
+    The /media response returns immediately; by the time the browser requests
+    /video/<code> for a preloaded slide, the file is usually already on disk."""
+    if dash.cached(code) is not None:
+        return
+
+    def build():
+        if not STREAM_WORKERS.acquire(blocking=False):
+            return  # /video assembles synchronously when the worker is busy.
+        try:
+            dash.assemble(code, manifest)
+        finally:
+            STREAM_WORKERS.release()
+
+    threading.Thread(target=build, daemon=True).start()
 
 
 def _schedule_comment_enrichment(code: str) -> None:
@@ -122,39 +143,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _download(self, code):
         try:
-            data = media_info(code)
-            url = data.get("video")
-            if not url:
-                return self._send(404, b"No video available for this post", "text/plain")
-            # Resolve only Instagram media URLs, never arbitrary URLs from the client.
-            parsed = urlsplit(url)
-            host = parsed.hostname or ""
-            if parsed.scheme != "https" or not any(
-                    host.endswith("." + domain) or host == domain
-                    for domain in ("cdninstagram.com", "fbcdn.net")):
-                log.warning("Refused video from unexpected host %s", host)
-                return self._send(502, b"Unexpected video host", "text/plain")
-            with tempfile.TemporaryFile() as file, cr.Session(impersonate="chrome") as session:
-                response = fetch_video(session, url)
-                try:
-                    if response.status_code != 200:
-                        log.warning("Video download for %s returned HTTP %s", code, response.status_code)
-                        return self._send(502, b"Could not fetch video. Try again.", "text/plain")
-                    for chunk in response.iter_content():
-                        file.write(chunk)
-                finally:
-                    response.close()
-                size = file.tell()
-                if not size:
-                    return self._send(502, b"Video was empty. Try again.", "text/plain")
-                file.seek(0)
-                self.send_response(200)
-                self.send_header("Content-Type", "video/mp4")
-                self.send_header("Content-Length", str(size))
-                self.send_header("Content-Disposition", f'attachment; filename="{code}.mp4"')
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                shutil.copyfileobj(file, self.wfile)
+            # Saved files get the same best-quality stream as playback.
+            path = dash.cached(code)
+            if path is None:
+                data = media_info(code)
+                manifest = data.get("video_dash_manifest")
+                if manifest:
+                    path = dash.assemble(code, manifest)
+                if path is None:
+                    return self._download_progressive(code, data)
+            return self._send_video_file(path, attachment=f"{code}.mp4")
         except (BrokenPipeError, ConnectionResetError):
             pass  # Browser cancelled the download.
         except InstagramError as error:
@@ -163,6 +161,102 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             log.exception("Unexpected error downloading %s", code)
             return self._send(502, b"Download failed. Please try again.", "text/plain")
+
+    def _download_progressive(self, code, data):
+        url = data.get("video")
+        if not url:
+            return self._send(404, b"No video available for this post", "text/plain")
+        # Resolve only Instagram media URLs, never arbitrary URLs from the client.
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or not any(
+                host.endswith("." + domain) or host == domain
+                for domain in ("cdninstagram.com", "fbcdn.net")):
+            log.warning("Refused video from unexpected host %s", host)
+            return self._send(502, b"Unexpected video host", "text/plain")
+        with tempfile.TemporaryFile() as file, cr.Session(impersonate="chrome") as session:
+            response = fetch_video(session, url)
+            try:
+                if response.status_code != 200:
+                    log.warning("Video download for %s returned HTTP %s", code, response.status_code)
+                    return self._send(502, b"Could not fetch video. Try again.", "text/plain")
+                for chunk in response.iter_content():
+                    file.write(chunk)
+            finally:
+                response.close()
+            size = file.tell()
+            if not size:
+                return self._send(502, b"Video was empty. Try again.", "text/plain")
+            file.seek(0)
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{code}.mp4"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            shutil.copyfileobj(file, self.wfile)
+
+    def _video(self, code):
+        """Serve a reel's assembled best-quality file, or fall back."""
+        try:
+            path = dash.cached(code)
+            if path is None:
+                entry = dash.recall(code)
+                if entry is None:
+                    data = media_info(code)
+                    entry = {"mpd": data.get("video_dash_manifest") or "",
+                             "fallback": data.get("video")}
+                path = dash.assemble(code, entry.get("mpd") or "")
+            if path is None:
+                entry = dash.recall(code) or {}
+                fallback = entry.get("fallback")
+                if fallback:
+                    self.send_response(302)
+                    self.send_header("Location", fallback)
+                    self.end_headers()
+                    return
+                return self._send(502, b"Could not load this video. Try again.", "text/plain")
+            self._send_video_file(path)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The browser cancelled the request.
+        except InstagramError as error:
+            log.info("Stream of %s failed: %s", code, error)
+            return self._send(502, b"Could not load this video. Try again.", "text/plain")
+
+    def _send_video_file(self, path, attachment=None):
+        """One assembled file, honouring a single Range header for seeking."""
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        status = 200
+        header = self.headers.get("Range")
+        if header:
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", header.strip())
+            if match:
+                start = int(match.group(1))
+                if match.group(2):
+                    end = min(int(match.group(2)), size - 1)
+                if start > end or start >= size:
+                    return self._send(416, b"range not satisfiable", "text/plain")
+                status = 206
+        self.send_response(status)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        if attachment:
+            self.send_header("Content-Disposition", f'attachment; filename="{attachment}"')
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+        with path.open("rb") as file:
+            file.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = file.read(min(65536, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def do_GET(self):
         if self.path == "/ping":
@@ -179,6 +273,11 @@ class Handler(BaseHTTPRequestHandler):
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                 return self._send(400, b"invalid post code", "text/plain")
             return self._download(code)
+        if self.path.startswith("/video/"):
+            code = self.path.removeprefix("/video/")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
+                return self._send(400, b"invalid post code", "text/plain")
+            return self._video(code)
         if self.path.startswith("/feeds?"):
             username = parse_qs(urlsplit(self.path).query).get("username", [""])[0].lstrip("@").lower()
             if not USER_RE.fullmatch(username):
@@ -236,6 +335,14 @@ class Handler(BaseHTTPRequestHandler):
         data = media_info(code)
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
+        manifest = data.pop('video_dash_manifest', None)
+        if manifest and dash.plan(manifest):
+            # Play the locally assembled best-quality stream instead of the
+            # 720p progressive rendition; the browser resolves this relative
+            # URL against the page. The progressive URL stays the fallback.
+            dash.stash(code, manifest, data['video'])
+            data['video'] = f'/video/{code}'
+            _schedule_stream_assembly(code, manifest)
         _schedule_comment_enrichment(code)
         # Discovery examines stored creator credits and validates candidates;
         # arbitrary tags, commenters and sponsor mentions are not endorsements.
