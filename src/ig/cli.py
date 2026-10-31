@@ -22,9 +22,20 @@ HELP = """ig — browse Instagram logged out
   ig feed <username>       full archive JSON (may be slow)
   ig tags                  top hashtags seen locally
   ig tag <name>            local reels and creators using #<name>
+  ig phone                  use ig on your phone over the same Wi-Fi
+  ig phone --new-code       same, with a new access code (signs out other devices)
   ig logs                   show the latest server log lines
   ig serve [--port N]      run in foreground (default: 7349)
   ig stop                   stop the background server
+"""
+
+PHONE_HELP = """ig phone — use ig on your phone or tablet
+
+  ig phone                  start sharing on your Wi-Fi and show a QR code
+  ig phone --new-code       make a new access code (signs out other devices)
+  ig phone --port N         use port N instead of 7350
+
+Keep the terminal open while you use ig on the phone; Ctrl+C stops sharing.
 """
 
 
@@ -33,7 +44,7 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "logs"}
+    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "phone", "logs"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
@@ -137,6 +148,17 @@ def _run(args):
         for reel in reels[:12]:
             mark = {"like": "✓", "dislike": "✗", "skip": "·"}.get(reel["feedback"], " ")
             print(f"  {mark} {reel['shortcode']:14} @{reel['owner']}")
+    elif cmd == "phone":
+        from .phone import share
+        options = argv[2:]
+        if {"-h", "--help", "help"} & set(options):
+            print(PHONE_HELP)
+            return 0
+        port = _option_value(options, "--port") if "--port" in options else None
+        unknown = [o for o in options if o.startswith("-") and o not in {"--port", "--new-code"}]
+        if unknown:
+            raise SystemExit(f"ig: unknown option {unknown[0]} (see ig phone --help)")
+        return share(port=port, new_code="--new-code" in options)
     elif cmd == "logs":
         from . import logs
         lines = logs.tail(60)

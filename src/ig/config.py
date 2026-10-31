@@ -173,3 +173,21 @@ def set_blocked(username: str, blocked: bool) -> set[str]:
         else:
             db.execute("DELETE FROM blocked_accounts WHERE username = ?", (username,))
         return {row[0] for row in db.execute("SELECT username FROM blocked_accounts")}
+
+
+# Easy to type on a phone: no 0/o, 1/l/i look-alikes. 8 characters ≈ 39 bits,
+# and the server limits wrong guesses.
+PHONE_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+PHONE_CODE_LENGTH = 8
+
+
+def phone_access_code(renew: bool = False) -> str:
+    """The code that lets phones on your network in. Kept until renewed."""
+    import secrets
+    with database() as db:
+        row = db.execute("SELECT value FROM text_preferences WHERE key = 'phone_access_code'").fetchone()
+        if row and not renew:
+            return row[0]
+        code = "".join(secrets.choice(PHONE_CODE_ALPHABET) for _ in range(PHONE_CODE_LENGTH))
+        db.execute("INSERT OR REPLACE INTO text_preferences VALUES ('phone_access_code', ?)", (code,))
+        return code

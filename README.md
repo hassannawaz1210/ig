@@ -30,6 +30,7 @@ ig post SHORTCODE          # post JSON (also accepts a post URL)
 ig feed nasa               # full archive JSON; may take a while
 ig tags                    # top hashtags seen locally
 ig tag gymmemes            # local reels and creators using #gymmemes
+ig phone                   # use ig on your phone over the same Wi-Fi
 ig logs                    # show the latest server log lines
 ig serve --port 7349       # foreground server
 ig stop                    # stop the background server
@@ -55,6 +56,18 @@ When Instagram rate limits a request (HTTP 429, or a redirect to its login page)
 
 The server writes to `~/.cache/ig/server.log`, rotating at 1 MB and keeping three old files. `ig logs` prints the latest lines. Set `IG_LOG_LEVEL=DEBUG` before `ig serve` to log every Instagram request. Browser error messages stay short; unexpected errors are logged in full and the page points to `ig logs`.
 
+## Using ig on your phone
+
+```sh
+ig phone                   # share on your Wi-Fi and show a QR code
+ig phone --new-code        # new access code; signs out other devices
+ig phone --port 8080       # if 7350–7359 are busy
+```
+
+Scan the QR code, or open the printed address on the phone and type the 8-letter access code once. The phone remembers it with a cookie, so a bookmark or home-screen shortcut keeps working. The code stays the same until you run `--new-code`. Sharing lasts while the terminal is open; Ctrl+C stops it. Running `ig phone` again while it's already sharing just reprints the instructions.
+
+Every page and request needs the code, and wrong codes are limited to 10 every 10 minutes across all devices. The connection is plain HTTP, so use it on your home Wi-Fi, not public networks. If the phone can't connect, check that both devices are on the same network and that your firewall allows the port (`sudo ufw allow 7350/tcp`). The phone server is a separate process from the desktop one; they share feeds, likes, history and the profile cache through SQLite.
+
 ## Development
 
 ```sh
@@ -69,6 +82,7 @@ The server writes to `~/.cache/ig/server.log`, rotating at 1 MB and keeping thre
 - `src/ig/static/`: page templates (`*.html`), styles and browser scripts
 - `src/ig/reasons.py`: “Why am I seeing this?” text
 - `src/ig/server.py`: local HTTP routes and server lifecycle
+- `src/ig/phone.py`: `ig phone` sharing and access codes
 - `src/ig/logs.py`: server log file
 
 The server binds to `127.0.0.1`. Instagram fetching uses `curl_cffi` browser impersonation and undocumented page payloads; login walls, rate limits, and upstream changes can interrupt browsing. The pagination query ID is in `instagram.py` and may need refreshing when Instagram changes it. Automated tests use fixtures and mocks rather than making Instagram requests. Node.js enables the JavaScript preloading regression check; that check is skipped if Node is unavailable.

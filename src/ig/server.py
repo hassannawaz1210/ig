@@ -39,6 +39,9 @@ def error_status(error: Exception) -> tuple[int, str]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Set to a PhoneAccess object when serving other devices on the network.
+    access = None
+
     def log_message(self, fmt, *args):
         log.debug("%s %s", self.address_string(), fmt % args)
 
@@ -61,6 +64,9 @@ class Handler(BaseHTTPRequestHandler):
         if as_json:
             return self._send(status, json.dumps({"error": message}).encode(), "application/json")
         return self._send(status, message.encode(), "text/plain; charset=utf-8")
+
+    def _allowed(self) -> bool:
+        return self.access is None or self.access.allow(self)
 
     def _download(self, code):
         try:
@@ -109,6 +115,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/ping":
             return self._send(200, b"ok", "text/plain")
+        if not self._allowed():
+            return
         if self.path.startswith("/static/"):
             found = static_file(self.path.removeprefix("/static/"))
             if found is None:
@@ -172,6 +180,10 @@ class Handler(BaseHTTPRequestHandler):
         return data
 
     def do_POST(self):
+        if self.access is not None and self.path == "/sign-in":
+            return self.access.sign_in(self)
+        if not self._allowed():
+            return
         if self.path == "/feedback":
             try:
                 length = int(self.headers.get('Content-Length') or 0)
@@ -329,10 +341,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._fail(error, as_json=True)
 
 
+def make_server(host: str, port: int, access=None) -> ThreadingHTTPServer:
+    handler = Handler if access is None else type("SharedHandler", (Handler,), {"access": access})
+    return ThreadingHTTPServer((host, port), handler)
+
+
 def serve(port: int) -> None:
+    """The local background server; only this computer can reach it."""
     CACHE.mkdir(parents=True, exist_ok=True)
     logs.setup(console=sys.stderr.isatty())
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv = make_server("127.0.0.1", port)
     SERVER_JSON.write_text(json.dumps(
         {"port": srv.server_address[1], "pid": os.getpid()}))
     log.info("ig server on http://127.0.0.1:%d (log: %s)", srv.server_address[1], logs.log_file())
