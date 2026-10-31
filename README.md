@@ -114,6 +114,7 @@ Opening batches avoid the previous batch’s opening account when another accoun
 - **D**: download this reel (same as its download button).
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
+- **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. Comments load on demand and remain cached for that reel in the tab; navigating to another reel closes the panel.
 - **R**: remove the current account from all saved feeds (does not block it).
 - **A**: open the feed picker for the current account, even if it is already saved elsewhere.
 - **P**: open the current account's profile in a new tab.

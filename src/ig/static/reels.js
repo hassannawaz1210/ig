@@ -222,7 +222,7 @@ function slideHtml(p, i) {
         <span class="em">${icon('heart')}</span><span id="likes${i}">${fmt(p.like_count)}</span></button>
       <button class="ico" type="button" title="Not interested in this reel (N)" aria-label="Not interested"
         onclick="rateReel(${i}, 'dislike')"><span class="em">${icon('less')}</span><span>less</span></button>
-      <div class="ico"><span class="em">${icon('comment')}</span><span id="cm${i}">${fmt(p.comment_count)}</span></div>
+      <button class="ico" type="button" title="Comments (C)" aria-label="Show comments" onclick="toggleComments(${i})"><span class="em">${icon('comment')}</span><span id="cm${i}">${fmt(p.comment_count)}</span></button>
       ${p.reason ? `<button class="ico why-button" type="button" title="Why am I seeing this? (W)"
         aria-label="Why am I seeing this?" aria-expanded="false" aria-controls="why${i}" onclick="toggleWhy(${i})">
         <span class="em">${icon('info')}</span><span>why</span></button>` : ''}
@@ -316,6 +316,8 @@ function preloadAhead() {
   });
 }
 async function activate(i) {
+  const panel = document.getElementById('comments-panel');
+  if (panel.dataset.code !== posts[i]?.shortcode) closeComments();
   if (isHidden(posts[i])) return;
   const spin = document.getElementById('spin'+i);
   spin.textContent = 'loading…'; spin.hidden = false;
@@ -687,7 +689,7 @@ function handleReelKey(e) {
   // Space retains native activation for a focused button/link; navigation keys
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;
-  const actions = {'?':showShortcuts, ' ':togglePlayback, m:toggleMute, l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
+  const actions = {'?':showShortcuts, ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:addCurrent, r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
     s:()=>toggleSavedReel(current), d:downloadCurrent,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1)};
@@ -776,3 +778,41 @@ feed.addEventListener('scroll', noteScroll, {passive:true});
 feed.addEventListener('touchstart', () => { scrollBurst = null; }, {passive:true});
 updateFeedStatus();
 more();
+
+function closeComments() {
+  const panel = document.getElementById('comments-panel');
+  panel.hidden = true;
+  delete panel.dataset.code;
+}
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeComments();
+});
+async function toggleComments(i) {
+  const p = posts[i];
+  if (!p || isHidden(p)) return;
+  const panel = document.getElementById('comments-panel');
+  if (!panel.hidden && panel.dataset.code === p.shortcode) { closeComments(); return; }
+  panel.hidden = false;
+  panel.dataset.code = p.shortcode;
+  const body = document.getElementById('comments-body');
+  body.textContent = 'Loading comments…';
+  try {
+    if (!p._comments) {
+      if (!p._commentsLoading) p._commentsLoading = fetch('/comments/' + encodeURIComponent(p.shortcode),
+        {method:'POST', signal:AbortSignal.timeout(45000)}).then(async response => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Could not load comments');
+          p._comments = data.comments || [];
+        }).finally(() => { p._commentsLoading = null; });
+      await p._commentsLoading;
+    }
+    if (panel.hidden || panel.dataset.code !== p.shortcode) return;
+    body.innerHTML = p._comments.length ? p._comments.map(comment => `<article class="comment-row">
+      <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
+      ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
+      <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('') : 'No comments available.';
+  } catch (error) {
+    if (panel.hidden || panel.dataset.code !== p.shortcode) return;
+    body.textContent = error.message + ' · close and reopen to retry';
+  }
+}

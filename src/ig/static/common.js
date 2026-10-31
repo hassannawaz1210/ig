@@ -33,6 +33,7 @@ function showShortcuts() {
     <dt><kbd>A</kbd></dt><dd>Add account to a feed</dd>
     <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
+    <dt><kbd>C</kbd></dt><dd>Show / hide comments</dd>
     <dt><kbd>W</kbd></dt><dd>Why am I seeing this?</dd>
     <dt><kbd>B</kbd></dt><dd>Block account permanently</dd>
     <dt><kbd>Shift+B</kbd></dt><dd>Block for this session</dd>
