@@ -21,6 +21,12 @@ POSTS_DOC_ID = "28904005159232689"
 POSTS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWProfilePostsTabContentQuery_connection"
 
 
+COMMENTS_DOC_ID = "27261273046856309"
+
+
+COMMENTS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWPostCommentsPaginationQuery"
+
+
 REQUEST_TIMEOUT = 30          # seconds for one Instagram request
 PAGE_SIZE = 50                # posts per pagination request
 PAGINATION_PAUSE = (1.0, 2.2) # random wait in seconds; stays under the hourly cap
@@ -251,6 +257,78 @@ def media_info(code: str) -> dict:
             "image": best((s.get("image_versions2") or {}).get("candidates") or []),
         })
     return out
+
+
+def post_comments(code: str, first: int = 20) -> dict:
+    """Top-level comments of a post, without login.
+
+    Comments are not embedded in logged-out post pages; a separate GraphQL
+    query on the post page's media id returns them. One page load seeds the
+    anonymous session (cookies and tokens), then the query runs on it."""
+    session = _new_session()
+    html = _post_page(code)
+    if '"LSD"' not in html:
+        raise UnexpectedResponse(f"Instagram did not include tokens for {code}; try again later")
+    media = None
+    for payload in sjs_payloads(html, "xig_polaris_media"):
+        found = nested_find(payload, "xig_polaris_media")
+        if found:
+            media = found.get("if_not_gated_logged_out") or found
+            break
+    pk = (media or {}).get("pk") or (media or {}).get("id")
+    if not pk:
+        raise UnexpectedResponse(f"Instagram did not include the media id for {code}")
+    owner = ((media or {}).get("user") or {}).get("username")
+    lsd_m = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', html)
+    lsd = lsd_m.group(1) if lsd_m else ""
+    csrf = session.cookies.get("csrftoken", "")
+    variables = json.dumps({"after": None, "first": first, "media_id": str(pk)},
+                           separators=(",", ":"))
+    body = urlencode({
+        "av": "0", "__d": "www", "__user": "0", "__a": "1",
+        "__comet_req": "7", "lsd": lsd,
+        "jazoest": "2" + str(sum(ord(c) for c in lsd)),
+        "fb_api_caller_class": "RelayModern",
+        "fb_api_req_friendly_name": COMMENTS_FRIENDLY_NAME,
+        "server_timestamps": "true", "variables": variables,
+        "doc_id": COMMENTS_DOC_ID,
+    })
+    r = request(session, "POST", "https://www.instagram.com/api/graphql", data=body,
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-fb-friendly-name": COMMENTS_FRIENDLY_NAME,
+                    "x-fb-lsd": lsd, "x-csrftoken": csrf,
+                    "x-ig-app-id": WEB_APP_ID, "x-asbd-id": ASBD_ID,
+                    "origin": "https://www.instagram.com",
+                    "referer": f"https://www.instagram.com/p/{code}/",
+                })
+    try:
+        payload = r.json()
+    except ValueError:
+        BACKOFF.hit()
+        raise RateLimited("Instagram blocked loading comments; wait a few minutes") from None
+    if payload.get("require_login") or payload.get("status") == "fail":
+        BACKOFF.hit()
+        raise RateLimited("Instagram is limiting logged-out browsing; wait a few minutes")
+    connection = ((payload.get("data") or {}).get("xig_polaris_media") or {}) \
+        .get("comments_connection")
+    if connection is None:
+        raise UnexpectedResponse(f"Instagram sent no comment data for {code}")
+    comments = []
+    for edge in connection.get("edges") or []:
+        node = edge.get("node") or {}
+        user = node.get("user") or {}
+        username = user.get("username")
+        if not username:
+            continue
+        comments.append({
+            "username": username,
+            "text": node.get("text") or "",
+            "like_count": node.get("comment_like_count") or 0,
+            "created_at": node.get("created_at"),
+            "is_owner": username == owner,
+        })
+    return {"shortcode": media.get("code") or code, "owner": owner, "comments": comments}
 
 
 def fetch_profile_page(username: str):

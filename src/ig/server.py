@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 from curl_cffi import requests as cr
 import re
 import subprocess
@@ -13,6 +14,7 @@ import time
 from urllib.parse import urlsplit, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import logs
+from . import instagram
 from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
 from .feeds import MIX, feed_pool, pool_more, feed_accounts
 from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
@@ -47,6 +49,32 @@ def saved_reel_details(code: str) -> dict:
         if post.get("shortcode") == code:
             return {key: post.get(key) for key in SAVED_REEL_DETAILS}
     return {}
+
+
+COMMENT_WORKERS = threading.BoundedSemaphore(2)
+
+
+def _schedule_comment_enrichment(code: str) -> None:
+    """Fetch one reel's comments in the background for discovery leads.
+
+    The media response must not wait for a second Instagram request, and each
+    reel's comments are only fetched once; failures are skipped, not retried."""
+    if recommendations.stored_reel(code).get('commenters') is not None:
+        return
+
+    def enrich():
+        if not COMMENT_WORKERS.acquire(blocking=False):
+            return
+        try:
+            recommendations.remember_commenters(code, instagram.post_comments(code))
+        except InstagramError as error:
+            log.info("Comment enrichment skipped for %s: %s", code, error)
+        except Exception:
+            log.warning("Comment enrichment failed for %s", code, exc_info=True)
+        finally:
+            COMMENT_WORKERS.release()
+
+    threading.Thread(target=enrich, daemon=True).start()
 
 
 def error_status(error: Exception) -> tuple[int, str]:
@@ -208,9 +236,11 @@ class Handler(BaseHTTPRequestHandler):
         data = media_info(code)
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
+        _schedule_comment_enrichment(code)
         # Discovery examines stored creator credits and validates candidates;
-        # arbitrary tags and sponsor mentions are not endorsements.
+        # arbitrary tags, commenters and sponsor mentions are not endorsements.
         data.pop('commenters', None)
+        data.pop('reply_mentions', None)
         return data
 
     def _set_reel_saved(self):

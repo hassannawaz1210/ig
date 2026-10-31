@@ -20,6 +20,7 @@ HELP = """ig — browse Instagram logged out
   ig rm <feed> [acc...]     remove accounts or a feed
   ig profile <username>    profile JSON
   ig post <shortcode|url>   post JSON
+  ig comments <code|url>    top comments of a post
   ig feed <username>       full archive JSON (may be slow)
   ig tags                  top hashtags seen locally
   ig tag <name>            local reels and creators using #<name>
@@ -46,12 +47,12 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs"}
+    commands = {"profile", "post", "comments", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
         args.insert(0, "go")
-    if args and args[0] in {"profile", "post", "feed", "open", "go", "add", "rm", "block", "unblock", "tag"} and len(args) < 2:
+    if args and args[0] in {"profile", "post", "comments", "feed", "open", "go", "add", "rm", "block", "unblock", "tag"} and len(args) < 2:
         raise SystemExit(f"missing argument for ig {args[0]} (see ig --help)")
     try:
         return _run(args)
@@ -202,6 +203,18 @@ def _run(args):
             "comment_count": p.get("comment_count"),
             "caption": (p.get("caption") or {}).get("text", "")[:200],
         }, indent=2, ensure_ascii=False))
+    elif cmd == "comments":
+        from .instagram import post_comments
+        code = arg.rstrip("/").rsplit("/", 1)[-1]
+        result = post_comments(code)
+        print(f"@{result['owner']} — top comments")
+        for comment in result["comments"]:
+            who = f"@{comment['username']}"
+            owner_mark = " (creator)" if comment.get("is_owner") else ""
+            likes = f" · {comment['like_count']} likes" if comment.get("like_count") else ""
+            print(f"{who}{owner_mark}{likes}")
+            for line in (comment["text"] or "").splitlines()[:3]:
+                print(f"    {line}")
     elif cmd == "feed":
         print(json.dumps(feed(arg), indent=2, ensure_ascii=False))
     else:

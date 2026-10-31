@@ -28,6 +28,15 @@ MAX_REELS = 10000
 PRUNE_SLACK = 500
 DATABASE_TIMEOUT = 10  # seconds to wait for another process's write
 
+# Comment-derived leads: the reel's own creator replying with a @handle is a
+# deliberate mention, while commenters in general are the weakest evidence
+# there is — fans, not creators — so only a few are kept and they weigh less
+# than a sponsored mention.
+COMMENTER_LEAD = 0.15
+REPLY_MENTION_LEAD = 1.0
+MAX_COMMENTERS_KEPT = 8
+MAX_REPLY_MENTIONS_KEPT = 4
+
 # A tag is "generic" once this many creators use it, or this share of all
 # creators in the index, whichever is larger.
 GENERIC_TAG_MIN_CREATORS = 8
@@ -115,7 +124,8 @@ def remember_reels(posts):
             old = connection.execute('SELECT data FROM reels WHERE code = ?', (code,)).fetchone()
             data = json.loads(old[0]) if old else {'shortcode': code}
             before = (data.get('caption'), data.get('owner'))
-            for key in ('owner', 'caption', 'tagged_users', 'audio_id', 'song'):
+            for key in ('owner', 'caption', 'tagged_users', 'audio_id', 'song',
+                        'commenters', 'reply_mentions'):
                 if post.get(key) is not None:
                     data[key] = post[key]
             connection.execute('INSERT OR REPLACE INTO reels VALUES (?, ?, ?)',
@@ -269,10 +279,37 @@ def creator_credits(post):
 PROMOTIONAL_RE = re.compile(r'(?i)(#ad\b|#sponsored\b|paid partnership|sponsored by|partnering with|promo code|discount code)')
 
 
+def remember_commenters(code, result):
+    """Keep the discovery signal of one post's comments.
+
+    Commenters are the weakest leads; @handles in the reel creator's own
+    replies are deliberate mentions and count like caption mentions."""
+    comments = (result or {}).get('comments') or []
+    owner = (result or {}).get('owner')
+    commenters = []
+    reply_mentions = []
+    for comment in sorted(comments, key=lambda c: -(c.get('like_count') or 0)):
+        name = (comment.get('username') or '').lower()
+        if not name or not config.USER_RE.fullmatch(name):
+            continue
+        if comment.get('is_owner') or name == owner:
+            # The creator's own replies: their @handles are deliberate mentions.
+            reply_mentions += re.findall(r'@([A-Za-z0-9._]{1,30})',
+                                         comment.get('text') or '')
+        else:
+            commenters.append(name)
+    commenters = list(dict.fromkeys(commenters))[:MAX_COMMENTERS_KEPT]
+    reply_mentions = [name.rstrip('.').lower() for name in reply_mentions
+                      if config.USER_RE.fullmatch(name.rstrip('.').lower())]
+    remember_reels([{'shortcode': code, 'commenters': commenters,
+                     'reply_mentions': list(dict.fromkeys(reply_mentions))[:MAX_REPLY_MENTIONS_KEPT]}])
+
+
 def candidate_lead_kinds(post):
     """Leads from one reel as {name: (strength, kind)}.
 
-    kind is 'credit', 'mention', 'sponsored_credit' or 'sponsored_mention'."""
+    kind is 'credit', 'mention', 'sponsored_credit', 'sponsored_mention',
+    'reply_mention', 'commenter', or 'hashtag'."""
     caption = post.get('caption') or ''
     handles = set(post.get('tagged_users') or [])
     handles.update(re.findall(r'@([A-Za-z0-9._]{1,30})', caption))
@@ -281,6 +318,12 @@ def candidate_lead_kinds(post):
              for name in handles if isinstance(name, str) and config.USER_RE.fullmatch(name)}
     for name in creator_credits(post):
         leads[name] = (0.5, 'sponsored_credit') if promotional else (2.0, 'credit')
+    for name in post.get('reply_mentions') or []:
+        if config.USER_RE.fullmatch(name) and leads.get(name, (0,))[0] < REPLY_MENTION_LEAD:
+            leads[name] = (REPLY_MENTION_LEAD, 'reply_mention')
+    for name in post.get('commenters') or []:
+        if config.USER_RE.fullmatch(name) and name not in leads:
+            leads[name] = (COMMENTER_LEAD, 'commenter')
     return leads
 
 
