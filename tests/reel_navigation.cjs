@@ -193,8 +193,17 @@ const KEYS = {
     await replyComments(7, [comment('5')]);
     assert.equal(await evaluate(`document.querySelectorAll('.comment-row').length`), 2,
       'page retry preserves existing comments');
+    await evaluate(`posts[current]._comments = []; posts[current]._commentKeys = new Set();
+      posts[current].comment_count = 1; renderComments(posts[current])`);
+    assert.ok((await evaluate(`document.getElementById('comments-body').textContent`)).includes('Instagram lists 1 comment, but returned none.'),
+      'an empty response does not pretend the advertised comment count is zero');
+    await evaluate(`document.querySelector('button#comments-more').click()`);
+    assert.equal(await evaluate('commentRequests[8].after'), null, 'retry reloads the first page');
+    await replyComments(8, [comment('6')]);
+    assert.equal(await evaluate(`document.querySelectorAll('.comment-row').length`), 1,
+      'a previously empty result can be retried');
     await evaluate('closeComments(); showSlide(6)');
-    assert.equal(await evaluate('commentRequests.length'), 8, 'closed drawer does not fetch on navigation');
+    assert.equal(await evaluate('commentRequests.length'), 9, 'closed drawer does not fetch on navigation');
 
     await key(',');
     assert.ok(await evaluate(`document.activeElement.dataset.all`), 'picker focuses All initially');

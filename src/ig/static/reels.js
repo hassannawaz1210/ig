@@ -350,6 +350,7 @@ async function prepare(i) {
   if (isHidden(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
   document.getElementById('likes'+i).textContent = fmt(p.like_count);
   document.getElementById('cm'+i).textContent = fmt(p.comment_count);
+  if (commentsVisible(p)) renderComments(p);
   setVideo(p, i, current === i);
 }
 function preloadAhead() {
@@ -884,17 +885,21 @@ function renderComments(p) {
   const body = document.getElementById('comments-body');
   const top = body.scrollTop;
   body.innerHTML = (p._comments || []).map(commentRow).join('');
+  const missing = !p._comments?.length && p.comment_count > 0 && !p._commentCursor;
+  if (missing && !p._commentsLoading && !p._commentError) {
+    body.textContent = `Instagram lists ${fmt(p.comment_count)} ${p.comment_count === 1 ? 'comment' : 'comments'}, but returned none.`;
+  }
   if (p._commentsLoading) {
     body.insertAdjacentHTML('beforeend', '<div id="comments-more" role="status">Loading comments…</div>');
-  } else if (p._commentError || p._commentCursor) {
+  } else if (p._commentError || p._commentCursor || missing) {
     const button = document.createElement('button');
     button.id = 'comments-more';
     button.type = 'button';
-    button.textContent = p._commentError ? 'Couldn’t load comments · Retry' : 'Load more comments';
+    button.textContent = p._commentError ? 'Couldn’t load comments · Retry' : missing ? 'Retry' : 'Load more comments';
     button.onclick = () => loadMoreComments(p);
     body.appendChild(button);
   } else if (!p._comments?.length) {
-    body.textContent = 'Nothing to show yet.';
+    body.textContent = p.comment_count === 0 ? 'No comments yet.' : 'No comments returned.';
   }
   body.scrollTop = top;
 }
@@ -910,7 +915,8 @@ async function toggleComments(i) {
   else renderComments(p);
 }
 async function loadMoreComments(p) {
-  if (p._commentsLoading || (p._comments && !p._commentCursor)) return;
+  const retryEmpty = p._comments?.length === 0 && p.comment_count > 0;
+  if (p._commentsLoading || (p._comments && !p._commentCursor && !retryEmpty)) return;
   const after = p._comments ? p._commentCursor : null;
   let added = 0;
   p._commentError = false;
