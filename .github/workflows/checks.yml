@@ -9,11 +9,13 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.11', '3.12', '3.13', '3.14']
-    env:
-      XDG_CONFIG_HOME: ${{ runner.temp }}/ig-config
-      XDG_CACHE_HOME: ${{ runner.temp }}/ig-cache
     steps:
       - uses: actions/checkout@v4
+      - name: Isolate application data
+        shell: bash
+        run: |
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/ig-config" >> "$GITHUB_ENV"
+          echo "XDG_CACHE_HOME=$RUNNER_TEMP/ig-cache" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
