@@ -134,3 +134,30 @@ class ViewingHistoryTests(unittest.TestCase):
         history.release('client-one', [token])
         self.assertIsNone(history.record_playback('clip001', token, 'client-two', 1.0))
         self.assertEqual(history.load_history()['codes'], [])
+
+    def test_creator_limit_spans_refills_and_frees_after_playback(self):
+        config.save_feeds({'custom':['first','second']})
+        states = {name:{'posts':[dict(self.post(name+str(i)), owner=name) for i in range(10)],
+                        'has_more':False} for name in ['first','second']}
+        pool = feeds.make_pool(states)
+        with patch('ig.feeds.STATE', states):
+            delivered = []
+            for _ in range(6):
+                result = feeds.pool_more(pool, client='client-one')
+                delivered.extend(result['posts'])
+            self.assertEqual(len(delivered),4)
+            self.assertEqual(sum(p['owner']=='first' for p in delivered),2)
+            self.assertTrue(result['has_more'], 'queue limit is not source exhaustion')
+            p = next(p for p in delivered if p['owner']=='first')
+            history.record_playback(p['shortcode'], p['reservation'], 'client-one',1)
+            next_batch = feeds.pool_more(pool, client='client-one')['posts']
+            self.assertEqual([p['owner'] for p in next_batch],['first'])
+            other = feeds.pool_more(pool,client='client-two')['posts']
+            self.assertEqual(len(other),2, 'another tab has its own queue allowance')
+
+    def test_one_creator_feed_can_still_fill(self):
+        state = {'posts':[self.post('clip'+str(i)) for i in range(6)], 'has_more':False}
+        with patch('ig.feeds.STATE', {'creator':state}):
+            pool = feeds.make_pool(['creator'])
+            posts = [p for _ in range(4) for p in feeds.pool_more(pool,client='client-one')['posts']]
+        self.assertEqual(len(posts),4)

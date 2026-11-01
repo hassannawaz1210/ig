@@ -1,3 +1,4 @@
+from collections import Counter
 import logging
 import random
 import threading
@@ -131,12 +132,24 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         REFILL.collect(pool, _record_failure)
         candidates = available_accounts(pool, excluded)
         REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
-        batch = _pool_more(pool, limit, excluded, allow_network=False)
+        queued = Counter(owner for _, owner, holder in reservations if holder == client)
+        # Diversity must span successive refill batches, not just one response.
+        cap = 2 if len(candidates) > 1 else None
+        full = {owner for owner, count in queued.items() if cap and count >= cap}
+        batch = _pool_more(pool, limit, excluded | full, allow_network=False)
+        if cap:
+            balanced = []
+            for post in batch['posts']:
+                owner = post.get('owner')
+                if queued[owner] < cap:
+                    balanced.append(post)
+                    queued[owner] += 1
+            batch['posts'] = balanced
         candidates = available_accounts(pool, excluded)
         REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
         waiting = REFILL.waiting(candidates)
         reserved_elsewhere = any(owner in candidates and holder != client for _, owner, holder in reservations)
-        batch['has_more'] = bool(batch['posts']) or waiting or reserved_elsewhere
+        batch['has_more'] = bool(batch['posts']) or waiting or reserved_elsewhere or bool(full & set(candidates))
         if waiting:
             batch['retry_after_ms'] = 750
         blocked = blocked_accounts()
