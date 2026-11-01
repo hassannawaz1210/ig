@@ -88,3 +88,19 @@ class BackgroundRefillTests(TempDirs):
                 self.refill.collect({}, lambda *args: None)
         self.assertEqual(set(loaded), set(names))
         self.assertEqual(len(set(loaded[:4])), 4)
+
+    def test_reported_latency_measures_work_not_time_until_collect(self):
+        clock = [100.]
+        def load(name):
+            clock[0] += 20
+            return {}, True
+        with patch('ig.refill.time.monotonic', side_effect=lambda:clock[0]), \
+             patch('ig.refill.REELS.cached', return_value=None), \
+             patch('ig.refill.REELS.load', side_effect=load):
+            self.refill.schedule({'served':set()}, ['creator'], {'creator'}, states={})
+            for future,_ in self.refill.pending.values():
+                future.result(timeout=2)
+            clock[0] += 100
+            self.refill.collect({}, lambda *args:None)
+        self.assertEqual(self.refill.load_seconds,16.)
+        self.assertFalse(self.refill.pending)

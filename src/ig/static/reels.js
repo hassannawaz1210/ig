@@ -208,6 +208,8 @@ async function refreshFeedList(detail) {
   } else {
     actionStatus(detail.created ? 'Created ' + detail.name.replaceAll('_', ' ') : 'Accounts added');
     selectionVersion += 1;
+    emptySince = null;
+    lastNavigation = null;
     fetching = false;
     retryLoading();
   }
@@ -305,6 +307,8 @@ async function saveFeedSelection() {
 // it with a batch for the new selection. Nothing reloads.
 function feedsChanged() {
   selectionVersion += 1;
+  emptySince = null;
+  lastNavigation = null;
   dropQueuedReels();
   clearTimeout(retryTimer);
   retryTimer = null;
@@ -460,7 +464,37 @@ function append(chunk) {
 const PRELOAD_AHEAD = 5;
 // Keep metadata farther ahead than media: cheap queued reels absorb slow
 // profile requests without downloading dozens of videos at once.
-const BUFFER_AHEAD = 24;
+const BUFFER_AHEAD = 24; // conservative starting target before pace is known
+let secondsPerReel = 3, paceSamples = 0, refillSeconds = 12;
+let lastNavigation = null, emptySince = null;
+function noteReelNavigation(i) {
+  const now = performance.now();
+  const previous = lastNavigation;
+  lastNavigation = {index:i, at:now, version:selectionVersion};
+  if (document.hidden || !previous || previous.version !== selectionVersion || i <= previous.index) return;
+  const elapsed = (now - previous.at) / 1000;
+  // Ignore idle gaps; pause and hidden-tab transitions also reset the sample.
+  if (elapsed < .15 || elapsed > 60) return;
+  const seconds = Math.max(.25, elapsed / (i - previous.index));
+  secondsPerReel = paceSamples ? .65 * secondsPerReel + .35 * seconds : seconds;
+  paceSamples += 1;
+}
+function refillTarget() {
+  if (paceSamples < 3) return BUFFER_AHEAD;
+  // Two loading cycles plus six seconds of margin, bounded metadata only.
+  return Math.max(12, Math.min(48, Math.ceil((2 * refillSeconds + 6) / secondsPerReel)));
+}
+function noteRefillResponse(data, started) {
+  if (Number.isFinite(data.refill_seconds))
+    refillSeconds = Math.max(1, Math.min(60, data.refill_seconds));
+  if (!data.posts?.length) {
+    if (data.has_more !== false && emptySince === null) emptySince = started;
+    return;
+  }
+  const elapsed = (performance.now() - (emptySince ?? started)) / 1000;
+  refillSeconds = Math.max(refillSeconds, Math.min(60, elapsed));
+  emptySince = null;
+}
 const RETRY_DELAY_MS = 3000;  // wait before asking again after an empty or failed batch
 let retryTimer = null;
 function setVideo(p, i, play = false) {
@@ -538,6 +572,7 @@ async function activate(i) {
   collapseCaptions();
   const panel = document.getElementById('comments-panel');
   if (isHidden(posts[i])) return;
+  if (lastNavigation?.index !== i) noteReelNavigation(i);
   rememberShown(posts[i]?.shortcode);
   if (panel.hidden === false && panel.dataset.code !== posts[i]?.shortcode) toggleComments(i);
   const spin = document.getElementById('spin'+i);
@@ -577,7 +612,7 @@ function observeNew() {
 }
 function maybeMore() {
   if (fetching || exhausted || current < 0 || retryTimer) return;
-  if (visibleIndices().filter(i => i > current).length < BUFFER_AHEAD) more();
+  if (visibleIndices().filter(i => i > current).length < refillTarget()) more();
 }
 function retryMore(delay = RETRY_DELAY_MS) {
   if (!retryTimer) retryTimer = setTimeout(() => {
@@ -588,6 +623,7 @@ async function more() {
   if (fetching || exhausted) return;
   fetching = true;
   const version = selectionVersion;
+  const started = performance.now();
   let retry = false;
   let retryDelay = RETRY_DELAY_MS;
   updateFeedStatus();
@@ -604,6 +640,7 @@ async function more() {
     }
     if (!r.ok || d.error) throw new Error(d.error || `server error (HTTP ${r.status})`);
     loadFailures = 0;
+    noteRefillResponse(d, started);
     if (Number.isFinite(d.retry_after_ms)) retryDelay = Math.max(500, Math.min(30000, d.retry_after_ms));
     if (d.feed_accounts) {
       feeded = new Set(d.feed_accounts);
@@ -771,6 +808,8 @@ function replaceExpiredQueue() {
   if (!(posts[current]?._watchedSeconds > 0)) current = -1;
   dropQueuedReels();
   selectionVersion += 1;
+  emptySince = null;
+  lastNavigation = null;
   fetching = false;
   clearTimeout(retryTimer); retryTimer = null;
   exhausted = false;
@@ -781,6 +820,8 @@ window.addEventListener('pageshow', event => {
 });
 let hiddenSince = null;
 document.addEventListener('visibilitychange', () => {
+  lastNavigation = null;
+  emptySince = null;
   if (document.hidden) {
     hiddenSince = Date.now();
     reportWatch(posts[current], true);
@@ -938,6 +979,7 @@ async function toggleSavedReel(i) {
   finally { p._saveBusy = false; }
 }
 function togglePlayback() {
+  lastNavigation = null;
   const p = posts[current];
   if (!p || isHidden(p)) return;
   const video = document.getElementById('s'+current)?.querySelector('video');

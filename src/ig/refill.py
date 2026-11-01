@@ -11,6 +11,16 @@ class Refill:
         self.pending = {}
         self.retry_at = {}
         self.last_scheduled = {}
+        self.completed_seconds = {}
+        self.load_seconds = 12.0
+
+    def _load(self, name, paging):
+        started = time.monotonic()
+        try:
+            return (more_reels if paging else REELS.load)(name)
+        finally:
+            self.completed_seconds[name] = time.monotonic() - started
+
 
     def collect(self, pool, on_error):
         # Called under the batch lock; workers never modify feed pools.
@@ -20,6 +30,12 @@ class Refill:
             del self.pending[name]
             try:
                 future.result()
+                elapsed = self.completed_seconds.get(name)
+                if elapsed is not None:
+                    # Rise promptly when Instagram slows; decay more gradually.
+                    elapsed = min(60, max(1, elapsed))
+                    weight = .5 if elapsed > self.load_seconds else .15
+                    self.load_seconds += weight * (elapsed - self.load_seconds)
             except RateLimited:
                 self.retry_at[name] = time.monotonic() + max(3, BACKOFF.remaining())
             except ProfileUnavailable:
@@ -27,6 +43,8 @@ class Refill:
             except Exception as error:
                 self.retry_at[name] = time.monotonic() + 30
                 on_error(owner_pool, name, error)
+            finally:
+                self.completed_seconds.pop(name, None)
 
     def schedule(self, pool, names, saved, *, states=None):
         """Page sources below twelve unseen clips, at most two source workers at once."""
@@ -53,7 +71,7 @@ class Refill:
             if len(self.pending) >= 2:
                 break
             self.last_scheduled[name] = time.monotonic()
-            self.pending[name] = (self.executor.submit(more_reels if paging else REELS.load, name), pool)
+            self.pending[name] = (self.executor.submit(self._load, name, paging), pool)
 
     def waiting(self, names):
         return bool(set(names) & (self.pending.keys() | {n for n, deadline in self.retry_at.items()

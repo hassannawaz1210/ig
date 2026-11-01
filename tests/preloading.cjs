@@ -517,3 +517,28 @@ async function viewingTests() {
   assert.equal(labels[0].textContent,'Song not identified');
   assert.equal(labels[1].textContent,'Waiting to identify song…','old result cannot overwrite current song');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+(async () => {
+  const {ctx} = createPage(async () => ({ok:true,json:async()=>({posts:[],has_more:false})}));
+  let now = 0;
+  ctx.performance.now = () => now;
+  vm.runInContext('lastNavigation=null; paceSamples=0; refillSeconds=12; noteReelNavigation(0)',ctx);
+  assert.equal(vm.runInContext('refillTarget()',ctx),24,'start with a conservative queue');
+  for (let i=1;i<=3;i++) {now+=500;vm.runInContext('noteReelNavigation('+i+')',ctx);}
+  assert.equal(vm.runInContext('refillTarget()',ctx),48,'fast scrolling starts refill farther ahead');
+  const before = vm.runInContext('paceSamples',ctx);
+  now+=500;vm.runInContext('noteReelNavigation(2)',ctx);
+  assert.equal(vm.runInContext('paceSamples',ctx),before,'backward navigation is not consumption');
+  now+=90000;vm.runInContext('noteReelNavigation(3)',ctx);
+  assert.equal(vm.runInContext('paceSamples',ctx),before,'idle gaps are ignored');
+  for(let i=4;i<=18;i++) {now+=10000;vm.runInContext('noteReelNavigation('+i+')',ctx);}
+  assert.equal(vm.runInContext('refillTarget()',ctx),12,'slower browsing reduces queued inventory');
+  vm.runInContext('secondsPerReel=2; refillSeconds=2; emptySince=null',ctx);
+  assert.equal(vm.runInContext('refillTarget()',ctx),12);
+  vm.runInContext('noteRefillResponse({posts:[],has_more:true},performance.now())',ctx);
+  now+=40000;
+  vm.runInContext("noteRefillResponse({posts:[{shortcode:'new'}],refill_seconds:10},performance.now())",ctx);
+  assert.equal(vm.runInContext('refillTarget()',ctx),43,'empty polling time counts toward replenishment latency');
+  vm.runInContext('refillSeconds=10000',ctx);
+  assert.equal(vm.runInContext('refillTarget()',ctx),48,'latency cannot create an unbounded queue');
+})().catch(error=>{console.error(error);process.exitCode=1;});

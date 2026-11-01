@@ -148,6 +148,7 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         candidates = available_accounts(pool, excluded)
         REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
         waiting = REFILL.waiting(candidates)
+        batch['refill_seconds'] = REFILL.load_seconds
         reserved_elsewhere = any(owner in candidates and holder != client for _, owner, holder in reservations)
         batch['has_more'] = bool(batch['posts']) or waiting or reserved_elsewhere or bool(full & set(candidates))
         if waiting:
