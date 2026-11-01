@@ -197,7 +197,36 @@ window.addEventListener('ig-feeds-changed', event => {
   refreshFeedList(event.detail).catch(() => actionStatus('Saved · refresh to update the feed list'));
 });
 let deletingFeed = false;
-async function deleteFeed(name) {
+function cancelFeedDeletion() {
+  document.getElementById('feed-delete-confirm')?.remove();
+}
+document.getElementById('feed-menu').addEventListener('toggle', event => {
+  if (!event.target.open) cancelFeedDeletion();
+});
+function deleteFeed(name) {
+  if (deletingFeed || savingFeeds) return;
+  cancelFeedDeletion();
+  const trigger = document.activeElement;
+  const confirmation = document.createElement('div');
+  confirmation.id = 'feed-delete-confirm';
+  confirmation.setAttribute('role', 'group');
+  confirmation.setAttribute('aria-label', 'Confirm feed deletion');
+  const label = document.createElement('p');
+  label.textContent = 'Delete “' + name.replaceAll('_', ' ') + '”?';
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.textContent = 'Cancel';
+  cancel.onclick = () => { cancelFeedDeletion(); trigger?.focus(); };
+  const confirm = document.createElement('button');
+  confirm.type = 'button'; confirm.textContent = 'Delete feed';
+  confirm.className = 'confirm-delete';
+  confirm.onclick = () => { cancelFeedDeletion(); performFeedDeletion(name); };
+  confirmation.append(label, cancel, confirm);
+  const menu = document.getElementById('feed-menu');
+  menu.open = true;
+  menu.querySelector('.feed-panel-heading').after(confirmation);
+  cancel.focus();
+}
+async function performFeedDeletion(name) {
   if (deletingFeed || savingFeeds) return;
   deletingFeed = true;
   try {

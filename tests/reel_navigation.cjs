@@ -67,7 +67,7 @@ const KEYS = {
   ArrowUp: {key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38},
   ',': {key: ',', code: 'Comma', windowsVirtualKeyCode: 188, text: ','},
   Space: {key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '},
-  Enter: {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13},
+  Enter: {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r'},
   Escape: {key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27},
   Delete: {key: 'Delete', code: 'Delete', windowsVirtualKeyCode:46},
   End: {key: 'End', code: 'End', windowsVirtualKeyCode: 35},
@@ -273,6 +273,17 @@ const KEYS = {
     await key('End');
     assert.equal(await evaluate('document.activeElement.dataset.feed'), 'my_feed');
     await key('Delete');
+    await sleep(200);
+    assert.ok(await evaluate(`!!document.querySelector('.feed-choice[data-feed="my_feed"]')`), 'Delete key does not delete without confirmation');
+    assert.equal(await evaluate('document.activeElement.textContent'), 'Cancel', 'confirmation defaults to Cancel');
+    await key('Enter');
+    assert.equal(await evaluate(`document.getElementById('feed-delete-confirm')`), null);
+    assert.ok(await evaluate(`!!document.querySelector('.feed-choice[data-feed="my_feed"]')`), 'Cancel preserves the feed');
+    await evaluate(`document.querySelector('.feed-choice[data-feed="my_feed"]').closest('.feed-row').querySelector('.feed-delete').click()`);
+    assert.ok(await evaluate(`!!document.getElementById('feed-delete-confirm')`), 'trash icon also requires confirmation');
+    await key('Tab');
+    assert.equal(await evaluate('document.activeElement.textContent'), 'Delete feed');
+    await key('Enter');
     await sleep(200);
     assert.equal(await evaluate(`document.querySelector('.feed-choice[data-feed="my_feed"]')`), null);
     assert.ok(await evaluate(`!!document.querySelector('#action-status button')`), 'delete offers Undo without a modal');
