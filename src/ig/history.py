@@ -1,7 +1,9 @@
-"""Bounded SQLite history of delivered reels, across server restarts."""
+"""Viewed reels, preserved legacy deliveries, and expiring queue reservations."""
 from .migrations import migrate
 import json
 import sqlite3
+import time
+import uuid
 from contextlib import contextmanager
 from .config import CACHE
 
@@ -25,6 +27,23 @@ def _initial_schema(db):
         db.execute("INSERT INTO metadata VALUES ('migrated', '1')")
 
 
+RESERVATION_TTL = 120
+
+
+def _viewing_schema(db):
+    if 'kind' not in {r[1] for r in db.execute('PRAGMA table_info(reels)')}:
+        db.execute("ALTER TABLE reels ADD COLUMN kind TEXT NOT NULL DEFAULT 'legacy_delivery'")
+    db.execute('CREATE TABLE IF NOT EXISTS reservations (code TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, client TEXT NOT NULL, owner TEXT NOT NULL, expires REAL NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS viewings (token TEXT PRIMARY KEY, code TEXT NOT NULL, client TEXT NOT NULL, owner TEXT NOT NULL, viewed REAL NOT NULL, seconds REAL NOT NULL DEFAULT 0)')
+    db.execute('CREATE INDEX IF NOT EXISTS reservations_client ON reservations(client)')
+    # A receipt authenticates delayed playback reports after a lease is released
+    # or expires (e.g. going back to an unplayed reel). It does not reserve it.
+    db.execute('CREATE TABLE IF NOT EXISTS queue_receipts (token TEXT PRIMARY KEY, code TEXT NOT NULL, client TEXT NOT NULL, owner TEXT NOT NULL, issued REAL NOT NULL)')
+
+
+MIGRATIONS = (_initial_schema, _viewing_schema)
+
+
 @contextmanager
 def database():
     path = HISTORY_JSON.with_suffix('.sqlite3')
@@ -32,7 +51,7 @@ def database():
     db = sqlite3.connect(path, timeout=30)
     try:
         db.execute('BEGIN IMMEDIATE')
-        migrate(db, (_initial_schema,))
+        migrate(db, MIGRATIONS)
         yield db
         db.commit()
     except BaseException:
@@ -56,3 +75,66 @@ def save_history(history: dict, posts: list[dict]) -> None:
                        [(code,) for code in history['codes'] + [p['shortcode'] for p in posts]])
         db.execute('DELETE FROM reels WHERE position NOT IN (SELECT position FROM reels ORDER BY position DESC LIMIT ?)', (MAX_HISTORY,))
         db.execute("UPDATE metadata SET value = ? WHERE key = 'last_owner'", (posts[0].get('owner'),))
+
+
+def active_reservations():
+    with database() as db:
+        db.execute('DELETE FROM reservations WHERE expires <= ?', (time.time(),))
+        return db.execute('SELECT code, owner, client FROM reservations').fetchall()
+
+
+def reserve(posts, client):
+    accepted = []
+    now = time.time()
+    with database() as db:
+        db.execute('DELETE FROM reservations WHERE expires <= ?', (now,))
+        for post in posts:
+            token = uuid.uuid4().hex
+            cursor = db.execute('INSERT OR IGNORE INTO reservations(code,token,client,owner,expires) '
+                'SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM reels WHERE code=?)',
+                (post['shortcode'], token, client, post.get('owner') or '', now + RESERVATION_TTL, post['shortcode']))
+            if cursor.rowcount:
+                db.execute('INSERT INTO queue_receipts VALUES (?,?,?,?,?)',
+                           (token, post['shortcode'], client, post.get('owner') or '', now))
+                post['reservation'] = token
+                accepted.append(post)
+        db.execute('DELETE FROM queue_receipts WHERE issued < ?', (now - 86400,))
+        db.execute('DELETE FROM queue_receipts WHERE token NOT IN (SELECT token FROM queue_receipts ORDER BY issued DESC, rowid DESC LIMIT ?)', (MAX_HISTORY,))
+    return accepted
+
+
+def release(client, tokens=None):
+    with database() as db:
+        if tokens is None:
+            db.execute('DELETE FROM reservations WHERE client=?', (client,))
+        else:
+            db.executemany('DELETE FROM reservations WHERE client=? AND token=?', [(client, token) for token in tokens])
+
+
+def renew(client, tokens):
+    with database() as db:
+        db.executemany('UPDATE reservations SET expires=? WHERE client=? AND token=? AND expires>?',
+                      [(time.time() + RESERVATION_TTL, client, token, time.time()) for token in tokens])
+
+
+def record_playback(code, token, client, seconds):
+    """Idempotent cumulative progress for a reserved clip; return its owner."""
+    now = time.time()
+    with database() as db:
+        viewed = db.execute('SELECT owner FROM viewings WHERE token=? AND code=? AND client=?',
+                            (token, code, client)).fetchone()
+        if viewed:
+            db.execute('UPDATE viewings SET seconds=MAX(seconds, ?) WHERE token=?', (seconds, token))
+            return viewed[0]
+        lease = db.execute('SELECT owner FROM queue_receipts WHERE token=? AND code=? AND client=? AND issued>?',
+                           (token, code, client, now - 86400)).fetchone()
+        if lease is None:
+            return None
+        owner = lease[0]
+        db.execute('INSERT INTO viewings VALUES (?,?,?,?,?,?)', (token, code, client, owner, now, seconds))
+        db.execute("INSERT INTO reels(code,kind) VALUES (?, 'viewed') ON CONFLICT(code) DO UPDATE SET kind='viewed'", (code,))
+        db.execute('DELETE FROM reservations WHERE code=?', (code,))
+        db.execute("UPDATE metadata SET value=? WHERE key='last_owner'", (owner,))
+        db.execute('DELETE FROM reels WHERE position NOT IN (SELECT position FROM reels ORDER BY position DESC LIMIT ?)', (MAX_HISTORY,))
+        db.execute('DELETE FROM viewings WHERE token NOT IN (SELECT token FROM viewings ORDER BY viewed DESC LIMIT ?)', (MAX_HISTORY,))
+        return owner

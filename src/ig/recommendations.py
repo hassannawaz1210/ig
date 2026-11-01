@@ -97,7 +97,11 @@ def _saved_reels_schema(connection):
     connection.execute('CREATE INDEX IF NOT EXISTS saved_reels_saved_at ON saved_reels (saved_at)')
 
 
-MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema)
+def _viewed_reels_schema(connection):
+    connection.execute('CREATE TABLE IF NOT EXISTS viewed_reels (event TEXT PRIMARY KEY, code TEXT NOT NULL, owner TEXT NOT NULL, viewed REAL NOT NULL)')
+
+
+MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema, _viewed_reels_schema)
 
 
 @contextmanager
@@ -610,14 +614,14 @@ def choose_reel(posts, model):
 
 def recent_creators():
     with database() as connection:
-        rows = connection.execute('SELECT owner FROM deliveries ORDER BY id DESC LIMIT 8').fetchall()
+        rows = connection.execute('SELECT owner FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT 8').fetchall()
     return [row[0] for row in rows]
 
 
 def trial_cooldowns(saved):
-    """An unfamiliar creator gets one trial per 20 delivered reels until liked."""
+    """An unfamiliar creator gets one trial per 20 actually viewed reels until liked."""
     with database() as connection:
-        rows = connection.execute('SELECT owner FROM deliveries ORDER BY id DESC LIMIT 20').fetchall()
+        rows = connection.execute('SELECT owner FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT 20').fetchall()
         liked = {json.loads(row[0]).get('owner') for row in connection.execute(
             'SELECT r.data FROM reels r JOIN feedback f ON f.code=r.code WHERE f.action=\'like\'')}
     return {row[0] for row in rows} - saved - liked
@@ -629,3 +633,9 @@ def record_deliveries(posts):
                                [(post['shortcode'], post.get('owner') or '', time.time()) for post in posts])
         connection.execute('DELETE FROM deliveries WHERE id NOT IN '
                            '(SELECT id FROM deliveries ORDER BY id DESC LIMIT 200)')
+
+
+def record_view(code, owner, event):
+    with database() as connection:
+        connection.execute('INSERT OR IGNORE INTO viewed_reels VALUES (?,?,?,?)', (event, code, owner, time.time()))
+        connection.execute('DELETE FROM viewed_reels WHERE event NOT IN (SELECT event FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT 200)')

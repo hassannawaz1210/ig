@@ -10,6 +10,9 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
+const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+let reservationTimer = null;
+const pendingReleases = new Set();
 let slides = 0, muted = true, fetching = false, exhausted = false;
 const base = "/reels";
 let feeded = new Set(boot.feed_accounts);
@@ -300,15 +303,18 @@ function releaseVideo(slide) {
   if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
 }
 function dropQueuedReels() {
+  const released = [];
   posts.forEach((p, i) => {
     if (i <= current || p._dropped) return;
     p._dropped = true;
+    if (p.reservation && !(p._watchedSeconds > 0)) released.push(p.reservation);
     const slide = document.getElementById('s'+i);
     if (!slide) return;
     io.unobserve(slide);
     releaseVideo(slide);
     slide.remove();
   });
+  releaseReservations(released);
   countEl.textContent = fmt(visibleIndices().length) + ' reels';
 }
 
@@ -414,6 +420,7 @@ function slideHtml(p, i) {
 function append(chunk) {
   chunk = chunk.filter(p => !isHidden(p));
   posts.push(...chunk);
+  scheduleReservationRenewal();
   feed.insertAdjacentHTML('beforeend', chunk.map((p,k)=>slideHtml(p, slides+k)).join(''));
   slides += chunk.length;
   countEl.textContent = fmt(visibleIndices().length) + ' reels';
@@ -434,6 +441,9 @@ function setVideo(p, i, play = false) {
     slide.insertAdjacentHTML('beforeend',
       `<video muted loop playsinline preload="auto"
         onplaying="this.parentNode.querySelector('.poster').style.opacity=0; onReelPlaying(${i})"
+        ontimeupdate="onReelProgress(${i}, this)"
+        onwaiting="interruptPlayback(${i})" onerror="interruptPlayback(${i})"
+        onseeking="onReelSeeking(${i}, this)" onpause="if(posts[${i}]) posts[${i}]._lastSample=null"
         onclick="tap(event)"></video>`);
     v = slide.querySelector('video');
   }
@@ -554,11 +564,14 @@ async function more() {
   try {
     const r = await fetch(base + '/more', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session_blocked:[...sessionBlocked]}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)})
+      body:JSON.stringify({session_blocked:[...sessionBlocked], client:queueClient, release:[...pendingReleases]}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)})
       .catch(error => { throw new BatchRequestError(error); });
     const d = await r.json().catch(() => ({}));  // error pages may not be JSON
     // A batch asked for under an earlier feed choice no longer belongs here.
-    if (version !== selectionVersion) return;
+    if (version !== selectionVersion) {
+      releaseReservations((d.posts || []).map(p => p.reservation).filter(Boolean));
+      return;
+    }
     if (!r.ok || d.error) throw new Error(d.error || `server error (HTTP ${r.status})`);
     loadFailures = 0;
     if (Number.isFinite(d.retry_after_ms)) retryDelay = Math.max(500, Math.min(30000, d.retry_after_ms));
@@ -618,20 +631,132 @@ async function rmAcc(u, el) {
   } catch (error) { el.querySelector('span:last-child').textContent = 'retry'; }
 }
 
+function releaseReservations(tokens) {
+  if (tokens && !tokens.length) return;
+  for (const token of tokens || []) pendingReleases.add(token);
+  return fetch('/reels/release', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:queueClient, ...(tokens ? {tokens} : {})}), keepalive:true})
+    .then(response => { if (response.ok) for (const token of tokens || []) pendingReleases.delete(token); }).catch(()=>{});
+}
+function scheduleReservationRenewal() {
+  if (reservationTimer || !posts.some((p, i) => i >= current && p.reservation && !p._viewRecorded && !isHidden(p))) return;
+  reservationTimer = setTimeout(() => {
+    reservationTimer = null;
+    const tokens = posts.filter((p, i) => i >= current && p.reservation && !p._viewRecorded && !isHidden(p)).map(p => p.reservation);
+    if (!document.hidden && tokens.length) {
+      fetch('/reels/renew', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:queueClient, tokens})}).catch(()=>{});
+    }
+    scheduleReservationRenewal();
+  }, 30000);
+}
+function interruptPlayback(i) {
+  const p = posts[i];
+  if (!p) return;
+  p._lastSample = null;
+  p._interrupted = true;
+}
+function onReelSeeking(i, video) {
+  const p = posts[i];
+  // Native looping seeks to zero before firing playing again.
+  if (p && video.loop && video.currentTime < 0.1 && p._watchedSeconds > 0) p._looped = true;
+  interruptPlayback(i);
+}
 function onReelPlaying(i) {
   if (current !== i || !posts[i]) return;
-  if (!posts[i]._viewStarted) posts[i]._viewStarted = performance.now();
+  const video = document.getElementById('s'+i)?.querySelector('video');
+  if (video && posts[i]._lastSample && video.currentTime < posts[i]._lastSample.time) posts[i]._looped = true;
+  posts[i]._lastSample = !document.hidden && video ? {time:video.currentTime, wall:performance.now()} : null;
   queueSong(i);
+}
+function onReelProgress(i, video) {
+  const p = posts[i];
+  if (!p) return;
+  const sample = {time:video.currentTime, wall:performance.now()};
+  const previous = p._lastSample;
+  p._lastSample = sample;
+  if (current !== i || document.hidden || video.paused || video.seeking || video.readyState < 2 || video.error) {
+    p._lastSample = null;
+    return;
+  }
+  if (!previous) return;
+  const delta = sample.time - previous.time;
+  if (delta < 0) { p._looped = true; return; }
+  const wall = (sample.wall - previous.wall) / 1000;
+  if (delta <= 0 || wall <= 0 || wall > 3 || delta > wall * (video.playbackRate || 1) + 0.2) return;
+  const ranges = [...(p._watchRanges || []), [previous.time, sample.time]].sort((a,b) => a[0]-b[0]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  p._watchRanges = merged;
+  p._watchedSeconds = Math.min(3600, merged.reduce((sum, [a,b]) => sum + b-a, 0));
+  reportWatch(p);
+}
+function reportWatch(p, force = false) {
+  if (!p?.reservation || !(p._watchedSeconds > 0)) return;
+  if (!force && performance.now() < (p._reportAfter || 0)) return;
+  if (p._reporting) { p._flushWatch ||= force; return; }
+  if (!force && p._viewRecorded && p._watchedSeconds - (p._sentSeconds || 0) < 5) return;
+  const seconds = p._watchedSeconds;
+  p._reporting = true;
+  p._reportAfter = performance.now() + 5000;
+  fetch('/reels/view', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:queueClient, code:p.shortcode, reservation:p.reservation, seconds}), keepalive:true})
+    .then(response => {
+      if (response.ok) { p._viewRecorded = true; p._sentSeconds = seconds; }
+    }).catch(()=>{}).finally(() => {
+      p._reporting = false;
+      if (p._flushWatch) { p._flushWatch = false; if (p._watchedSeconds > seconds) reportWatch(p, true); }
+    });
 }
 function recordQuickSkip(i) {
   const p = posts[i];
-  if (!p || p.feedback || p._skipSent || !p._viewStarted || p._paused || document.hidden) return;
-  const seconds = (performance.now() - p._viewStarted) / 1000;
+  if (!p) return;
+  reportWatch(p, true);
+  if (!(p._watchedSeconds > 0)) {
+    if (p.reservation) releaseReservations([p.reservation]);
+    return;
+  }
+  if (p.feedback || p._skipSent || p._paused || document.hidden || p._interrupted || p._looped) return;
+  const seconds = p._watchedSeconds;
   if (seconds < 0.3 || seconds > 2.5) return;
   p._skipSent = true;
   fetch('/feedback', {method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({code:p.shortcode, action:'skip'}), keepalive:true}).catch(()=>{});
 }
+window.addEventListener('pagehide', () => {
+  reportWatch(posts[current], true);
+  // Keep a playing clip's lease until its final view request can arrive.
+  releaseReservations(posts.filter((p, i) => i >= current && !p._dropped && !(p._watchedSeconds > 0)).map(p => p.reservation).filter(Boolean));
+});
+function replaceExpiredQueue() {
+  if (!(posts[current]?._watchedSeconds > 0)) current = -1;
+  dropQueuedReels();
+  selectionVersion += 1;
+  fetching = false;
+  clearTimeout(retryTimer); retryTimer = null;
+  exhausted = false;
+  more();
+}
+window.addEventListener('pageshow', event => {
+  if (event.persisted) replaceExpiredQueue();
+});
+let hiddenSince = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenSince = Date.now();
+    reportWatch(posts[current], true);
+    interruptPlayback(current);
+  } else {
+    // A hidden tab's unseen queue may have expired or been viewed elsewhere.
+    if (hiddenSince !== null && Date.now() - hiddenSince >= 60000) replaceExpiredQueue();
+    hiddenSince = null;
+    scheduleReservationRenewal();
+  }
+});
 function likeReel(i) {
   if (posts[i]) rateReel(i, posts[i].feedback === 'like' ? 'clear' : 'like');
 }

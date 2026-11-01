@@ -76,7 +76,7 @@ class RecommendationTests(unittest.TestCase):
         names = ['creator'+str(i) for i in range(10)]
         states = {owner:{'posts':[{'shortcode':owner+str(i),'owner':owner,'is_video':True} for i in range(6)],
                          'has_more':False} for owner in names}
-        rec.record_deliveries([{'shortcode':'previous','owner':'creator0'}])
+        rec.record_view('previous', 'creator0', 'view1')
         with patch('ig.feeds.STATE',states), patch('ig.feeds.load_feeds',return_value={'memes':names}):
             result = feeds._pool_more(feeds.make_pool(names))
         owners = [p['owner'] for p in result['posts']]
@@ -106,7 +106,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_trial_cooldown_is_released_by_liking(self):
         rec.remember_reels([{'shortcode':'trial1','owner':'newcreator'}])
-        rec.record_deliveries([{'shortcode':'trial1','owner':'newcreator'}])
+        rec.record_view('trial1', 'newcreator', 'view1')
         self.assertIn('newcreator',rec.trial_cooldowns({'saved'}))
         rec.set_feedback('trial1','like')
         self.assertNotIn('newcreator',rec.trial_cooldowns({'saved'}))
@@ -196,7 +196,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_uncertain_trial_respects_cooldown_and_different_topics(self):
         rec.remember_reels([{'shortcode':'source','owner':'saved','tagged_users':['coder','recent']}])
-        rec.record_deliveries([{'shortcode':'before','owner':'recent'}])
+        rec.record_view('before', 'recent', 'view1')
         states={u:{'posts':[{'shortcode':u,'owner':u,'is_video':True}], 'has_more':False}
                 for u in ['saved','coder','recent']}
         states['coder']['biography']='Python programming tutorials'

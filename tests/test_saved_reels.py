@@ -109,7 +109,7 @@ class SavedReelsTests(unittest.TestCase):
         self.assertTrue(rec.set_reel_saved('clip01', True))
         connection = sqlite3.connect(path)
         self.addCleanup(connection.close)
-        self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 3)
+        self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], len(rec.MIGRATIONS))
         self.assertEqual(rec.feedback_for(['clip01']), {'clip01': 'like'})
         self.assertEqual(len(rec.saved_reels()), 1)
 

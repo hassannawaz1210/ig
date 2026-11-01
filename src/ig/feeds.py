@@ -1,8 +1,8 @@
 import logging
 import random
 import threading
-from . import recommendations, config
-from .history import load_history, save_history
+from . import recommendations, config, history as viewing_history
+from .history import load_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
 from .instagram import STATE, PROFILES, more_posts, InstagramError, RateLimited, ProfileUnavailable
 from .reasons import Reason
@@ -120,11 +120,12 @@ def choose_account(pool: dict, candidates: list[str], preferred: bool) -> str:
 BATCH_LOCK = threading.Lock()
 
 
-def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
+def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client") -> dict:
     # Selection and reservation must be one operation across simultaneous tabs.
     with BATCH_LOCK:
         history = load_history()
-        pool["served"].update(history["codes"])
+        reservations = viewing_history.active_reservations()
+        pool["served"] = set(history["codes"]) | {r[0] for r in reservations}
         excluded = set(excluded or ())
         REFILL.collect(pool, _record_failure)
         candidates = available_accounts(pool, excluded)
@@ -133,7 +134,8 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
         candidates = available_accounts(pool, excluded)
         REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
         waiting = REFILL.waiting(candidates)
-        batch['has_more'] = bool(batch['posts']) or waiting
+        reserved_elsewhere = any(owner in candidates and holder != client for _, owner, holder in reservations)
+        batch['has_more'] = bool(batch['posts']) or waiting or reserved_elsewhere
         if waiting:
             batch['retry_after_ms'] = 750
         blocked = blocked_accounts()
@@ -143,6 +145,7 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             if post.get("owner") != history["last_owner"]:
                 posts[0], posts[i] = posts[i], posts[0]
                 break
+        posts = batch["posts"] = viewing_history.reserve(posts, client)
         recommendations.remember_reels(posts)
         codes = [p['shortcode'] for p in posts]
         reactions = recommendations.feedback_for(codes)
@@ -151,7 +154,6 @@ def pool_more(pool: dict, limit: int = 12, excluded=None) -> dict:
             post['feedback'] = reactions.get(post['shortcode'])
             post['saved'] = post['shortcode'] in saved
         recommendations.record_deliveries(posts)
-        save_history(history, posts)
         return batch
 
 
@@ -298,9 +300,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         reactions = recommendations.feedback_for([p['shortcode'] for p in fresh])
         fresh = [p for p in fresh if reactions.get(p['shortcode']) != 'dislike']
         if not fresh:
-            if not state.get('has_more'):
-                pool['dead'].add(username)
-            continue
+            continue  # Reserved clips may become eligible again after release/expiry.
         pool.setdefault('accepted', set()).add(username)
         picked, exploratory = recommendations.pick_reel(fresh, model)
         # Copy: profile posts are shared with the profile view and the cache.

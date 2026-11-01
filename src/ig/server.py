@@ -1,6 +1,7 @@
-from . import recommendations, config
+from . import recommendations, config, history
 from .media import fetch_video
 import json
+import math
 import logging
 import os
 import shutil
@@ -397,6 +398,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(result).encode(), "application/json")
             except Exception as error:
                 return self._fail(error, as_json=True, context="Loading comments")
+        if self.path in ('/reels/view', '/reels/release', '/reels/renew'):
+            try:
+                length = int(self.headers.get('Content-Length') or 0)
+                if not 0 < length <= 65536:
+                    raise ValueError('Invalid request size')
+                body = json.loads(self.rfile.read(length))
+                client = body.get('client') if isinstance(body, dict) else None
+                if not isinstance(client, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', client):
+                    raise ValueError('Invalid client')
+                if self.path == '/reels/view':
+                    code, token, seconds = body.get('code'), body.get('reservation'), body.get('seconds')
+                    if (not isinstance(code, str) or not POST_CODE.fullmatch(code) or
+                            not isinstance(token, str) or not re.fullmatch(r'[a-f0-9]{32}', token) or
+                            type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 3600):
+                        raise ValueError('Invalid playback')
+                    owner = history.record_playback(code, token, client, seconds)
+                    if owner is None:
+                        return self._send(409, b'{"accepted":false}', 'application/json')
+                    recommendations.record_view(code, owner, token)
+                else:
+                    tokens = body.get('tokens')
+                    if tokens is not None and (not isinstance(tokens, list) or len(tokens) > 1000 or any(
+                            not isinstance(t, str) or not re.fullmatch(r'[a-f0-9]{32}', t) for t in tokens)):
+                        raise ValueError('Invalid reservations')
+                    if self.path == '/reels/release':
+                        history.release(client, tokens)
+                    else:
+                        if tokens is None:
+                            raise ValueError('Reservations required')
+                        history.renew(client, tokens)
+                return self._send(200, b'{"accepted":true}', 'application/json')
+            except (ValueError, TypeError) as error:
+                return self._send(400, json.dumps({'error':str(error)}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context='Recording viewing activity')
         if self.path == "/feedback":
             try:
                 length = int(self.headers.get('Content-Length') or 0)
@@ -609,7 +645,16 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(excluded, list) or len(excluded) > 1000 or any(
                             not isinstance(u, str) or not USER_RE.fullmatch(u) for u in excluded):
                         return self._send(400, b"invalid session blocklist", "text/plain")
-                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded})
+                    client = body.get('client', 'legacy-client')
+                    if not isinstance(client, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', client):
+                        return self._send(400, b'invalid client', 'text/plain')
+                    releases = body.get('release', [])
+                    if not isinstance(releases, list) or len(releases) > 1000 or any(
+                            not isinstance(t, str) or not re.fullmatch(r'[a-f0-9]{32}', t) for t in releases):
+                        return self._send(400, b'invalid reservations', 'text/plain')
+                    if releases:
+                        history.release(client, releases)
+                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded}, client=client)
                 else:
                     data = more_posts(username)
                 if username == MIX:

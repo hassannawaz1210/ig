@@ -139,7 +139,7 @@ const {ctx, element, calls, timers} = createPage(async url =>
   vm.runInContext('downloadCurrent()',ctx);
   assert.deepEqual(Array.from(vm.runInContext('downloads',ctx)),[1],'D downloads the current reel');
   vm.runInContext('downloadReel = realDownload',ctx);
-  vm.runInContext('posts[1]._viewStarted=1000; recordQuickSkip(1); recordQuickSkip(1)',ctx);
+  vm.runInContext('posts[1]._watchedSeconds=1; recordQuickSkip(1); recordQuickSkip(1)',ctx);
   assert.equal(calls.filter(c=>c.url==='/feedback' && JSON.parse(c.options.body).action==='skip').length,1,'record each quick skip only once');
   vm.runInContext(`
     let keyCalls = [];
@@ -247,6 +247,7 @@ const {ctx, element, calls, timers} = createPage(async url =>
   await feedSelectionTests();
   await loadingStateTests();
   await earlyRefillTests();
+  await viewingTests();
   console.log('Feed selection and loading state passed');
 })().catch(error => {console.error(error); process.exitCode = 1;});
 
@@ -357,8 +358,8 @@ async function finishSwitch(page, fresh, chips) {
   assert.equal(run('switchingFeeds'), false);
   assert.equal(element('feed-busy').hidden, true, 'busy state ends with the new batch');
   assert.equal(element('feed-status').hidden, true);
-  assert.deepEqual(calls.filter(call => call.url === '/reels/more').at(-1).options.body,
-    JSON.stringify({session_blocked: []}), 'batch requests still carry session blocks');
+  assert.deepEqual(JSON.parse(calls.filter(call => call.url === '/reels/more').at(-1).options.body).session_blocked,
+    [], 'batch requests still carry session blocks');
 
   // A failed save reverts the chips and keeps the queued reels.
   chips[1].click();
@@ -425,4 +426,44 @@ async function earlyRefillTests() {
   vm.runInContext('maybeMore(); maybeMore()',page.ctx);
   assert.equal(page.calls.filter(r=>r.url==='/reels/more').length,requestCount,'keep one refill request in flight');
   assert.ok(page.calls.some(r=>r.url.endsWith('/media')&&JSON.parse(r.options.body).code==='warm5'), 'fifth upcoming video is prepared before navigation');
+}
+
+
+async function viewingTests() {
+  const page = createPage(async () => ({ok:true,json:async()=>({posts:[],has_more:false})}));
+  const run = code => vm.runInContext(code, page.ctx);
+  page.ctx.clock = 0;
+  page.ctx.performance.now = () => page.ctx.clock;
+  page.ctx.video = {currentTime:0,paused:false,seeking:false,readyState:4,playbackRate:1};
+  run("posts.push({shortcode:'watch01',reservation:'a'.repeat(32)}); current=0; posts[0]._lastSample={time:0,wall:0}");
+  assert.equal(page.calls.filter(c=>c.url==='/reels/view').length, 0, 'queued reels are not viewed');
+  page.ctx.clock=1000; page.ctx.video.currentTime=1;
+  run('onReelProgress(0, video)'); await settleAll();
+  assert.equal(run('posts[0]._watchedSeconds'),1);
+  assert.equal(page.calls.filter(c=>c.url==='/reels/view').length,1,'visible playback reports a view');
+  page.ctx.document.hidden=true; page.ctx.clock=2000; page.ctx.video.currentTime=2;
+  run('onReelProgress(0, video)');
+  assert.equal(run('posts[0]._watchedSeconds'),1,'hidden-tab progress is excluded');
+  page.ctx.document.hidden=false; page.ctx.clock=3000; page.ctx.video.currentTime=3;
+  run('onReelProgress(0, video)');
+  assert.equal(run('posts[0]._watchedSeconds'),1,'returning from hidden does not count the missing interval');
+  page.ctx.clock=4000; page.ctx.video.currentTime=4;
+  run('onReelProgress(0, video)');
+  assert.equal(run('posts[0]._watchedSeconds'),2);
+  page.ctx.clock=5000; page.ctx.video.currentTime=0;
+  run('onReelProgress(0, video)');
+  page.ctx.clock=6000; page.ctx.video.currentTime=1;
+  run('onReelProgress(0, video)');
+  assert.equal(run('posts[0]._watchedSeconds'),2,'replaying a covered interval does not inflate watch time');
+  page.ctx.clock=7000; page.ctx.video.currentTime=50;
+  run('onReelProgress(0, video)');
+  assert.equal(run('posts[0]._watchedSeconds'),2,'seeking forward is not watch time');
+  run('recordQuickSkip(0)');
+  assert.equal(page.calls.filter(c=>c.url==='/feedback').length,0,'looping a short clip is not a quick skip');
+  run("posts.push({shortcode:'failed1',reservation:'b'.repeat(32)}); current=1; interruptPlayback(1); recordQuickSkip(1)");
+  assert.equal(page.calls.filter(c=>c.url==='/feedback').length,0,'failed playback does not create a skip');
+  assert.ok(page.calls.some(c=>c.url==='/reels/release' && JSON.parse(c.options.body).tokens.includes('b'.repeat(32))), 'unplayed clip is released on departure');
+  run("posts.push({shortcode:'queue01',reservation:'c'.repeat(32)}); dropQueuedReels()");
+  assert.ok(page.calls.some(c=>c.url==='/reels/release' && JSON.parse(c.options.body).tokens.includes('c'.repeat(32))), 'feed switching releases unseen queue');
+  console.log('Viewing history ignores prefetch, hidden time, loops, seeks and failed playback');
 }

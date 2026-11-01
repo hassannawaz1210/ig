@@ -291,6 +291,31 @@ const KEYS = {
     await sleep(200);
     assert.ok(await evaluate(`!!document.querySelector('.feed-choice[data-feed="my_feed"]')`), 'Undo restores the feed');
     assert.deepEqual(await evaluate('selectedFeeds'), ['islam'], 'deleting another feed preserves selection');
+    // Exercise actual media events, not just mocked progress callbacks.
+    await evaluate(`(async () => {
+      closeFeedMenu(); closeComments();
+      const canvas = document.createElement('canvas'); canvas.width=90; canvas.height=160;
+      const paint = canvas.getContext('2d');
+      const stream = canvas.captureStream(10);
+      const recorder = new MediaRecorder(stream, {mimeType:'video/webm'});
+      const chunks = [];
+      recorder.ondataavailable = e => chunks.push(e.data);
+      const stopped = new Promise(resolve => recorder.onstop=resolve);
+      recorder.start();
+      let frame=0;
+      const draw = setInterval(() => {paint.fillStyle=frame++ % 2 ? 'red' : 'blue';paint.fillRect(0,0,90,160);}, 80);
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      recorder.stop(); await stopped; clearInterval(draw); stream.getTracks().forEach(t=>t.stop());
+      const p=posts[current];
+      p.reservation='a'.repeat(32); p.video=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));
+      p._paused=false; setVideo(p,current,true);
+    })()`);
+    await sleep(3500);
+    const viewing = await evaluate(`({seconds:posts[current]._watchedSeconds, recorded:posts[current]._viewRecorded,
+      duration:document.querySelector('#s'+current+' video').duration, looped:posts[current]._looped, time:document.querySelector('#s'+current+' video').currentTime, paused:document.querySelector('#s'+current+' video').paused, ready:document.querySelector('#s'+current+' video').readyState, interrupted:posts[current]._interrupted})`);
+    assert.ok(viewing.recorded, 'visible video playback reports its first actual view');
+    assert.ok(viewing.seconds > .2 && viewing.seconds < 1.5, 'looping a one-second video does not accumulate seconds indefinitely');
+    assert.ok(viewing.looped, 'test video completed a loop: ' + JSON.stringify(viewing));
     await evaluate('boot.feeds = []; updateFeedStatus()');
     assert.equal(await evaluate(`document.getElementById('feed-create').hidden`), false, 'new users see Create feed');
     console.log('Reel navigation, feed selection, creation and account entry passed');

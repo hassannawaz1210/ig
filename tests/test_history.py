@@ -25,6 +25,7 @@ class HistoryTests(unittest.TestCase):
 
     def test_fresh_pool_does_not_repeat_clips_or_opening_account(self):
         first = feeds.pool_more(feeds.make_pool(['a', 'b']))['posts']
+        history.record_playback(first[0]['shortcode'], first[0]['reservation'], 'legacy-client', 1.0)
         second = feeds.pool_more(feeds.make_pool(['a', 'b']))['posts']
         self.assertTrue(first and second)
         self.assertFalse({p['shortcode'] for p in first} & {p['shortcode'] for p in second})
