@@ -367,6 +367,7 @@ def related_leads(owners, *, include_liked=False, reasons=None, topics=None):
                                   "WHERE COALESCE(f.action, '') != 'dislike' ORDER BY r.updated DESC LIMIT 3000"
                                   ).fetchall()
         posts = [(json.loads(raw), action) for raw, action in rows]
+        anchors = []
         for post, action in posts:
             # A single explicitly liked reel can supply leads. The prospective
             # creator still has to pass the normal multi-post topic checks.
@@ -374,12 +375,13 @@ def related_leads(owners, *, include_liked=False, reasons=None, topics=None):
                 re.search(r'\b(?:' + TOPIC_WORDS.get(topic, r'(?!)') + r')\b',
                           post.get('caption') or '', re.I) for topic in (topics or {})))
             if post.get('owner') in owners or owners.intersection(post.get('coauthors') or []) or liked_match:
+                anchors.append((post, action))
                 for name, (strength, kind) in candidate_lead_kinds(post).items():
                     if strength > leads.get(name, 0):
                         leads[name] = strength
                         evidence[name] = {'source': kind, 'via': post.get('owner'),
                                           'liked': action == 'like'}
-        for name, (strength, tags) in _tag_leads(connection, posts, owners).items():
+        for name, (strength, tags) in _tag_leads(connection, anchors, owners).items():
             if strength > leads.get(name, 0):
                 leads[name] = strength
                 evidence[name] = {'source': 'hashtag', 'tags': tags}
@@ -563,7 +565,7 @@ def topic_evidence(state, name, vocabulary=None):
     if found(state.get('biography') or ''):
         return 'bio'
     videos = [p for p in state.get('posts', []) if p.get('is_video')][:12]
-    matches = sum(found((p.get('caption') or '').split('\n\n')[0]) for p in videos)
+    matches = sum(found((p.get('caption') or '')[:3000]) for p in videos)
     return 'captions' if matches >= 3 and matches >= len(videos) / 2 else None
 
 

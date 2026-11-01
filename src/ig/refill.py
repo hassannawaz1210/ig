@@ -63,7 +63,7 @@ class Refill:
             elif REELS.is_stale(state) and not any(
                     p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts']):
                 candidates.append((0 if name in saved else 2, name, False))
-            elif (name in saved or name in pool.get('accepted', set()) or not state['posts']) and state.get('has_more'):
+            elif (name in saved or name in pool.get('accepted', set()) or not state['posts'] or (len(state['posts']) < 9 and state.get('pending'))) and state.get('has_more'):
                 unseen = sum(p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])
                 if unseen < 12:
                     candidates.append((0 if unseen == 0 else 1, name, True))
@@ -79,6 +79,11 @@ class Refill:
         trial_running = any(name not in saved for name in self.pending)
         if trials and not trial_running and time.monotonic() >= self.next_discovery_at:
             weights = pool.get('discovery_weights', {})
+            # Most inspections go to creator credits and relevant mentions;
+            # a small exploration share still tests weak leads such as fans.
+            strong = [c for c in trials if weights.get(c[1], 0) >= 1]
+            if strong and random.random() < .8:
+                trials = strong
             # Try never-inspected candidates before revisiting old sources.
             oldest = min(self.last_scheduled.get(c[1], 0) for c in trials)
             eligible = [c for c in trials if self.last_scheduled.get(c[1], 0) == oldest]

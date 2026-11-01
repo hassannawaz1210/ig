@@ -80,7 +80,7 @@ def save_history(history: dict, posts: list[dict]) -> None:
 def active_reservations():
     with database() as db:
         db.execute('DELETE FROM reservations WHERE expires <= ?', (time.time(),))
-        return db.execute('SELECT code, owner, client FROM reservations').fetchall()
+        return db.execute('SELECT code, owner, client FROM reservations ORDER BY rowid').fetchall()
 
 
 def reserve(posts, client):
@@ -138,3 +138,11 @@ def record_playback(code, token, client, seconds):
         db.execute('DELETE FROM reels WHERE position NOT IN (SELECT position FROM reels ORDER BY position DESC LIMIT ?)', (MAX_HISTORY,))
         db.execute('DELETE FROM viewings WHERE token NOT IN (SELECT token FROM viewings ORDER BY viewed DESC LIMIT ?)', (MAX_HISTORY,))
         return owner
+
+
+def recent_owners(client, limit=2):
+    """Actually watched creators for this tab, oldest first."""
+    with database() as db:
+        rows = db.execute('SELECT owner FROM viewings WHERE client=? ORDER BY viewed DESC, rowid DESC LIMIT ?',
+                          (client, limit)).fetchall()
+    return [row[0] for row in reversed(rows)]

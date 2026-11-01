@@ -141,7 +141,8 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         leads = recommendations.related_leads(snapshot[0], include_liked=config.selected_feeds() is None,
                                                topics=selected, reasons=evidence)
         discover_into(pool, leads)
-        pool['discovery_weights'] = recommendations.discovery_weights(evidence)
+        source_weights = recommendations.discovery_weights(evidence)
+        pool['discovery_weights'] = {name: strength * source_weights.get(name, 1) for name, strength in leads.items()}
         pool['buffered'] = sum(holder == client for _, _, holder in reservations)
         pool['saved_streak'] = recommendations.saved_streak(snapshot[0],
             [owner for _, owner, holder in reservations if holder == client])
@@ -151,6 +152,16 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         # Diversity must span successive refill batches, not just one response.
         cap = 2 if len(candidates) > 1 else None
         full = {owner for owner, count in queued.items() if cap and count >= cap}
+        # Watched clips release leases. Count them too, otherwise a fast source
+        # can supply every refill indefinitely while slower sources are paging.
+        sequence = viewing_history.recent_owners(client) + [owner for _, owner, holder in reservations if holder == client]
+        if len(sequence) >= 2 and sequence[-1] == sequence[-2]:
+            repeated = sequence[-1]
+            alternatives = [name for name in candidates if name != repeated and name in snapshot[0]]
+            if any(name not in STATE or STATE[name].get('has_more') or any(
+                    p.get('is_video') and p['shortcode'] not in pool['served']
+                    for p in STATE[name]['posts']) for name in alternatives):
+                full.add(repeated)
         batch = _pool_more(pool, limit, excluded | full, allow_network=False, snapshot=snapshot)
         if cap:
             balanced = []

@@ -64,3 +64,49 @@ class DiscoveryExperimentTests(TempDirs):
         self.assertEqual(batch['posts'][3]['owner'],'new')
         self.assertIn('discovery_source',batch['posts'][3])
         self.assertEqual(config.load_feeds(),{'gaming':['saved1','saved2','saved3']})
+
+    def test_unrelated_likes_do_not_supply_hashtag_leads(self):
+        rec.remember_reels([
+            {'shortcode':'movie','owner':'film','caption':'#cinema #halloween'},
+            {'shortcode':'another','owner':'actor','caption':'#cinema #halloween'},
+            {'shortcode':'tech','owner':'saved','caption':'#programming'}])
+        rec.set_feedback('movie','like')
+        self.assertNotIn('actor',rec.related_leads({'saved'},topics={'programming':['saved']}))
+
+    def test_topic_checks_include_hashtags_below_intro(self):
+        state={'posts':[{'is_video':True,'caption':'Look at this!\n\n#programming #python'} for _ in range(3)]}
+        self.assertIn('programming',rec.matching_topics(state,['programming']))
+
+    def test_strong_credit_beats_large_commenter_pool_for_inspection(self):
+        refill=Refill();self.addCleanup(refill.executor.shutdown,wait=True)
+        names=['credited']+['fan'+str(i) for i in range(50)]
+        pool={'served':set(),'buffered':8,'discovery_weights':dict.fromkeys(names,.15)}
+        pool['discovery_weights']['credited']=2.5
+        with patch('ig.refill.random.random',return_value=.1),patch('ig.refill.REELS.cached',return_value=None),patch('ig.refill.REELS.load',return_value=({},True)):
+            refill.schedule(pool,names,set(),states={})
+            self.assertEqual(set(refill.pending),{'credited'})
+            for future,_ in refill.pending.values():future.result()
+
+    def test_inconclusive_creator_gets_more_samples_before_rejection(self):
+        refill=Refill();self.addCleanup(refill.executor.shutdown,wait=True)
+        state={'posts':[{'shortcode':'one','is_video':True}],'pending':[{'shortcode':'two'}],'has_more':True}
+        with patch('ig.refill.more_reels',return_value={}) as paging:
+            refill.schedule({'served':set()},['trial'],set(),states={'trial':state})
+            for future,_ in refill.pending.values():future.result()
+        paging.assert_called_once_with('trial')
+
+    def test_watching_reels_does_not_reset_creator_streak_cap(self):
+        from ig import history
+        config.save_feeds({'programming':['fast','slow']})
+        for i in range(2):
+            p=history.reserve([{'shortcode':'seen'+str(i),'owner':'fast'}],'client-test')[0]
+            history.record_playback(p['shortcode'],p['reservation'],'client-test',1)
+        states={'fast':{'posts':[{'shortcode':'next','owner':'fast','is_video':True}],'has_more':True},
+                'slow':{'posts':[],'has_more':True}}
+        with patch('ig.feeds.STATE',states),patch.object(feeds.REFILL,'schedule'),patch.object(feeds.REFILL,'collect'),patch.object(feeds.REFILL,'waiting',return_value=True):
+            result=feeds.pool_more(feeds.make_pool([]),client='client-test')
+            self.assertEqual(result['posts'],[])
+            self.assertTrue(result['has_more'])
+            states['slow']['has_more']=False
+            result=feeds.pool_more(feeds.make_pool([]),client='client-test')
+            self.assertEqual(result['posts'][0]['owner'],'fast','exhausted alternatives must not deadlock playback')
