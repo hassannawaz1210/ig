@@ -95,6 +95,7 @@ const KEYS = {
     })()`);
     const expectReel = async (expected, message) => {
       await sleep(400);
+      assert.equal(await evaluate('location.href'), url, message + ' (stays on reels page)');
       assert.equal(await shown(), expected, message + ' (reel in view)');
       assert.equal(await evaluate('current'), expected, message + ' (current reel)');
     };
