@@ -754,6 +754,16 @@ def ensure_server() -> int:
 
 def open_in_browser(url: str) -> bool:
     import shutil
+    import webbrowser
+    # Respect BROWSER and use the platform's default launcher on macOS/Windows.
+    if os.environ.get("BROWSER") or sys.platform != "linux":
+        try:
+            if webbrowser.open(url):
+                return True
+        except webbrowser.Error:
+            pass
+        if sys.platform != "linux":
+            return False
     try:
         r = subprocess.run(["xdg-open", url], capture_output=True, timeout=25)
         if r.returncode == 0:

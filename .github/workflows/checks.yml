@@ -1,0 +1,37 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14']
+    env:
+      XDG_CONFIG_HOME: ${{ runner.temp }}/ig-config
+      XDG_CACHE_HOME: ${{ runner.temp }}/ig-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - run: python -m pip install . build
+      - run: python -m unittest discover -s tests -v
+        env:
+          IG_TEST_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+      - run: python -m build
+      - name: Check installed wheel outside the checkout
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-env"
+          "$RUNNER_TEMP/wheel-env/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-env/bin/ig" --help
+          "$RUNNER_TEMP/wheel-env/bin/python" -c 'from ig.views import reels_html, static_file; assert "</html>" in reels_html(); assert static_file("reels.js"); assert static_file("reels.css")'
