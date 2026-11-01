@@ -1,14 +1,17 @@
 """Automatic song identification using Shazam's fingerprint service."""
 import asyncio
+import logging
 import tempfile
 import subprocess
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from curl_cffi import requests as cr
-from .instagram import media_info
+from .reels import media_info
 from .media import fetch_video
 from .recognition_cache import cached_song, cache_song
+
+log = logging.getLogger(__name__)
 
 WORKERS = threading.BoundedSemaphore(2)
 MAX_VIDEO_BYTES = 40 * 1024 * 1024
@@ -81,8 +84,9 @@ def recognize_song(code):
             result = track_result(asyncio.run(identify_file(path)))
         cache_song(code, result)
         return result
-    except (Exception, SystemExit):
+    except (Exception, SystemExit) as error:
         # Recognition failures must never interrupt playback or become a false no-match.
+        log.warning('Song recognition failed for %s (%s)', code, type(error).__name__)
         return {'status': 'unavailable'}
     finally:
         WORKERS.release()

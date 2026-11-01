@@ -820,6 +820,7 @@ async function rateReel(i, action) {
   finally { p._feedbackBusy = false; }
 }
 let songTimer = null;
+let songTimerFor = null;
 let songBusy = false;
 function renderSong(i, result) {
   const row = document.getElementById('song'+i);
@@ -836,37 +837,49 @@ function renderSong(i, result) {
       link.textContent = text; label.append(link);
     } else label.textContent = text;
   } else label.textContent = result.status === 'no_match' ? 'Song not identified'
-    : result.status === 'loading' ? 'Identifying song…' : 'Song recognition unavailable';
+    : result.status === 'loading' ? 'Identifying song…'
+    : result.status === 'queued' ? 'Waiting to identify song…' : 'Song recognition unavailable';
 }
 function queueSong(i) {
   const p = posts[i];
   if (!p || current !== i || isHidden(p)) return;
   if (p._song) { renderSong(i, p._song); return; }
-  if (songBusy || (p._songRetryAt || 0) > Date.now()) return;
+  if (songTimer && songTimerFor === i) return; // buffering/loops must not restart the delay
   clearTimeout(songTimer);
+  songTimer = null;
+  songTimerFor = null;
+  if (songBusy) {
+    if (!p._recognizing) renderSong(i, {status:'queued'});
+    return; // completion of the active request schedules the current reel
+  }
+  songTimerFor = i;
   songTimer = setTimeout(() => {
+    songTimer = null;
+    songTimerFor = null;
     if (current === i && !p._paused && !isHidden(p)) recognizeSong(i);
-  }, 3000);
+  }, Math.max(3000, (p._songRetryAt || 0) - Date.now()));
 }
 async function recognizeSong(i) {
   const p = posts[i];
   if (songBusy || !p || p._song || isHidden(p) || current !== i) return;
   songBusy = true;
-  renderSong(i, {status:'loading'});
+  p._recognizing = true;
   try {
+    renderSong(i, {status:'loading'});
     const r = await fetch('/recognize/' + encodeURIComponent(p.shortcode),
       {method:'POST', signal:AbortSignal.timeout(110000)});
     if (!r.ok) throw new Error();
     const result = await r.json();
     if (result.status === 'matched' || result.status === 'no_match') p._song = result;
-    else p._songRetryAt = Date.now() + 60000;
+    else p._songRetryAt = Date.now() + (result.status === 'busy' ? 5000 : 60000);
     renderSong(i, result);
   } catch (_) {
     p._songRetryAt = Date.now() + 60000;
     renderSong(i, {status:'unavailable'});
   } finally {
     songBusy = false;
-    if (current !== i) queueSong(current);
+    p._recognizing = false;
+    queueSong(current);
   }
 }
 async function downloadReel(i, button) {
