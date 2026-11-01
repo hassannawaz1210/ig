@@ -71,6 +71,8 @@ def _schedule_stream_assembly(code: str, manifest: str) -> None:
             return  # /video assembles synchronously when the worker is busy.
         try:
             dash.assemble(code, manifest)
+        except Exception:
+            log.exception("Could not pre-assemble %s", code)
         finally:
             STREAM_WORKERS.release()
 
@@ -201,6 +203,7 @@ class Handler(BaseHTTPRequestHandler):
     def _video(self, code):
         """Serve a reel's assembled best-quality file, or fall back."""
         try:
+            entry = dash.recall(code) or {}
             path = dash.cached(code)
             if path is None:
                 entry = dash.recall(code)
@@ -208,9 +211,12 @@ class Handler(BaseHTTPRequestHandler):
                     data = media_info(code)
                     entry = {"mpd": data.get("video_dash_manifest") or "",
                              "fallback": data.get("video")}
-                path = dash.assemble(code, entry.get("mpd") or "")
+                try:
+                    path = dash.assemble(code, entry.get("mpd") or "")
+                except Exception:
+                    log.exception("Could not assemble stream %s", code)
+                    path = None
             if path is None:
-                entry = dash.recall(code) or {}
                 fallback = entry.get("fallback")
                 if fallback:
                     self.send_response(302)
@@ -223,6 +229,9 @@ class Handler(BaseHTTPRequestHandler):
             pass  # The browser cancelled the request.
         except InstagramError as error:
             log.info("Stream of %s failed: %s", code, error)
+            return self._send(502, b"Could not load this video. Try again.", "text/plain")
+        except Exception:
+            log.exception("Unexpected stream failure for %s", code)
             return self._send(502, b"Could not load this video. Try again.", "text/plain")
 
     def _send_video_file(self, path, attachment=None):

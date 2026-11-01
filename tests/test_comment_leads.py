@@ -38,6 +38,13 @@ def comments_payload(comments, more=True, cursor=None):
 
 
 class CommentFetchTests(unittest.TestCase):
+    def setUp(self):
+        instagram._COMMENT_CONTEXTS.clear()
+        instagram._COMMENT_PAGES.clear()
+        backoff = patch.object(instagram, 'BACKOFF', instagram.Backoff())
+        backoff.start()
+        self.addCleanup(backoff.stop)
+
     def test_post_comments_parses_usernames_text_and_owner(self):
         payload = comments_payload([
             ("creator", "thanks @editor for the cut", 40),

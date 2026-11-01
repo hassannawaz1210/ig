@@ -7,6 +7,8 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from collections import OrderedDict
+from copy import deepcopy
 from urllib.parse import urlencode
 from curl_cffi import requests as cr
 from . import config
@@ -132,8 +134,6 @@ def request(session, method: str, url: str, **kwargs):
     if "/accounts/login" in final_url or "/challenge" in final_url:
         BACKOFF.hit()
         raise RateLimited("Instagram is asking to log in (a logged-out limit); wait a few minutes")
-    if response.status_code < 400:
-        BACKOFF.reset()
     log.debug("%s %s -> %s", method, url, response.status_code)
     return response
 
@@ -212,12 +212,25 @@ def feed(username: str) -> list[dict]:
     return state["posts"]
 
 
-def _post_page(code: str) -> str:
-    response = request(_new_session(), "GET", f"https://www.instagram.com/p/{code}/")
+_COMMENT_CONTEXTS = OrderedDict()
+_COMMENT_PAGES = OrderedDict()
+_COMMENT_LOCK = threading.RLock()
+_COMMENT_FETCH_LOCK = threading.Lock()
+COMMENT_TTL = 900
+
+
+def _post_page(code: str, session=None) -> str:
+    session = session if session is not None else _new_session()
+    response = request(session, "GET", f"https://www.instagram.com/p/{code}/")
     if response.status_code == 404:
         raise ProfileUnavailable(f"Post {code} is unavailable")
     if response.status_code >= 400:
         raise UnexpectedResponse(f"Instagram returned HTTP {response.status_code} for post {code}")
+    with _COMMENT_LOCK:
+        _COMMENT_CONTEXTS[code] = (time.monotonic(), session, response.text)
+        _COMMENT_CONTEXTS.move_to_end(code)
+        while len(_COMMENT_CONTEXTS) > 64:
+            _COMMENT_CONTEXTS.popitem(last=False)
     return response.text
 
 
@@ -225,6 +238,7 @@ def _post_media(code: str) -> dict:
     for payload in sjs_payloads(_post_page(code), "xig_polaris_media"):
         media = nested_find(payload, "xig_polaris_media")
         if media:
+            BACKOFF.reset()
             return media.get("if_not_gated_logged_out") or media
     raise UnexpectedResponse(f"Instagram did not include post data for {code}; try again later")
 
@@ -290,6 +304,29 @@ def media_info(code: str) -> dict:
 
 
 def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
+    # Coalesce panel/discovery requests without holding the metadata cache
+    # lock across network I/O (reel loading must not wait for comments).
+    with _COMMENT_FETCH_LOCK:
+        key = (code, first, after)
+        with _COMMENT_LOCK:
+            cached = _COMMENT_PAGES.get(key)
+            if cached and time.monotonic() - cached[0] < COMMENT_TTL:
+                return deepcopy(cached[1])
+        try:
+            result = _fetch_comments(code, first, after)
+        except InstagramError:
+            with _COMMENT_LOCK:
+                _COMMENT_CONTEXTS.pop(code, None)
+            raise
+        with _COMMENT_LOCK:
+            _COMMENT_PAGES[key] = (time.monotonic(), result)
+            _COMMENT_PAGES.move_to_end(key)
+            while len(_COMMENT_PAGES) > 256:
+                _COMMENT_PAGES.popitem(last=False)
+        return deepcopy(result)
+
+
+def _fetch_comments(code: str, first: int = 20, after: str | None = None) -> dict:
     """One page of a post's top-level comments, without login.
 
     Comments are not embedded in logged-out post pages; a separate GraphQL
@@ -297,8 +334,13 @@ def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
     anonymous session (cookies and tokens), then the query runs on it.
     Instagram serves about twenty comments per page no matter what `first`
     asks for; pass the returned next_cursor as `after` to keep scrolling."""
-    session = _new_session()
-    html = _post_page(code)
+    with _COMMENT_LOCK:
+        cached = _COMMENT_CONTEXTS.get(code)
+    if cached and time.monotonic() - cached[0] < COMMENT_TTL:
+        _, session, html = cached
+    else:
+        session = _new_session()
+        html = _post_page(code, session=session)
     if '"LSD"' not in html:
         raise UnexpectedResponse(f"Instagram did not include tokens for {code}; try again later")
     media = None
@@ -346,6 +388,7 @@ def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
         .get("comments_connection")
     if connection is None:
         raise UnexpectedResponse(f"Instagram sent no comment data for {code}")
+    BACKOFF.reset()
     comments = []
     for edge in connection.get("edges") or []:
         node = edge.get("node") or {}
@@ -424,6 +467,7 @@ def reels_tab(username: str, first: int = 12, after: str | None = None,
     connection = (user.get("user") or user).get("polaris_clips_connection")
     if connection is None:
         raise UnexpectedResponse(f"Instagram sent no reels tab for @{username}")
+    BACKOFF.reset()
     reels = []
     for edge in connection.get("edges") or []:
         node = edge.get("node") or {}
@@ -472,6 +516,7 @@ def parse_profile(html: str, username: str = ""):
                 raise ProfileUnavailable(f"{name} is private")
         raise UnexpectedResponse(f"Instagram did not include posts for {name}; "
                                  "it may be rate limiting, so try again later")
+    BACKOFF.reset()
     return user, conn, (lsd_m.group(1) if lsd_m else "")
 
 
@@ -690,6 +735,7 @@ class ProfileStore:
                 log.warning("Pagination for @%s returned no posts; POSTS_DOC_ID may be stale", username)
                 raise UnexpectedResponse("Instagram returned no more posts. Try again later; if this "
                                          "keeps happening, the pagination query ID needs updating")
+            BACKOFF.reset()
             fresh = [slim(e["node"]) for e in edges]
             state["posts"] += fresh
             pi = c.get("page_info") or {}

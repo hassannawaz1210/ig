@@ -140,13 +140,14 @@ def restore_feed(deletion_id):
 
 
 @contextmanager
-def database():
+def database(*, readonly=False):
     """Open a transaction, importing legacy files exactly once, atomically."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(CONFIG_DIR / "settings.sqlite3", timeout=30)
     try:
         db.execute("PRAGMA foreign_keys = ON")
-        db.execute("BEGIN IMMEDIATE")
+        needs_migration = db.execute("PRAGMA user_version").fetchone()[0] != len(SETTINGS_MIGRATIONS)
+        db.execute("BEGIN IMMEDIATE" if not readonly or needs_migration else "BEGIN")
         migrate(db, SETTINGS_MIGRATIONS)
         yield db
         db.commit()
@@ -158,7 +159,7 @@ def database():
 
 
 def load_feeds() -> dict:
-    with database() as db:
+    with database(readonly=True) as db:
         return _read_feeds(db)
 
 
@@ -182,7 +183,7 @@ def edit_feeds(*, block=(), unblock=()):
 
 def selected_feeds() -> list[str] | None:
     """None means All; an empty result after deletions deliberately shows none."""
-    with database() as db:
+    with database(readonly=True) as db:
         selection = json.loads(db.execute("SELECT value FROM text_preferences WHERE key = 'selected_feeds'").fetchone()[0])
         if selection is None:
             return None
@@ -203,7 +204,7 @@ def set_selected_feeds(names: list[str] | None) -> None:
 
 
 def prefer_memes() -> bool:
-    with database() as db:
+    with database(readonly=True) as db:
         return bool(db.execute("SELECT value FROM settings WHERE key = 'prefer_memes'").fetchone()[0])
 
 
@@ -213,7 +214,7 @@ def set_prefer_memes(enabled: bool) -> None:
 
 
 def blocked_accounts() -> set[str]:
-    with database() as db:
+    with database(readonly=True) as db:
         return {row[0] for row in db.execute("SELECT username FROM blocked_accounts")}
 
 
@@ -231,7 +232,7 @@ def set_blocked(username: str, blocked: bool) -> set[str]:
 
 
 def text_preference(key: str) -> str | None:
-    with database() as db:
+    with database(readonly=True) as db:
         row = db.execute("SELECT value FROM text_preferences WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 

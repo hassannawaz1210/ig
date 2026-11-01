@@ -1,9 +1,12 @@
 """Reels-only pagination, separate from the photo/profile grid."""
+import logging
 import threading
 import time
 from collections import OrderedDict
 
 from . import config, instagram
+
+log = logging.getLogger(__name__)
 
 
 class ReelCache(instagram.ProfileCache):
@@ -43,7 +46,15 @@ class ReelStore(instagram.ProfileStore):
         # The anonymous token is not creator-specific. Bootstrap once and
         # serialize listing requests; post-detail workers still run in parallel.
         with self.query_lock:
-            page = instagram.reels_tab(username, after=previous, context=self.query_context)
+            if time.monotonic() - self.query_context.get("created_at", time.monotonic()) > 900:
+                self.query_context.clear()
+            try:
+                page = instagram.reels_tab(username, after=previous, context=self.query_context)
+                self.query_context.setdefault("created_at", time.monotonic())
+            except instagram.InstagramError:
+                # Re-bootstrap on the next scheduled attempt, respecting backoff.
+                self.query_context.clear()
+                raise
         seen = {p["shortcode"] for p in state["posts"]}
         pending = []
         for item in page["reels"]:
@@ -62,12 +73,25 @@ class ReelStore(instagram.ProfileStore):
         for _ in range(min(self.DETAILS_PER_STEP, len(state["pending"]))):
             listing = state["pending"][0]
             code = listing["shortcode"]
+            instagram.BACKOFF.check()
             try:
                 data = self.media(code)
             except instagram.ProfileUnavailable:
                 state["pending"].pop(0)  # Deleted/private post, not a dead creator.
                 continue
-            # Leave failed requests pending so backoff/retry can resume them.
+            except instagram.InstagramError as error:
+                # Backoff.check failures did not contact Instagram and must not
+                # count against this clip. Actual failed attempts are bounded.
+                listing["failures"] = listing.get("failures", 0) + 1
+                if listing["failures"] >= 3:
+                    log.warning("Skipping reel %s after three detail failures: %s", code, error)
+                    state["pending"].pop(0)
+                else:
+                    state["pending"].append(state["pending"].pop(0))
+                state["has_more"] = bool(state["pending"] or state["page_has_more"])
+                if instagram.BACKOFF.remaining():
+                    raise
+                continue
             state["pending"].pop(0)
             if not (data.get("video") or data.get("video_dash_manifest")):
                 continue

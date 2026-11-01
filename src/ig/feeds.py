@@ -37,13 +37,18 @@ def active_accounts():
     return {a for values in active_feeds().values() for a in values}
 
 
-def available_accounts(pool: dict, tried: set) -> list[str]:
+def account_snapshot():
+    selected = active_feeds()
+    saved = {a for members in selected.values() for a in members}
+    return saved, feed_accounts() - saved, recommendations.discovery_accounts(), blocked_accounts(), bool(selected)
+
+
+def available_accounts(pool: dict, tried: set, snapshot=None) -> list[str]:
     """Never use saved accounts from unselected feeds as discovery backdoors."""
-    saved = active_accounts()
-    other_saved = feed_accounts() - saved
-    candidates = saved | pool['discovered'] | recommendations.discovery_accounts()
+    saved, other_saved, discovered, blocked, enabled = snapshot or account_snapshot()
+    candidates = saved | pool['discovered'] | discovered
     return sorted(candidates - other_saved - tried - pool.get('dead', set())
-                  - blocked_accounts()) if active_feeds() else []
+                  - blocked) if enabled else []
 
 
 def make_pool(seeds):
@@ -130,13 +135,14 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         pool["served"] = set(history["codes"]) | {r[0] for r in reservations} | set(exclude_codes)
         excluded = set(excluded or ())
         REFILL.collect(pool, _record_failure)
-        candidates = available_accounts(pool, excluded)
-        REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
+        snapshot = account_snapshot()
+        candidates = available_accounts(pool, excluded, snapshot)
+        REFILL.schedule(pool, candidates, snapshot[0], states=STATE)
         queued = Counter(owner for _, owner, holder in reservations if holder == client)
         # Diversity must span successive refill batches, not just one response.
         cap = 2 if len(candidates) > 1 else None
         full = {owner for owner, count in queued.items() if cap and count >= cap}
-        batch = _pool_more(pool, limit, excluded | full, allow_network=False)
+        batch = _pool_more(pool, limit, excluded | full, allow_network=False, snapshot=snapshot)
         if cap:
             balanced = []
             for post in batch['posts']:
@@ -145,8 +151,8 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
                     balanced.append(post)
                     queued[owner] += 1
             batch['posts'] = balanced
-        candidates = available_accounts(pool, excluded)
-        REFILL.schedule(pool, candidates, active_accounts(), states=STATE)
+        candidates = available_accounts(pool, excluded, snapshot)
+        REFILL.schedule(pool, candidates, snapshot[0], states=STATE)
         waiting = REFILL.waiting(candidates)
         batch['refill_seconds'] = REFILL.load_seconds
         reserved_elsewhere = any(owner in candidates and holder != client for _, owner, holder in reservations)
@@ -198,11 +204,11 @@ def creator_more(username, *, client, exclude_codes=(), excluded=()):
         saved = recommendations.saved_codes([p['shortcode'] for p in chosen])
         for post in chosen:
             post.update(feedback=reactions.get(post['shortcode']), saved=post['shortcode'] in saved)
-        return {'posts': chosen, 'has_more': bool(chosen) or REFILL.waiting([username]),
+        return {'posts': chosen, 'has_more': bool(chosen) or REFILL.waiting([username]) or not state or bool(state.get('has_more')),
                 'retry_after_ms': 1000}
 
 
-def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True) -> dict:
+def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True, snapshot=None) -> dict:
     """Rank individual clips and serve one trial per creator in a varied batch."""
     excluded = set(excluded or ())
     preferred = False
@@ -231,8 +237,9 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     requests_left = REQUESTS_PER_BATCH if allow_network else 0
     trial_requests_left = TRIAL_REQUESTS_PER_BATCH
     cached = None
+    snapshot = snapshot or account_snapshot()
     while len(out) < min(limit, 6):
-        candidates = available_accounts(pool, tried | excluded)
+        candidates = available_accounts(pool, tried | excluded, snapshot)
         if not candidates:
             break
         if requests_left <= 0 or trial_requests_left <= 0:

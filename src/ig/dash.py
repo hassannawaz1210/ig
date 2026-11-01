@@ -127,18 +127,19 @@ def assemble(code: str, mpd: str) -> Path | None:
     with lock:
         if cached(code) is not None:
             return cached(code)
-        from imageio_ffmpeg import get_ffmpeg_exe  # bundled with the app
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
         video_track = _target(code).with_suffix(".track0")
         audio_track = _target(code).with_suffix(".track1")
         result = _target(code).with_suffix(".part")
         try:
+            from imageio_ffmpeg import get_ffmpeg_exe
+            executable = get_ffmpeg_exe()
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
             _download_track(chosen["video"]["url"], video_track)
             inputs = ["-i", str(video_track)]
             if chosen["audio"] is not None:
                 _download_track(chosen["audio"]["url"], audio_track)
                 inputs += ["-i", str(audio_track)]
-            command = [get_ffmpeg_exe(), "-y", "-v", "error", *inputs,
+            command = [executable, "-y", "-v", "error", *inputs,
                        "-c", "copy", "-movflags", "+faststart",
                        "-f", "mp4", str(result)]
             subprocess.run(command, check=True, capture_output=True, timeout=MUX_TIMEOUT)
@@ -149,7 +150,7 @@ def assemble(code: str, mpd: str) -> Path | None:
             log.info("Assembled %s at %sx%s", code,
                      chosen["video"]["width"], chosen["video"]["height"])
             return _target(code)
-        except (OSError, subprocess.SubprocessError, ValueError) as error:
+        except (OSError, subprocess.SubprocessError, ValueError, RuntimeError, ImportError) as error:
             log.info("DASH assembly failed for %s: %s", code, error)
             for path in (video_track, audio_track, result):
                 path.unlink(missing_ok=True)
