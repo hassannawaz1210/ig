@@ -481,3 +481,15 @@ async function viewingTests() {
   vm.runInContext("fetching=true; accountChanged('removed', true)", ctx);
   assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), false, 'explicit re-add allows creator');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+(async () => {
+  const {ctx, calls} = createPage(async () => ({ok:true, json:async () => ({posts:[],has_more:false})}));
+  vm.runInContext("current=0; fetching=true; append([{shortcode:'repeat1',owner:'creator',reservation:'original'}]); append([{shortcode:'repeat1',owner:'creator',reservation:'duplicate'},{shortcode:'repeat2',owner:'creator'},{shortcode:'repeat2',owner:'creator'}]);", ctx);
+  assert.equal(vm.runInContext('posts.length',ctx),2,'dedupe both existing slides and a single batch');
+  assert.ok(calls.some(c=>c.url==='/reels/release' && JSON.parse(c.options.body).tokens.includes('duplicate')));
+  vm.runInContext("rememberShown('skipped1'); append([{shortcode:'skipped1',owner:'creator'}]);",ctx);
+  assert.equal(vm.runInContext('posts.length',ctx),2,'shown but unplayed reels cannot reappear');
+  await vm.runInContext('fetching=false; more()',ctx);
+  const request = JSON.parse(calls.filter(c=>c.url==='/reels/more').at(-1).options.body);
+  assert.deepEqual([...request.exclude_codes].sort(), ['repeat1','repeat2','skipped1']);
+})().catch(error => { console.error(error); process.exitCode=1; });

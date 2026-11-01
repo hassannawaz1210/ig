@@ -122,12 +122,12 @@ def choose_account(pool: dict, candidates: list[str], preferred: bool) -> str:
 BATCH_LOCK = threading.Lock()
 
 
-def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client") -> dict:
+def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client", exclude_codes=()) -> dict:
     # Selection and reservation must be one operation across simultaneous tabs.
     with BATCH_LOCK:
         history = load_history()
         reservations = viewing_history.active_reservations()
-        pool["served"] = set(history["codes"]) | {r[0] for r in reservations}
+        pool["served"] = set(history["codes"]) | {r[0] for r in reservations} | set(exclude_codes)
         excluded = set(excluded or ())
         REFILL.collect(pool, _record_failure)
         candidates = available_accounts(pool, excluded)

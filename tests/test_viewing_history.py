@@ -161,3 +161,18 @@ class ViewingHistoryTests(unittest.TestCase):
             pool = feeds.make_pool(['creator'])
             posts = [p for _ in range(4) for p in feeds.pool_more(pool,client='client-one')['posts']]
         self.assertEqual(len(posts),4)
+
+    def test_released_or_expired_reel_is_excluded_without_marking_watched(self):
+        state = {'posts':[self.post('clip001'),self.post('clip002')], 'has_more':False}
+        pool = feeds.make_pool(['creator'])
+        with patch('ig.feeds.STATE', {'creator':state}):
+            old = feeds.pool_more(pool,client='client-one')['posts'][0]
+            history.release('client-one')
+            result = feeds.pool_more(pool,client='client-one',exclude_codes=[old['shortcode']])
+        self.assertEqual(len(result['posts']),1)
+        self.assertNotEqual(result['posts'][0]['shortcode'],old['shortcode'])
+        self.assertEqual(history.load_history()['codes'],[])
+
+    def test_invalid_excluded_codes_rejected(self):
+        for value in ['clip001', ['bad/path'], ['clip001'] * 1001]:
+            self.assertEqual(self.request('/reels/more',{'client':'client-one','exclude_codes':value}),400)

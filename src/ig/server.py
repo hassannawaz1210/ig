@@ -657,9 +657,13 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(releases, list) or len(releases) > 1000 or any(
                             not isinstance(t, str) or not re.fullmatch(r'[a-f0-9]{32}', t) for t in releases):
                         return self._send(400, b'invalid reservations', 'text/plain')
+                    exclude_codes = body.get('exclude_codes', [])
+                    if not isinstance(exclude_codes, list) or len(exclude_codes) > 1000 or any(
+                            not isinstance(code, str) or not POST_CODE.fullmatch(code) for code in exclude_codes):
+                        return self._send(400, b'invalid excluded reels', 'text/plain')
                     if releases:
                         history.release(client, releases)
-                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded}, client=client)
+                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded}, client=client, exclude_codes=exclude_codes)
                 else:
                     data = more_posts(username)
                 if username == MIX:

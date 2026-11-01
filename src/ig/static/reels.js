@@ -10,6 +10,17 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
+let shownCodes = new Set();
+try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
+function rememberShown(code) {
+  if (!code) return;
+  shownCodes.add(code);
+  if (shownCodes.size > 1000) shownCodes.delete(shownCodes.values().next().value);
+  try { sessionStorage.setItem('ig-shown-reels', JSON.stringify([...shownCodes])); } catch (_) {}
+}
+function excludedReelCodes() {
+  return [...new Set([...shownCodes, ...posts.filter(p => !p._dropped).map(p => p.shortcode)])].slice(-1000);
+}
 const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 let reservationTimer = null;
 const pendingReleases = new Set();
@@ -424,7 +435,19 @@ function slideHtml(p, i) {
   </div>`;
 }
 function append(chunk) {
-  chunk = chunk.filter(p => !isHidden(p));
+  const existing = new Set(posts.filter(p => !p._dropped).map(p => p.shortcode));
+  const heldTokens = new Set(posts.filter(p => !p._dropped).map(p => p.reservation));
+  const released = [];
+  chunk = chunk.filter(p => {
+    if (isHidden(p) || existing.has(p.shortcode) || shownCodes.has(p.shortcode)) {
+      if (p.reservation && !heldTokens.has(p.reservation)) released.push(p.reservation);
+      return false;
+    }
+    existing.add(p.shortcode);
+    heldTokens.add(p.reservation);
+    return true;
+  });
+  releaseReservations(released);
   posts.push(...chunk);
   scheduleReservationRenewal();
   feed.insertAdjacentHTML('beforeend', chunk.map((p,k)=>slideHtml(p, slides+k)).join(''));
@@ -515,6 +538,7 @@ async function activate(i) {
   collapseCaptions();
   const panel = document.getElementById('comments-panel');
   if (isHidden(posts[i])) return;
+  rememberShown(posts[i]?.shortcode);
   if (panel.hidden === false && panel.dataset.code !== posts[i]?.shortcode) toggleComments(i);
   const spin = document.getElementById('spin'+i);
   spin.textContent = 'loading…'; spin.hidden = false;
@@ -570,7 +594,7 @@ async function more() {
   try {
     const r = await fetch(base + '/more', {method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session_blocked:[...sessionBlocked], client:queueClient, release:[...pendingReleases]}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)})
+      body:JSON.stringify({session_blocked:[...sessionBlocked], client:queueClient, release:[...pendingReleases], exclude_codes:excludedReelCodes()}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)})
       .catch(error => { throw new BatchRequestError(error); });
     const d = await r.json().catch(() => ({}));  // error pages may not be JSON
     // A batch asked for under an earlier feed choice no longer belongs here.
