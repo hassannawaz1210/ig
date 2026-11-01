@@ -125,7 +125,7 @@ Creator rotation and trial cooldowns now use actual views rather than delivered 
 - **Space**: pause or play the current reel.
 - **M**: mute or unmute.
 - **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. Comments load on demand and remain cached for that reel in the tab; navigating to another reel keeps the panel open and loads that reel’s comments.
-- **R**: remove the current account from all saved feeds (does not block it).
+- **R**: remove the current account from all saved feeds and block its reels, including discovery and queued clips. Adding the account back explicitly unblocks it.
 - **A**: add the current account to a feed, or enter accounts when no reel is loaded.
 - **Shift+A**: enter handles or profile links to add.
 - **+**: create a feed, optionally with accounts.

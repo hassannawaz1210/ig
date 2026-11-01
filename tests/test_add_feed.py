@@ -118,3 +118,30 @@ class ManageFeedTests(ProjectTests):
         for name, status in [('missing',404), ('bad/name',400), (None,400)]:
             self.assertEqual(self.request_feed({'name':name}, '/feeds/delete')[0], status)
         self.assertEqual(config.load_feeds(), {'keep':['creator']})
+
+    def test_remove_stops_discovery_and_explicit_add_allows_again(self):
+        from ig import feeds
+        config.save_feeds({'edits':['creator', 'keep'], 'memes':['creator']})
+        config.set_blocked('other', True)
+        status, _ = self.request_feed({'username':'creator'}, '/remove')
+        self.assertEqual(status, 200)
+        self.assertEqual(config.load_feeds(), {'edits':['keep'], 'memes':[]})
+        self.assertEqual(config.blocked_accounts(), {'creator', 'other'})
+        pool = feeds.make_pool([])
+        feeds.discover_into(pool, ['creator'], meme_source=True)
+        self.assertNotIn('creator', pool['discovered'])
+        self.assertEqual(self.request_feed({'name':'edits', 'accounts':'creator'})[0], 200)
+        self.assertEqual(config.blocked_accounts(), {'other'})
+        self.assertEqual(config.load_feeds()['edits'], ['keep', 'creator'])
+
+    def test_invalid_add_does_not_unblock(self):
+        config.save_feeds({'edits':[]})
+        config.set_blocked('creator', True)
+        self.assertEqual(self.request_feed(
+            {'name':'edits', 'create':True, 'accounts':'creator'})[0], 409)
+        self.assertEqual(config.blocked_accounts(), {'creator'})
+        add = AddFeedTests.request
+        self.assertEqual(add(self, {'username':'creator', 'feed':'missing'}), 400)
+        self.assertEqual(config.blocked_accounts(), {'creator'})
+        self.assertEqual(add(self, {'username':'creator', 'feed':'edits'}), 200)
+        self.assertEqual(config.blocked_accounts(), set())

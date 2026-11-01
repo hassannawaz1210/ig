@@ -467,3 +467,17 @@ async function viewingTests() {
   assert.ok(page.calls.some(c=>c.url==='/reels/release' && JSON.parse(c.options.body).tokens.includes('c'.repeat(32))), 'feed switching releases unseen queue');
   console.log('Viewing history ignores prefetch, hidden time, loops, seeks and failed playback');
 }
+
+// Removal also filters stale batches that were requested before the removal.
+(async () => {
+  const {ctx, element} = createPage(async () => ({ok:true, json:async () =>
+    ({posts:[{shortcode:'lateclip', owner:'removed'}], has_more:false, blocked:[], feed_accounts:['removed']})}));
+  vm.runInContext("posts.push({shortcode:'one',owner:'removed'}, {shortcode:'two',owner:'removed'}); slides=2; current=0; fetching=true; accountChanged('removed', false);", ctx);
+  assert.equal(element('s0').hidden, true, 'current removed creator disappears');
+  assert.equal(element('s1').hidden, true, 'queued removed creator disappears');
+  await vm.runInContext('fetching=false; more()', ctx);
+  assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), true, 'stale response cannot undo removal');
+  assert.equal(vm.runInContext('visibleIndices().length', ctx), 0, 'stale batch cannot show removed creator');
+  vm.runInContext("fetching=true; accountChanged('removed', true)", ctx);
+  assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), false, 'explicit re-add allows creator');
+})().catch(error => { console.error(error); process.exitCode = 1; });

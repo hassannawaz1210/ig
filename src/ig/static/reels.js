@@ -17,6 +17,7 @@ let slides = 0, muted = true, fetching = false, exhausted = false;
 const base = "/reels";
 let feeded = new Set(boot.feed_accounts);
 const accountUpdates = new Map();
+const blockUpdates = new Map();
 function syncAccountButtons() {
   posts.forEach((p, i) => {
     const button = document.getElementById('s'+i)?.querySelector('.account-action');
@@ -24,14 +25,19 @@ function syncAccountButtons() {
     const saved = feeded.has(p.owner);
     button.innerHTML = '<span class="em">' + icon(saved ? 'check' : 'plus') + '</span><span>' + (saved ? 'in feed' : 'add') + '</span>';
     button.style.opacity = saved ? '.7' : '1';
-    button.title = saved ? 'Remove account from all feeds (R)' : 'Add this account to a feed';
+    button.title = saved ? 'Remove account and stop its reels (R)' : 'Add this account to a feed';
     button.onclick = saved ? () => rmAcc(p.owner, button) : () => addAcc(p.owner, button);
   });
 }
 accountChanged = (username, saved) => {
   accountUpdates.set(username, saved);
+  blockUpdates.set(username, !saved);
   saved ? feeded.add(username) : feeded.delete(username);
+  saved ? blockedAccounts.delete(username) : blockedAccounts.add(username);
   syncAccountButtons();
+  hideFilteredReels();
+  exhausted = false;
+  if (current < 0) more(); else maybeMore();
 };
 let blockedAccounts = new Set(boot.blocked);
 let sessionBlocked = new Set();
@@ -399,7 +405,7 @@ function slideHtml(p, i) {
         <span class="em">${icon('info')}</span><span>why</span></button>` : ''}
       ${feeded.has(p.owner)
           ? `<div class="ico account-action" style="cursor:pointer;opacity:.7"
-             title="Remove account from all feeds (R)"
+             title="Remove account and stop its reels (R)"
              onclick="rmAcc('${esc(p.owner)}', this)">
              <span class="em">${icon('check')}</span><span>in feed</span></div>`
           : `<div class="ico account-action" style="cursor:pointer"
@@ -581,7 +587,12 @@ async function more() {
       accountUpdates.forEach((saved, username) => saved ? feeded.add(username) : feeded.delete(username));
       syncAccountButtons();
     }
-    if (d.blocked) { blockedAccounts = new Set(d.blocked); hideFilteredReels(); }
+    if (d.blocked) {
+      blockedAccounts = new Set(d.blocked);
+      blockUpdates.forEach((blocked, username) =>
+        blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username));
+      hideFilteredReels();
+    }
     if (d.posts?.length) append(d.posts);
     exhausted = d.has_more === false;
     retry = (!d.posts?.length || !visibleIndices().length) && !exhausted;
@@ -940,7 +951,10 @@ async function blockCurrent(sessionOnly = false) {
         body:JSON.stringify({username:owner})});
       if (!r.ok) throw new Error('Could not save block');
       const d = await r.json();
+      blockUpdates.set(owner, true);
       blockedAccounts = new Set(d.blocked);
+      blockUpdates.forEach((blocked, username) =>
+        blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username));
     }
     hideFilteredReels();
     actionStatus('@' + owner + (sessionOnly ? ' blocked for this session' : ' blocked permanently'));

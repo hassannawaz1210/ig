@@ -544,13 +544,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Add at most 100 accounts at once")
                 if not create and not accounts:
                     raise ValueError("Enter at least one account")
-                with edit_feeds() as feeds:
+                allowed = []
+                with edit_feeds(unblock=allowed) as feeds:
                     if create and name in feeds:
                         return self._send(409, b'{"error":"That feed already exists"}', 'application/json')
                     if not create and name not in feeds:
                         raise ValueError("Choose an existing feed")
                     existing = accounts_from_feed(feeds.get(name))
                     feeds[name] = list(dict.fromkeys(existing + accounts))
+                    allowed.extend(accounts)
                 return self._send(200, json.dumps({'name': name, 'created': create,
                     'accounts': accounts}).encode(), 'application/json')
             except (ValueError, TypeError) as error:
@@ -587,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
                 username = str(body.get("username", "")).lstrip("@").lower()
                 if not USER_RE.fullmatch(username):
                     return self._send(400, b"bad username", "text/plain")
-                with edit_feeds() as feeds:
+                with edit_feeds(block=[username]) as feeds:
                     removed = False
                     for name, val in feeds.items():
                         accounts = accounts_from_feed(val)
@@ -602,18 +604,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, b"invalid request", "text/plain")
             except Exception as error:
                 return self._fail(error, as_json=True, context="Removing an account")
-        if self.path == "/add":  # add account to the "saved" feed (the mix)
+        if self.path == "/add":  # explicitly adding an account allows its reels again
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}")
                 username = str(body.get("username", "")).lstrip("@").lower()
                 if not USER_RE.fullmatch(username):
                     return self._send(400, b"bad username", "text/plain")
-                with edit_feeds() as feeds:
+                allowed = []
+                with edit_feeds(unblock=allowed) as feeds:
                     destination = str(body.get("feed", "")).lower()
                     if not FEED_RE.fullmatch(destination) or destination not in feeds:
                         return self._send(400, b"choose a valid feed", "text/plain")
                     cur = accounts_from_feed(feeds.get(destination))
+                    allowed.append(username)
                     duplicate = username in cur
                     if not duplicate:
                         feeds[destination] = cur + [username]

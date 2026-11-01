@@ -103,23 +103,27 @@ def _run(args):
         name = arg.lower()
         if not FEED_RE.fullmatch(name):
             raise SystemExit("feed name: lowercase/digits/-/_ , max 20 chars")
-        with edit_feeds() as feeds:
+        allowed = []
+        with edit_feeds(unblock=allowed) as feeds:
             accounts = [a.lstrip("@").lower() for a in argv[3:]]
             accounts = [a for a in accounts if USER_RE.fullmatch(a)]
             if not accounts:
                 raise SystemExit("give at least one account: ig add <feed> <acc...>")
+            allowed.extend(accounts)
             cur = accounts_from_feed(feeds.get(name))
             feeds[name] = list(dict.fromkeys(cur + accounts))
         POOLS.pop(name, None)
         print(f"feed '{name}': {len(feeds[name])} accounts")
     elif cmd == "rm":
         name = arg.lower()
-        with edit_feeds() as feeds:
+        blocked = []
+        with edit_feeds(block=blocked) as feeds:
             if name not in feeds:
                 raise SystemExit(f"no feed '{name}'")
             cur = accounts_from_feed(feeds[name])
             accounts = [a.lstrip("@").lower() for a in argv[3:]]
             if accounts:
+                blocked.extend(a for a in accounts if a in cur)
                 feeds[name] = [a for a in cur if a not in accounts]
                 print(f"feed '{name}': {len(feeds[name])} accounts left")
             else:

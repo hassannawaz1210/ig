@@ -168,12 +168,16 @@ def save_feeds(feeds: dict) -> None:
 
 
 @contextmanager
-def edit_feeds():
+def edit_feeds(*, block=(), unblock=()):
     """Keep read/modify/write atomic across CLI and server processes."""
     with database() as db:
         feeds = _read_feeds(db)
         yield feeds
         _write_feeds(db, feeds)
+        db.executemany("INSERT OR IGNORE INTO blocked_accounts VALUES (?)",
+                       [(username,) for username in block])
+        db.executemany("DELETE FROM blocked_accounts WHERE username = ?",
+                       [(username,) for username in unblock])
 
 
 def selected_feeds() -> list[str] | None:

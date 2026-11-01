@@ -34,7 +34,7 @@ function showShortcuts() {
     <dt><kbd>Shift+A</kbd></dt><dd>Enter accounts to add</dd>
     <dt><kbd>+</kbd></dt><dd>Create a feed</dd>
     <dt><kbd>Delete</kbd></dt><dd>Delete highlighted feed in the selector (Undo available)</dd>
-    <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
+    <dt><kbd>R</kbd></dt><dd>Remove account and stop its reels</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
     <dt><kbd>C</kbd></dt><dd>Show / hide comments</dd>
     <dt><kbd>W</kbd></dt><dd>Why am I seeing this?</dd>
