@@ -13,14 +13,18 @@ function showShortcuts() {
   dialog.id = 'shortcut-help';
   dialog.setAttribute('aria-labelledby', 'shortcut-title');
   dialog.innerHTML = `<style>
-    #shortcut-help {color-scheme:dark;width:360px;max-width:calc(100vw - 64px);padding:24px;
+    #shortcut-help {color-scheme:dark;box-sizing:border-box;width:420px;max-width:calc(100vw - 24px);
+      max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));padding:20px;overflow:hidden;
       border:1px solid #34343e;border-radius:20px;background:#17171d;color:#f5f5f7;font:14px system-ui;}
+    #shortcut-help[open] {display:flex;flex-direction:column;}
     #shortcut-help::backdrop {background:#080810b8;backdrop-filter:blur(8px);}
-    #shortcut-help h2 {margin:0 0 20px;font-size:20px;}
-    #shortcut-help dl {display:grid;grid-template-columns:100px 1fr;gap:16px 10px;align-items:center;}
-    #shortcut-help dt {color:#c4b5fd;} #shortcut-help dd {margin:0;color:#c4c4d0;}
-    #shortcut-help kbd {padding:4px 8px;background:#2a2835;border:1px solid #45404f;border-radius:6px;}
-    #shortcut-help button {border:0;border-radius:10px;padding:10px 16px;background:#302b48;color:#ddd2ff;cursor:pointer;float:right;}
+    #shortcut-help h2 {margin:0 0 16px;font-size:20px;flex-shrink:0;}
+    #shortcut-help dl {display:grid;grid-template-columns:110px minmax(0,1fr);gap:16px 10px;align-items:center;
+      min-height:0;overflow-y:auto;overscroll-behavior:contain;margin:0 0 16px;padding:4px 4px 4px 0;}
+    #shortcut-help dt {color:#c4b5fd;display:flex;flex-wrap:wrap;align-items:center;gap:4px;}
+    #shortcut-help dd {margin:0;color:#c4c4d0;overflow-wrap:anywhere;}
+    #shortcut-help kbd {white-space:nowrap;padding:4px 8px;background:#2a2835;border:1px solid #45404f;border-radius:6px;}
+    #shortcut-help button {border:0;border-radius:10px;padding:10px 16px;background:#302b48;color:#ddd2ff;cursor:pointer;align-self:flex-end;flex-shrink:0;}
   </style><h2 id="shortcut-title">Keyboard shortcuts</h2><dl>
     <dt><kbd>J</kbd> / <kbd>↓</kbd></dt><dd>Next reel</dd>
     <dt><kbd>K</kbd> / <kbd>↑</kbd></dt><dd>Previous reel</dd>
