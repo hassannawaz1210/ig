@@ -75,3 +75,16 @@ class BackgroundRefillTests(TempDirs):
         with patch('ig.refill.more_reels') as paging:
             self.refill.schedule({'served': set()}, ['saved'], {'saved'}, states={'saved': state})
         paging.assert_not_called()
+
+    def test_empty_early_accounts_cannot_starve_other_saved_accounts(self):
+        names = ['adam', 'aradz', 'dzividin', 'film', 'woyshnis']
+        states = {name:{'posts':[], 'has_more':True} for name in names}
+        loaded = []
+        with patch('ig.refill.more_reels', side_effect=lambda name: loaded.append(name)):
+            for _ in range(3):
+                self.refill.schedule({'served':set()}, names, set(names), states=states)
+                for future, _ in self.refill.pending.values():
+                    future.result(timeout=2)
+                self.refill.collect({}, lambda *args: None)
+        self.assertEqual(set(loaded), set(names))
+        self.assertEqual(len(set(loaded[:4])), 4)

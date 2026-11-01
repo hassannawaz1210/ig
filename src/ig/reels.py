@@ -22,6 +22,8 @@ class ReelStore(instagram.ProfileStore):
         super().__init__(ReelCache())
         self.media_cache = OrderedDict()
         self.media_lock = threading.Lock()
+        self.query_context = {}
+        self.query_lock = threading.Lock()
 
     def media(self, code):
         with self.media_lock:
@@ -38,7 +40,10 @@ class ReelStore(instagram.ProfileStore):
 
     def _page(self, username, state):
         previous = state.get("cursor")
-        page = instagram.reels_tab(username, after=previous, context=state)
+        # The anonymous token is not creator-specific. Bootstrap once and
+        # serialize listing requests; post-detail workers still run in parallel.
+        with self.query_lock:
+            page = instagram.reels_tab(username, after=previous, context=self.query_context)
         seen = {p["shortcode"] for p in state["posts"]}
         pending = []
         for item in page["reels"]:

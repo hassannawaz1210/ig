@@ -10,6 +10,7 @@ class Refill:
         self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='ig-refill')
         self.pending = {}
         self.retry_at = {}
+        self.last_scheduled = {}
 
     def collect(self, pool, on_error):
         # Called under the batch lock; workers never modify feed pools.
@@ -47,10 +48,11 @@ class Refill:
                 if unseen < 12:
                     candidates.append((0 if unseen == 0 else 1, name, True))
         # One discovery source may run alongside saved-source replenishment.
-        candidates.sort(key=lambda entry: entry[0])
+        candidates.sort(key=lambda entry: (entry[0], self.last_scheduled.get(entry[1], 0)))
         for _, name, paging in candidates:
             if len(self.pending) >= 2:
                 break
+            self.last_scheduled[name] = time.monotonic()
             self.pending[name] = (self.executor.submit(more_reels if paging else REELS.load, name), pool)
 
     def waiting(self, names):

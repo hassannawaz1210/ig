@@ -363,13 +363,6 @@ def reels_tab(username: str, first: int = 12, after: str | None = None,
         session, html = fetch_profile_page(username)
         match = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', html)
         context.update(session=session, lsd=match.group(1) if match else "")
-        for payload in sjs_payloads(html, "xig_user_by_username"):
-            user = nested_find(payload, "xig_user_by_username")
-            if isinstance(user, dict):
-                if user.get("is_private"):
-                    raise ProfileUnavailable(f"@{username} is private")
-                context["biography"] = user.get("biography") or ""
-                break
     session = context["session"]
     lsd = context["lsd"]
     csrf = session.cookies.get("csrftoken", "")

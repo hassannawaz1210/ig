@@ -82,3 +82,19 @@ class ReelSourceTests(TempDirs):
             store.more('creator')
         self.assertEqual([p['shortcode'] for p in state['posts']],['good'])
         self.assertFalse(state['has_more'])
+
+    def test_creators_share_setup_and_do_not_inherit_bootstrap_bio(self):
+        store = ReelStore()
+        session = MagicMock()
+        session.cookies.get.return_value = ''
+        payload = {'data':{'xig_user_by_username':{'polaris_clips_connection':{
+            'edges':[], 'page_info':{'has_next_page':False}}}}}
+        with patch.object(instagram, 'fetch_profile_page', return_value=(session, profile_html())) as bootstrap, \
+             patch.object(instagram, 'request', return_value=response(body=payload)):
+            first = store.get('first')
+            second = store.get('second')
+        bootstrap.assert_called_once_with('first')
+        self.assertEqual(first['biography'], '')
+        self.assertEqual(second['biography'], '')
+        self.assertNotIn('session', first)
+        self.assertNotIn('session', second)
