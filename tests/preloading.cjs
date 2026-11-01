@@ -58,6 +58,47 @@ let response = {posts: [], has_more: true};
 const {ctx, element, calls, timers} = createPage(async url =>
   ({ok: true, json: async () => url.endsWith('/media') ? {video: 'https://example.test/video.mp4'} : response}));
 (async () => {
+  // R must also remove discovery creators; a later server block must override
+  // an older local add, while in-flight responses cannot undo newer actions.
+  let finishBatch;
+  let deferBatch = false;
+  let failRemoval = false;
+  const removal = createPage(async url => {
+    if (url === '/remove') return {ok:!failRemoval};
+    if (deferBatch && url === '/reels/more') return new Promise(resolve => {finishBatch=resolve;});
+    return {ok:true,json:async()=>({posts:[],has_more:false,feed_accounts:[],blocked:['trial']})};
+  });
+  await new Promise(setImmediate);
+  vm.runInContext(`
+    posts.push({shortcode:'trial1',owner:'trial'}, {shortcode:'trial2',owner:'trial'},
+               {shortcode:'other1',owner:'other'}); current=0;
+    blockedAccounts.clear(); maybeMore=()=>{}; showSlide=i=>{current=i;};
+    notifyAccountChange=(u,saved)=>accountChanged(u,saved);
+  `,removal.ctx);
+  await vm.runInContext('removeCurrent()',removal.ctx);
+  assert.equal(removal.calls.filter(c=>c.url==='/remove').length,1,'R sends removal for an unsaved discovery creator');
+  assert.equal(vm.runInContext('blockedAccounts.has("trial")',removal.ctx),true);
+  assert.equal(removal.element('s0').style.display,'none');
+  assert.equal(removal.element('s1').style.display,'none','all queued reels from the removed creator disappear');
+  assert.equal(vm.runInContext('current',removal.ctx),2);
+  assert.match(removal.element('action-status').textContent,/removed and blocked/);
+  vm.runInContext('accountChanged("trial",true); exhausted=false',removal.ctx);
+  await vm.runInContext('more()',removal.ctx);
+  assert.equal(vm.runInContext('blockedAccounts.has("trial")',removal.ctx),true,'server removal wins over an earlier local add');
+  assert.equal(vm.runInContext('feeded.has("trial")',removal.ctx),false);
+  deferBatch=true;
+  vm.runInContext('exhausted=false',removal.ctx);
+  const pending=vm.runInContext('more()',removal.ctx);
+  vm.runInContext('accountChanged("other",false)',removal.ctx);
+  finishBatch({ok:true,json:async()=>({posts:[],has_more:false,feed_accounts:['other'],blocked:[]})});
+  await pending;
+  assert.equal(vm.runInContext('blockedAccounts.has("other")',removal.ctx),true,'an older response cannot undo a removal made in flight');
+  assert.equal(vm.runInContext('feeded.has("other")',removal.ctx),false);
+  failRemoval=true;
+  vm.runInContext('posts.push({shortcode:"failure",owner:"failure"});current=3',removal.ctx);
+  await vm.runInContext('removeCurrent()',removal.ctx);
+  assert.equal(vm.runInContext('blockedAccounts.has("failure")',removal.ctx),false,'failed removal does not pretend to block');
+  assert.match(removal.element('action-status').textContent,/Could not remove/);
   vm.runInContext("posts.push({shortcode:'first'}, {shortcode:'second'}); slides=2; current=0;", ctx);
   await vm.runInContext('Promise.all([prepare(1), prepare(1)])', ctx);
   assert.equal(calls.filter(c => c.url.endsWith('/media')).length, 1, 'deduplicate in-flight media requests');
@@ -97,7 +138,7 @@ const {ctx, element, calls, timers} = createPage(async url =>
   assert.ok(accountButtons.every(button=>button.innerHTML.includes('in feed')), 'all reels update after save');
   response = {posts:[],has_more:false,feed_accounts:[]};
   await vm.runInContext('exhausted=false; more()',ctx);
-  assert.ok(accountButtons.every(button=>button.innerHTML.includes('in feed')), 'old batches cannot undo a save');
+  assert.ok(accountButtons.every(button=>button.innerHTML.includes('add')), 'a new request accepts server membership changes');
   const likeButton = {setAttribute(name,value){this[name]=value;}};
   const originalQuery = element('s1').querySelector;
   element('s1').querySelector = selector => selector === '.reel-like' ? likeButton : originalQuery(selector);
@@ -472,12 +513,17 @@ async function viewingTests() {
 
 // Removal also filters stale batches that were requested before the removal.
 (async () => {
-  const {ctx, element} = createPage(async () => ({ok:true, json:async () =>
-    ({posts:[{shortcode:'lateclip', owner:'removed'}], has_more:false, blocked:[], feed_accounts:['removed']})}));
-  vm.runInContext("posts.push({shortcode:'one',owner:'removed'}, {shortcode:'two',owner:'removed'}); slides=2; current=0; fetching=true; accountChanged('removed', false);", ctx);
+  let finish, defer = false;
+  const {ctx, element} = createPage(async () => defer ? new Promise(resolve => {finish=resolve;}) : {ok:true,json:async()=>({posts:[],has_more:true})});
+  await new Promise(setImmediate);
+  defer = true;
+  vm.runInContext("posts.push({shortcode:'one',owner:'removed'}, {shortcode:'two',owner:'removed'}); slides=2; current=0;", ctx);
+  const pending = vm.runInContext('more()',ctx);
+  vm.runInContext("accountChanged('removed', false)",ctx);
   assert.equal(element('s0').hidden, true, 'current removed creator disappears');
   assert.equal(element('s1').hidden, true, 'queued removed creator disappears');
-  await vm.runInContext('fetching=false; more()', ctx);
+  finish({ok:true,json:async()=>({posts:[{shortcode:'lateclip',owner:'removed'}],has_more:false,blocked:[],feed_accounts:['removed']})});
+  await pending;
   assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), true, 'stale response cannot undo removal');
   assert.equal(vm.runInContext('visibleIndices().length', ctx), 0, 'stale batch cannot show removed creator');
   vm.runInContext("fetching=true; accountChanged('removed', true)", ctx);

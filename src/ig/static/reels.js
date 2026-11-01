@@ -31,6 +31,7 @@ const base = "/reels";
 let feeded = new Set(boot.feed_accounts);
 const accountUpdates = new Map();
 const blockUpdates = new Map();
+let accountChangeVersion = 0;
 function syncAccountButtons() {
   posts.forEach((p, i) => {
     const button = document.getElementById('s'+i)?.querySelector('.account-action');
@@ -43,8 +44,9 @@ function syncAccountButtons() {
   });
 }
 accountChanged = (username, saved) => {
-  accountUpdates.set(username, saved);
-  blockUpdates.set(username, !saved);
+  const version = ++accountChangeVersion;
+  accountUpdates.set(username, {value:saved, version});
+  blockUpdates.set(username, {value:!saved, version});
   saved ? feeded.add(username) : feeded.delete(username);
   saved ? blockedAccounts.delete(username) : blockedAccounts.add(username);
   syncAccountButtons();
@@ -628,6 +630,7 @@ async function more() {
   if (fetching || exhausted) return;
   fetching = true;
   const version = selectionVersion;
+  const accountVersion = accountChangeVersion;
   const started = performance.now();
   let retry = false;
   let retryDelay = RETRY_DELAY_MS;
@@ -650,13 +653,16 @@ async function more() {
     if (d.feed_accounts) {
       feeded = new Set(d.feed_accounts);
       // A batch started before an add/remove may contain an older account list.
-      accountUpdates.forEach((saved, username) => saved ? feeded.add(username) : feeded.delete(username));
+      accountUpdates.forEach(({value:saved, version}, username) => {
+        if (version > accountVersion) saved ? feeded.add(username) : feeded.delete(username);
+      });
       syncAccountButtons();
     }
     if (d.blocked) {
       blockedAccounts = new Set(d.blocked);
-      blockUpdates.forEach((blocked, username) =>
-        blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username));
+      blockUpdates.forEach(({value:blocked, version}, username) => {
+        if (version > accountVersion) blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username);
+      });
       hideFilteredReels();
     }
     if (d.posts?.length) append(d.posts);
@@ -698,14 +704,22 @@ function toggleMute() {
 async function addAcc(u, el) {
   await chooseFeed(u);
 }
+const removingAccounts = new Set();
 async function rmAcc(u, el) {
-  el.querySelector('span:last-child').textContent = '…';
+  if (removingAccounts.has(u)) return;
+  removingAccounts.add(u);
+  const label = el?.querySelector('span:last-child');
+  if (label) label.textContent = '…';
   try {
     const response = await fetch('/remove', {method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({username:u})});
     if (!response.ok) throw new Error('Could not remove');
     notifyAccountChange(u, false);
-  } catch (error) { el.querySelector('span:last-child').textContent = 'retry'; }
+    actionStatus('@' + u + ' removed and blocked');
+  } catch (error) {
+    if (label) label.textContent = 'retry';
+    actionStatus('Could not remove @' + u + ' · try again');
+  } finally { removingAccounts.delete(u); }
 }
 
 function releaseReservations(tokens) {
@@ -1047,6 +1061,7 @@ async function blockCurrent(sessionOnly = false) {
   const owner = posts[current]?.owner;
   if (!owner || blocking) return;
   blocking = true;
+  const accountVersion = accountChangeVersion;
   try {
     if (sessionOnly) {
       const updated = new Set([...sessionBlocked, owner]);
@@ -1057,10 +1072,11 @@ async function blockCurrent(sessionOnly = false) {
         body:JSON.stringify({username:owner})});
       if (!r.ok) throw new Error('Could not save block');
       const d = await r.json();
-      blockUpdates.set(owner, true);
+      blockUpdates.set(owner, {value:true, version:++accountChangeVersion});
       blockedAccounts = new Set(d.blocked);
-      blockUpdates.forEach((blocked, username) =>
-        blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username));
+      blockUpdates.forEach(({value:blocked, version}, username) => {
+        if (version > accountVersion) blocked ? blockedAccounts.add(username) : blockedAccounts.delete(username);
+      });
     }
     hideFilteredReels();
     actionStatus('@' + owner + (sessionOnly ? ' blocked for this session' : ' blocked permanently'));
@@ -1077,9 +1093,9 @@ function addCurrent() {
 }
 function removeCurrent() {
   const p = posts[current];
-  if (!p || isHidden(p) || !feeded.has(p.owner)) return;
+  if (!p || isHidden(p)) return;
   const button = document.getElementById('s'+current)?.querySelector('.account-action');
-  if (button) rmAcc(p.owner, button);
+  return rmAcc(p.owner, button);
 }
 function toggleWhy(i = current) {
   const p = posts[i];
