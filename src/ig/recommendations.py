@@ -7,6 +7,7 @@ import re
 import sqlite3
 import time
 from collections import Counter
+from statistics import median
 from contextlib import contextmanager
 from . import config
 from .migrations import migrate
@@ -600,12 +601,40 @@ def liked_features(post, model, limit=TAGS_SHOWN_IN_REASON):
     return [token for weight, token in sorted(weights, reverse=True) if weight >= LIKED_FEATURE_MIN_WEIGHT][:limit]
 
 
-def pick_reel(posts, model):
+MIN_VIEW_SAMPLES = 5
+MAX_VIEW_BOOST = 0.15
+
+
+def view_baselines(posts):
+    """Median views per creator among distinct loaded reels, not lifetime averages."""
+    samples = {}
+    for post in posts:
+        owner, code, count = post.get('owner'), post.get('shortcode'), post.get('play_count')
+        if not owner or not code or type(count) is not int or count < 0:
+            continue
+        samples.setdefault(owner, {})[code] = count
+    return {owner: median(counts.values()) for owner, counts in samples.items()
+            if len(counts) >= MIN_VIEW_SAMPLES}
+
+
+def view_count_boost(post, baselines):
+    """Small positive tie-breaker; absent, invalid and below-median views are neutral."""
+    count = post.get('play_count')
+    baseline = baselines.get(post.get('owner'))
+    if type(count) is not int or count <= 0 or baseline is None or baseline <= 0 or count <= baseline:
+        return 0.0
+    # Doubling gives half the maximum; four times the median reaches the cap.
+    return min(MAX_VIEW_BOOST, MAX_VIEW_BOOST * (math.log2(count) - math.log2(baseline)) / 2)
+
+
+def pick_reel(posts, model, *, view_reference=None):
     """Return (reel, exploratory). One fifth of picks are random on purpose."""
     # Keep some selections exploratory, including topics not yet liked.
     if random.random() < EXPLORATORY_SHARE:
         return random.choice(posts), True
-    return max(random.sample(posts, len(posts)), key=lambda post: score(post, model)), False
+    baselines = view_baselines(posts if view_reference is None else view_reference)
+    return max(random.sample(posts, len(posts)),
+               key=lambda post: score(post, model) + view_count_boost(post, baselines)), False
 
 
 def choose_reel(posts, model):

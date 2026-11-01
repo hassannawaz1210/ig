@@ -51,6 +51,7 @@ class Reason:
         self.uncertain = False
         self.exploratory = False
         self.features: list[str] = []
+        self.view_boost = False
 
     def source_details(self) -> list[str]:
         owner = f"@{self.owner}"
@@ -88,10 +89,13 @@ class Reason:
     def pick_details(self) -> list[str]:
         if self.exploratory:
             return ["This reel was picked at random to keep your feed varied."]
+        details = []
+        if self.view_boost:
+            details.append("More views than the median of this creator’s loaded reels gave it a small ranking boost.")
         if self.features:
-            return [f"Picked because it shares {_join(_feature_phrase(t) for t in self.features)} "
+            return details + [f"Picked because it shares {_join(_feature_phrase(t) for t in self.features)} "
                     "with reels you liked."]
-        return [f"Chosen from @{self.owner}’s reels you haven’t seen yet."]
+        return details + [f"Chosen from @{self.owner}’s reels you haven’t seen yet."]
 
     def summary(self) -> str:
         if self.saved_in:

@@ -317,7 +317,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         if not fresh:
             continue  # Reserved clips may become eligible again after release/expiry.
         pool.setdefault('accepted', set()).add(username)
-        picked, exploratory = recommendations.pick_reel(fresh, model)
+        picked, exploratory = recommendations.pick_reel(fresh, model, view_reference=state['posts'])
         # Copy: profile posts are shared with the profile view and the cache.
         post = dict(picked)
         reason = Reason(username)
@@ -333,6 +333,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
                     reason.topics[topic] = found
         reason.uncertain = uncertain
         reason.exploratory = exploratory
+        reason.view_boost = not exploratory and recommendations.view_count_boost(
+            post, recommendations.view_baselines(state['posts'])) > 0
         reason.features = [] if exploratory else recommendations.liked_features(post, model)
         post['reason'] = reason.as_dict()
         pool['served'].add(post['shortcode'])
