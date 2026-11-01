@@ -123,8 +123,9 @@ Creator rotation and trial cooldowns now use actual views rather than delivered 
 - **S**: save or unsave this reel in Saved reels (see below).
 - **D**: download this reel (same as its download button).
 - **Space**: pause or play the current reel.
+- **T**: toggle auto-scroll (also the double-down-arrow button). Advances after playback ends; waits while paused, reading comments, or using a menu. Starts off for each page load.
 - **M**: mute or unmute.
-- **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. Comments load on demand and remain cached for that reel in the tab; navigating to another reel keeps the panel open and loads that reel’s comments.
+- **C**: show or hide top comments for the current reel (also click the comment count). Escape closes the panel. On phones it opens as a bottom sheet; drag its header down or tap outside to close it. Comments load on demand and remain cached for that reel in the tab; navigating to another reel keeps the panel open and loads that reel’s comments.
 - **← / →**: browse previous/next reels from the current creator. J/K returns to the mixed queue at your original position; the creator indicator also returns to the mix. Explicit creator browsing uses the same blocks and viewed-reel exclusions, with one reel requested at a time.
 - **R**: remove the current account from all saved feeds and block its reels, including discovery and queued clips. Adding the account back explicitly unblocks it.
 - **A**: add the current account to a feed, or enter accounts when no reel is loaded.

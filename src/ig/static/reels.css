@@ -221,11 +221,26 @@ body:has(#comments-panel:not([hidden])) .top { right:var(--comments-width); }
 body:has(#comments-panel:not([hidden])) .info { max-width:calc(100% - 84px);
   width:clamp(120px, calc((100vw - var(--comments-width) - 56.25dvh) / 2 - 28px), 280px); }
 body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--comments-width)) / 2); }
+#comments-backdrop, .sheet-handle { display:none; }
+#auto-scroll { border:0;background:transparent;color:#aaa;padding:4px;cursor:pointer; }
+#auto-scroll[aria-pressed="true"] { color:#c5b2ff;background:#302841;border-radius:6px; }
 @media (max-width:640px) {
-  .comments-heading { padding:14px 12px; }
-  #comments-body { padding:14px 12px; }
-  body:has(#comments-panel:not([hidden])) .feed-menu { max-width:calc(100vw - var(--comments-width) - 66px); }
-  body:has(#comments-panel:not([hidden])) #shortcuts { display:none; }
+  #comments-panel { top:auto;left:0;right:0;bottom:0;width:100%;height:76dvh;max-height:calc(100dvh - env(safe-area-inset-top) - 24px);
+    border:0;border-radius:20px 20px 0 0;background:#202020;transform:translateY(var(--sheet-drag, 0px));
+    padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -8px 40px #0005; }
+  #comments-panel[hidden] { transform:translateY(100%); }
+  #comments-panel.dragging { transition:none; }
+  .comments-heading { position:relative;justify-content:center;align-items:center;flex-shrink:0;
+    padding:30px 52px 16px;touch-action:none;user-select:none; }
+  .sheet-handle { display:block;position:absolute;top:10px;left:calc(50% - 18px);width:36px;height:4px;background:#666;border-radius:2px; }
+  .comments-heading button { position:absolute;right:12px;top:20px;width:36px;height:36px; }
+  #comments-body { flex:1;min-height:0;padding:18px 20px;font-size:14px; }
+  #comments-backdrop { position:fixed;inset:0;z-index:7;border:0;background:#0006;touch-action:none; }
+  body:has(#comments-panel:not([hidden])) #comments-backdrop { display:block; }
+  body:has(#comments-panel:not([hidden])) #feed { width:100%; }
+  body:has(#comments-panel:not([hidden])) .top { right:0; }
+  body:has(#comments-panel:not([hidden])) .info { width:220px;max-width:calc(100vw - 88px); }
+  body:has(#comments-panel:not([hidden])) .feed-status { left:50%; }
 }
 @media (prefers-reduced-motion:reduce) {
   #feed, .top, #comments-panel, #comments-panel[hidden] { transition:none; }

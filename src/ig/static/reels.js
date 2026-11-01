@@ -10,6 +10,7 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
+let autoScroll = false;
 let creatorTrail = null;
 let shownCodes = new Set();
 try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
@@ -512,6 +513,7 @@ function setVideo(p, i, play = false) {
         onclick="tap(event)"></video>`);
     v = slide.querySelector('video');
   }
+  v.loop = !autoScroll;
   v.muted = muted;
   v.poster = p.poster || p.image || '';
   if (v.getAttribute('src') !== p.video) {
@@ -981,6 +983,27 @@ async function toggleSavedReel(i) {
   } catch (_) { actionStatus(message); }
   finally { p._saveBusy = false; }
 }
+function toggleAutoScroll() {
+  autoScroll = !autoScroll;
+  document.getElementById('auto-scroll').setAttribute('aria-pressed', String(autoScroll));
+  document.querySelectorAll('#feed video').forEach(v => { v.loop = !autoScroll; });
+  // Returning to looping should resume an ended reel, unless explicitly paused.
+  const video = document.querySelector('#s'+current+' video');
+  if (!autoScroll && video?.ended && !posts[current]?._paused) video.play().catch(()=>{});
+  actionStatus('Auto-scroll ' + (autoScroll ? 'on' : 'off'));
+}
+function advanceAutoScroll() {
+  if (!autoScroll || document.hidden || posts[current]?._paused ||
+      !document.getElementById('comments-panel').hidden ||
+      document.getElementById('feed-menu').open || document.getElementById('feed-picker') ||
+      document.getElementById('shortcut-help')) return;
+  const video = document.querySelector('#s'+current+' video');
+  if (!video?.ended || video.error) return;
+  // At the queue's end, keep waiting for refill instead of replaying or skipping.
+  if (visibleIndices().some(i => i > current)) goRel(1);
+  else maybeMore();
+}
+setInterval(advanceAutoScroll, 500);
 function togglePlayback() {
   lastNavigation = null;
   const p = posts[current];
@@ -1172,7 +1195,7 @@ function handleReelKey(e) {
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;
   const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
-    s:()=>toggleSavedReel(current), d:downloadCurrent,
+    s:()=>toggleSavedReel(current), d:downloadCurrent, t:toggleAutoScroll,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1),
     arrowright:()=>browseCreator(1), arrowleft:()=>browseCreator(-1)};
@@ -1301,8 +1324,34 @@ more();
 function closeComments() {
   const panel = document.getElementById('comments-panel');
   panel.hidden = true;
+  panel.classList.remove('dragging');
+  panel.style.removeProperty('--sheet-drag');
   delete panel.dataset.code;
 }
+const commentsHeading = document.querySelector('.comments-heading');
+let sheetDrag = null;
+commentsHeading.addEventListener('pointerdown', e => {
+  if (!matchMedia('(max-width:640px)').matches || e.target.closest('button')) return;
+  sheetDrag = {id:e.pointerId, y:e.clientY};
+  commentsHeading.setPointerCapture(e.pointerId);
+});
+commentsHeading.addEventListener('pointermove', e => {
+  if (!sheetDrag || sheetDrag.id !== e.pointerId) return;
+  const panel = document.getElementById('comments-panel');
+  panel.classList.add('dragging');
+  panel.style.setProperty('--sheet-drag', Math.max(0, e.clientY-sheetDrag.y)+'px');
+});
+function finishSheetDrag(e) {
+  if (!sheetDrag || sheetDrag.id !== e.pointerId) return;
+  const dismiss = e.type === 'pointerup' && e.clientY-sheetDrag.y > 80;
+  sheetDrag = null;
+  const panel = document.getElementById('comments-panel');
+  panel.classList.remove('dragging');
+  panel.style.removeProperty('--sheet-drag');
+  if (dismiss) closeComments();
+}
+commentsHeading.addEventListener('pointerup', finishSheetDrag);
+commentsHeading.addEventListener('pointercancel', finishSheetDrag);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeComments();
 });

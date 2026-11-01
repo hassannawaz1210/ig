@@ -32,12 +32,14 @@ function createPage(respond, {chips = []} = {}) {
   }
   const ctx = vm.createContext({
     document: {getElementById: element, addEventListener() {},
+      querySelector: selector => selector === '.comments-heading' ? element('comments-heading') : null,
       querySelectorAll: selector => selector === '.feed-choice' ? chips : []},
     IntersectionObserver: class {constructor(callback) {ctx.observerCallback = callback;} observe() {} unobserve() {}}, AbortSignal,
     performance: {now: () => 2000},
     sessionStorage: {data: {}, getItem(key) {return this.data[key] || null;},
       setItem(key, value) {this.data[key] = value;}},
     // Timers never run by themselves; tests run them explicitly.
+    setInterval() {return 0;},
     setTimeout(fn, ms) {timers.push({run: fn, ms}); return timers.length;},
     clearTimeout(id) { if (id) timers[id - 1].cancelled = true; },
     console: {error() {}, warn() {}, log: console.log},

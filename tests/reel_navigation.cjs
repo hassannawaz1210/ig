@@ -174,10 +174,52 @@ const KEYS = {
     await touch('touchMove', [[280,440]]);
     await touch('touchEnd', []);
     await expectReel(9, 'a horizontal gesture does not advance the feed');
+    await evaluate(`posts[current]._comments = Array.from({length:30}, (_,i) =>
+      ({id:String(i),username:'viewer',text:'Comment '+i,like_count:0}));
+      posts[current]._commentCursor=null; toggleComments(current)`);
+    await sleep(300);
+    const sheet = await evaluate(`(() => {
+      const p=document.getElementById('comments-panel').getBoundingClientRect();
+      return {top:p.top,bottom:p.bottom,width:p.width,feedWidth:feed.getBoundingClientRect().width};
+    })()`);
+    const preview = await send('Page.captureScreenshot', {format:'png'});
+    fs.writeFileSync('/tmp/ig-phone-comments.png', Buffer.from(preview.data,'base64'));
+    assert.equal(sheet.width,390,'phone comments span screen width');
+    assert.equal(sheet.feedWidth,390,'phone reel is not squeezed sideways');
+    assert.equal(sheet.bottom,844,'comments are anchored to bottom');
+    assert.ok(sheet.top>100,'reel remains visible above sheet');
+    await swipe(740,400);
+    await expectReel(9,'scrolling comments does not swipe reels');
+    assert.ok(await evaluate(`document.getElementById('comments-body').scrollTop > 0`), 'comments scroll inside sheet');
+    await touch('touchStart', [[180,sheet.top+12]]);
+    await touch('touchMove', [[180,sheet.top+140]]);
+    await touch('touchEnd', []);
+    await sleep(300);
+    assert.equal(await evaluate(`document.getElementById('comments-panel').hidden`),true,'drag handle down dismisses sheet');
+    await evaluate('toggleComments(current)');
+    await touch('touchStart', [[180,80]]); await touch('touchEnd', []);
+    await sleep(300);
+    assert.equal(await evaluate(`document.getElementById('comments-panel').hidden`),true,'tapping backdrop dismisses sheet');
     await send('Emulation.setTouchEmulationEnabled', {enabled:false});
     await send('Emulation.clearDeviceMetricsOverride');
     await evaluate('showSlide(6)');
     await expectReel(6, 'desktop navigation resumes after touch');
+
+    await evaluate(`(() => {
+      const v=document.createElement('video'); v.id='auto-test';
+      Object.defineProperty(v,'ended',{value:true}); document.getElementById('s'+current).append(v);
+      toggleAutoScroll(); document.getElementById('comments-panel').hidden=false;
+      advanceAutoScroll();
+    })()`);
+    assert.equal(await evaluate('current'),6,'auto-scroll waits while comments are open');
+    await evaluate(`closeComments(); posts[current]._paused=true; advanceAutoScroll()`);
+    assert.equal(await evaluate('current'),6,'auto-scroll respects explicit pause');
+    await evaluate(`posts[current]._paused=false; advanceAutoScroll(); toggleAutoScroll()`);
+    await expectReel(7,'auto-scroll advances one ended reel');
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'t',code:'KeyT',windowsVirtualKeyCode:84});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'t',code:'KeyT',windowsVirtualKeyCode:84});
+    assert.equal(await evaluate('autoScroll'),true,'T enables auto-scroll');
+    await evaluate(`toggleAutoScroll(); document.getElementById('auto-test')?.remove(); showSlide(6)`);
 
     // The feed selector stays open while choosing multiple feeds. Resuming
     // J/K navigation must dismiss it instead of silently swallowing the key.

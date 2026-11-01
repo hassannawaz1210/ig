@@ -27,6 +27,7 @@ function showShortcuts() {
     <dt><kbd>→</kbd> / <kbd>←</kbd></dt><dd>Next / previous reel from this creator; J/K returns to the mix</dd>
     <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
     <dt><kbd>M</kbd></dt><dd>Mute / unmute</dd>
+    <dt><kbd>T</kbd></dt><dd>Toggle auto-scroll after each reel</dd>
     <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>
     <dt><kbd>N</kbd></dt><dd>Not interested in this reel</dd>
     <dt><kbd>S</kbd></dt><dd>Save / unsave in Saved reels</dd>
