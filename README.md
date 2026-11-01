@@ -1,129 +1,79 @@
 # ig
 
-Browse public Instagram reels without an Instagram account. Run a local server,
-create your own feeds, and use likes and skips to shape a mixed feed with creator
-discovery. No Instagram login, paid API key, or scraping service is required.
+A local Instagram reels browser. Make your own feeds, mix them together, and
+find new creators as you watch. No Instagram account needed.
 
-- Create, mix, and edit feeds of accounts through the browser or CLI.
-- Like individual reels, save them, and block creators permanently or for a session.
-- Browse with keyboard shortcuts or phone gestures; view top-level comments.
-- Play and download high-quality video when available, with automatic song recognition.
-- Keep feeds, feedback, and viewing history in local SQLite databases.
+Like individual reels to shape recommendations, save favorites, or block
+accounts you don't want to see. There's keyboard navigation, comments, video
+downloads, automatic song recognition, and phone access over Wi-Fi.
 
-This is an unofficial project with no affiliation with Instagram or Meta.
-Instagram's undocumented public endpoints can change or rate-limit requests;
-private and login-gated content is unavailable. Discovery works from public
-content and local feedback, not Instagram's personalized recommendation API.
+## Getting started
 
-## Install and run
-
-Requires **Python 3.11+** and a modern browser. Linux is tested locally; macOS and
-Windows instructions are provided but have not been verified end to end.
-FFmpeg is supplied by the Python dependency; Node.js is only needed for browser tests.
-
-Clone this repository using its GitHub **Code** button (or download and extract
-its ZIP), then open a terminal in the project directory.
-
-**Linux / macOS**
+You'll need Python 3.11+ and a browser. Linux is tested; macOS and Windows
+haven't been verified end to end yet.
 
 ```sh
+git clone https://github.com/hassannawaz1210/ig.git
+cd ig
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
 ig
 ```
 
-**Windows PowerShell**
+<details>
+<summary>Windows setup (PowerShell)</summary>
 
 ```powershell
+git clone https://github.com/hassannawaz1210/ig.git
+cd ig
 py -3 -m venv .venv
 .venv\Scripts\python.exe -m pip install .
 .venv\Scripts\ig.exe
 ```
 
-`ig` starts a background server on a free localhost port and opens your browser.
-If the browser does not open, paste the printed URL into it. `BROWSER` can select
-a preferred browser. For a foreground server at a predictable address:
+</details>
+
+`ig` starts the server and opens your browser. If it doesn't open, use the URL
+printed in the terminal. Run `ig stop` when you're done.
+
+## Make it yours
+
+Start with **Create feed** and add some Instagram handles or profile links.
+Name your feeds however you like, then use the feed selector to watch one or
+mix a few together. New installations start empty.
+
+You can also add accounts from the terminal:
 
 ```sh
-ig serve --port 7349
-# Open http://127.0.0.1:7349
+ig add space nasa esa
+ig feeds
 ```
 
-Use `ig stop` to stop the background server. After updating the installed code,
-stop it and run `ig` again.
+Use **J / K** to move between reels, **Space** to pause, and **L** to like.
+Press **?** for all shortcuts. To watch on your phone, run `ig phone` and scan
+the QR code while connected to the same trusted Wi-Fi.
 
-## Start with your own feeds
+The [usage guide](docs/usage.md) covers feed management, shortcuts, discovery,
+phone access, and playback options.
 
-A fresh installation has **no feeds or accounts**. Click **Create feed**, name it,
-and paste Instagram handles or profile links. Add several creators to give the
-mix variety. You can also create a feed from the terminal:
+## Local data
 
-```sh
-ig add space nasa esa       # example only; replace with your own choices
-ig feeds                   # inspect your saved feeds
-ig                         # open the mix
-```
+Your feeds, likes, saves, and blocks live in SQLite under `~/.config/ig/`.
+History and caches live under `~/.cache/ig/`. Each OS user gets their own data;
+browsers and phones connected to the same server share that server's profile.
+You can use `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` to keep separate profiles.
 
-In the browser, **+** creates a feed, **Shift+A** adds accounts, and **,** opens
-the selector to choose one feed or mix several. Accounts aren't added to your
-feeds automatically. Custom feed names are supported; automatic topic matching
-is stronger for recognized topics and improves with locally observed hashtags.
+Browsing contacts Instagram. Song recognition sends an audio fingerprint to
+Shazam; it doesn't use your microphone. Neither needs a paid API key.
 
-Useful shortcuts: **J/K** next/previous, **Space** pause, **M** mute, **L** like,
-**N** less like this, **A** add current creator, **B** block, **C** comments,
-**S** save reel, **D** download, **?** all shortcuts.
-
-See the [full usage guide](docs/usage.md) for phone sharing, discovery, video
-quality, song recognition, feed deletion, and all commands.
-
-## Your data
-
-Each OS user has their own local profile. Everyone using the **same server**
-(including phones) shares its feeds and feedback; this is not a multi-user hosted
-service. Nothing from the maintainer's feeds or databases is shipped.
-
-| Location | Contents |
-| --- | --- |
-| `~/.config/ig/` | SQLite settings, feeds, blocks, saved reels, and recommendations |
-| `~/.cache/ig/` | Viewing history, metadata, temporary video cache, logs, and server state |
-
-`XDG_CONFIG_HOME` and `XDG_CACHE_HOME` override these parent directories on all
-platforms. Set **both** before starting `ig` to keep independent profiles on the
-same computer. For example on Linux/macOS:
-
-```sh
-XDG_CONFIG_HOME="$HOME/ig-work/config" XDG_CACHE_HOME="$HOME/ig-work/cache" ig
-```
-
-Use the same variables for subsequent commands, including `ig stop`. Stop desktop
-and phone servers before backing up both data directories. Keep backups outside
-the repository. Schema migrations run automatically and preserve existing data.
-
-The app contacts Instagram for public media and sends locally generated audio
-fingerprints to Shazam for automatic song recognition. No microphone is used.
-Downloads you explicitly save remain on your device; temporary media is cached
-locally. Local storage does not mean offline browsing.
-
-## Troubleshooting
-
-- **Empty feed:** add public accounts that publish reels and select their feed.
-- **Login wall / rate limit:** let the global backoff expire; repeated retries
-  won't unlock unavailable content. Check `ig logs` for details.
-- **Browser won't launch:** open the printed localhost URL manually.
-- **Phone won't connect:** run `ig phone` and use its address and access code on
-  the same trusted Wi-Fi. See [phone setup](docs/usage.md#using-ig-on-your-phone).
-- **After an update:** reinstall with `python -m pip install .`, then `ig stop`
-  and `ig`. Feed databases live outside the installation and are retained.
+Instagram sometimes rate-limits requests or changes its public endpoints, so
+loading can fail. The app backs off automatically; `ig logs` shows details.
+Private and login-gated content isn't available. This project isn't affiliated
+with Instagram or Meta.
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for isolated tests, packaging checks, and
-project structure. CI runs mocked tests and browser checks without Instagram
-credentials or live Instagram requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and the code layout.
 
-## License
-
-Licensed under [GNU GPL v3.0](LICENSE) (GPL-3.0-only). Distributed modifications
-must comply with its source-sharing terms. Third-party dependencies retain their
-own licenses.
+Licensed under [GPL-3.0](LICENSE).
