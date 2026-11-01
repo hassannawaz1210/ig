@@ -230,3 +230,6 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 @media (prefers-reduced-motion:reduce) {
   #feed, .top, #comments-panel, #comments-panel[hidden] { transition:none; }
 }
+
+#creator-browse { border:1px solid #444;background:#17171d;color:#ddd;border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer; }
+#creator-browse[hidden] { display:none; }

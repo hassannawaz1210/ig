@@ -24,6 +24,7 @@ function showShortcuts() {
   </style><h2 id="shortcut-title">Keyboard shortcuts</h2><dl>
     <dt><kbd>J</kbd> / <kbd>↓</kbd></dt><dd>Next reel</dd>
     <dt><kbd>K</kbd> / <kbd>↑</kbd></dt><dd>Previous reel</dd>
+    <dt><kbd>→</kbd> / <kbd>←</kbd></dt><dd>Next / previous reel from this creator; J/K returns to the mix</dd>
     <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
     <dt><kbd>M</kbd></dt><dd>Mute / unmute</dd>
     <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>

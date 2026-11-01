@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import logs
 from . import instagram
 from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
-from .feeds import MIX, feed_pool, pool_more, feed_accounts
+from .feeds import MIX, feed_pool, pool_more, feed_accounts, creator_more
 from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError, PROFILES, STATE)
 from .reels import REELS, media_info
@@ -628,13 +628,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, b"invalid request", "text/plain")
             except Exception as error:
                 return self._fail(error, as_json=True, context="Adding an account")
+        creator_match = re.fullmatch(r"/creator/([A-Za-z0-9._]{1,30})/more", self.path)
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)/(more|media)", self.path)
         rm = re.fullmatch(r"/(reels|all)/(more|media)", self.path)
         username = action = None
         if m and USER_RE.match(m.group(1)):
             username, action = m.group(1).lower(), m.group(2)
-        elif rm:
-            username, action = MIX, rm.group(2)
+        elif rm or creator_match:
+            username, action = MIX, rm.group(2) if rm else "more"
         elif self.path == "/saved-reels/media":  # the Saved reels page's video lookups
             action = "media"
         else:
@@ -663,7 +664,11 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, b'invalid excluded reels', 'text/plain')
                     if releases:
                         history.release(client, releases)
-                    data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded}, client=client, exclude_codes=exclude_codes)
+                    if creator_match:
+                        data = creator_more(creator_match.group(1).lower(), client=client,
+                                            exclude_codes=exclude_codes, excluded={u.lower() for u in excluded})
+                    else:
+                        data = pool_more(feed_pool(MIX), excluded={u.lower() for u in excluded}, client=client, exclude_codes=exclude_codes)
                 else:
                     data = more_posts(username)
                 if username == MIX:

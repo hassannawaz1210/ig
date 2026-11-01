@@ -172,6 +172,36 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         return batch
 
 
+
+def creator_more(username, *, client, exclude_codes=(), excluded=()):
+    """Explicit creator browsing uses the same bounded workers and viewing history."""
+    with BATCH_LOCK:
+        if username in blocked_accounts() or username in excluded:
+            return {'posts': [], 'has_more': False}
+        pool = POOLS.setdefault('creator:' + username, make_pool([username]))
+        reservations = viewing_history.active_reservations()
+        pool['served'] = set(load_history()['codes']) | set(exclude_codes) | {r[0] for r in reservations}
+        REFILL.collect(pool, _record_failure)
+        if username in pool['dead']:
+            return {'posts': [], 'has_more': False}
+        REFILL.schedule(pool, [username], {username}, states=STATE)
+        state = STATE.get(username) or REELS.cached(username) or {}
+        fresh = [dict(p) for p in state.get('posts', [])
+                 if p.get('owner') == username and p.get('is_video') and p['shortcode'] not in pool['served']]
+        reactions = recommendations.feedback_for([p['shortcode'] for p in fresh])
+        fresh = [p for p in fresh if reactions.get(p['shortcode']) != 'dislike']
+        if username in blocked_accounts():
+            return {'posts': [], 'has_more': False}
+        chosen = viewing_history.reserve(fresh[:1], client)
+        recommendations.remember_reels(chosen)
+        recommendations.record_deliveries(chosen)
+        saved = recommendations.saved_codes([p['shortcode'] for p in chosen])
+        for post in chosen:
+            post.update(feedback=reactions.get(post['shortcode']), saved=post['shortcode'] in saved)
+        return {'posts': chosen, 'has_more': bool(chosen) or REFILL.waiting([username]),
+                'retry_after_ms': 1000}
+
+
 def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True) -> dict:
     """Rank individual clips and serve one trial per creator in a varied batch."""
     excluded = set(excluded or ())

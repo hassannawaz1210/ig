@@ -10,6 +10,7 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
+let creatorTrail = null;
 let shownCodes = new Set();
 try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
 function rememberShown(code) {
@@ -19,7 +20,7 @@ function rememberShown(code) {
   try { sessionStorage.setItem('ig-shown-reels', JSON.stringify([...shownCodes])); } catch (_) {}
 }
 function excludedReelCodes() {
-  return [...new Set([...shownCodes, ...posts.filter(p => !p._dropped).map(p => p.shortcode)])].slice(-1000);
+  return [...new Set([...shownCodes, ...posts.filter(p => !p._dropped).map(p => p.shortcode), ...(creatorTrail?.items || []).map(p => p.shortcode)])].slice(-1000);
 }
 const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 let reservationTimer = null;
@@ -324,6 +325,7 @@ function releaseVideo(slide) {
   if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
 }
 function dropQueuedReels() {
+  leaveCreatorBrowse(false);
   const released = [];
   posts.forEach((p, i) => {
     if (i <= current || p._dropped) return;
@@ -535,7 +537,7 @@ async function prepare(i) {
     await p._loading;
   }
   // A slow response may arrive after the user has scrolled away.
-  if (isHidden(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
+  if (posts[i] !== p || isHidden(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
   document.getElementById('likes'+i).textContent = fmt(p.like_count);
   document.getElementById('cm'+i).textContent = fmt(p.comment_count);
   if (commentsVisible(p)) renderComments(p);
@@ -600,6 +602,7 @@ const io = new IntersectionObserver(es => {
     const i = +e.target.id.slice(1);
     if (!isHidden(posts[i]) && i !== current) {
       recordQuickSkip(current);
+      leaveCreatorBrowse(false);
       current = i;
       document.querySelectorAll('video').forEach(v => v.pause());
       activate(i);
@@ -913,10 +916,10 @@ async function recognizeSong(i) {
     const result = await r.json();
     if (result.status === 'matched' || result.status === 'no_match') p._song = result;
     else p._songRetryAt = Date.now() + (result.status === 'busy' ? 5000 : 60000);
-    renderSong(i, result);
+    if (posts[i] === p) renderSong(i, result);
   } catch (_) {
     p._songRetryAt = Date.now() + 60000;
-    renderSong(i, {status:'unavailable'});
+    if (posts[i] === p) renderSong(i, {status:'unavailable'});
   } finally {
     songBusy = false;
     p._recognizing = false;
@@ -987,6 +990,7 @@ function togglePlayback() {
   if (video) p._paused ? video.pause() : video.play().catch(()=>{});
 }
 function showSlide(i) {
+  if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse(false);
   if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
   if (current !== i) recordQuickSkip(current);
@@ -1073,6 +1077,79 @@ function toggleWhy(i = current) {
   panel.hidden = !open;
   document.getElementById('s'+i)?.querySelector('.why-button')?.setAttribute('aria-expanded', String(open));
 }
+function replaceCreatorSlide(post, play = true) {
+  const i = current;
+  recordQuickSkip(i);
+  clearTimeout(songTimer); songTimer = null; songTimerFor = null;
+  const old = document.getElementById('s'+i);
+  if (old) { io.unobserve(old); releaseVideo(old); }
+  posts[i] = post;
+  if (old) old.outerHTML = slideHtml(post, i);
+  observeNew();
+  if (play) showSlide(i);
+}
+function leaveCreatorBrowse(play = true) {
+  const trail = creatorTrail;
+  if (!trail) return;
+  creatorTrail = null;
+  clearTimeout(trail.timer);
+  document.getElementById('creator-browse').hidden = true;
+  actionStatus('');
+  if (current === trail.index) replaceCreatorSlide(trail.items[0], play);
+}
+async function browseCreator(direction) {
+  const p = posts[current];
+  if (!p || isHidden(p)) return;
+  if (!creatorTrail) {
+    if (direction < 0) return;
+    creatorTrail = {index:current, owner:p.owner, items:[p], at:0, busy:false, timer:null};
+  }
+  const trail = creatorTrail;
+  if (direction < 0) {
+    clearTimeout(trail.timer); trail.timer = null;
+    // Cancel a pending next-reel response without disrupting the cached trail.
+    trail.request = (trail.request || 0) + 1; trail.busy = false;
+    if (trail.at === 0) { leaveCreatorBrowse(); return; }
+    replaceCreatorSlide(trail.items[--trail.at]);
+  } else if (trail.at + 1 < trail.items.length) {
+    replaceCreatorSlide(trail.items[++trail.at]);
+  } else {
+    if (trail.busy || trail.timer) return;
+    trail.busy = true;
+    const request = trail.request = (trail.request || 0) + 1;
+    actionStatus('Loading more from @' + trail.owner + '…');
+    try {
+      const r = await fetch('/creator/' + encodeURIComponent(trail.owner) + '/more', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:queueClient, exclude_codes:excludedReelCodes(),
+          session_blocked:[...sessionBlocked]}), signal:AbortSignal.timeout(BATCH_TIMEOUT_MS)});
+      const data = await r.json();
+      if (creatorTrail !== trail || current !== trail.index || request !== trail.request) {
+        releaseReservations((data.posts || []).map(p => p.reservation).filter(Boolean)); return;
+      }
+      if (!r.ok || data.error) throw new Error(data.error || 'Could not load this creator');
+      const next = (data.posts || []).find(p => p.owner === trail.owner &&
+        !isHidden(p) && !excludedReelCodes().includes(p.shortcode));
+      releaseReservations((data.posts || []).filter(p => p !== next).map(p => p.reservation).filter(Boolean));
+      if (next) {
+        trail.items.push(next); trail.at += 1; replaceCreatorSlide(next);
+        actionStatus('');
+      } else if (data.has_more) {
+        trail.timer = setTimeout(() => {trail.timer=null; if (creatorTrail === trail) browseCreator(1);},
+          Math.max(750, Math.min(30000, data.retry_after_ms || 1500)));
+      } else actionStatus('No more unseen reels from @' + trail.owner);
+    } catch (error) {
+      if (creatorTrail === trail && request === trail.request) actionStatus(error.message);
+    } finally {
+      if (request === trail.request) trail.busy = false;
+    }
+  }
+  if (creatorTrail === trail) {
+    const button = document.getElementById('creator-browse');
+    button.hidden = false;
+    button.textContent = '@' + trail.owner + ' · ' + (trail.at + 1) + ' · Back to mix';
+  }
+}
 function openProfile() {
   const owner = posts[current]?.owner;
   if (owner) window.open('/u/' + encodeURIComponent(owner), '_blank', 'noopener');
@@ -1097,7 +1174,8 @@ function handleReelKey(e) {
   const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
     s:()=>toggleSavedReel(current), d:downloadCurrent,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
-    arrowup:()=>goRel(-1), k:()=>goRel(-1)};
+    arrowup:()=>goRel(-1), k:()=>goRel(-1),
+    arrowright:()=>browseCreator(1), arrowleft:()=>browseCreator(-1)};
   if (!actions[key]) return;
   // Consume repeats too: otherwise held arrows/Space trigger native scrolling.
   e.preventDefault();
@@ -1110,6 +1188,7 @@ document.addEventListener('keydown', handleReelKey);
 document.addEventListener('keyup', releaseReelKey);
 if (typeof window !== 'undefined') window.addEventListener('blur', () => heldKeys.clear());
 function goRel(d) {
+  leaveCreatorBrowse(false);
   const indices = visibleIndices();
   const at = indices.indexOf(current);
   const i = indices[Math.max(0, Math.min(indices.length - 1, at + d))];

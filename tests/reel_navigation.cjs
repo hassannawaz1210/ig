@@ -329,6 +329,50 @@ const KEYS = {
     assert.equal(await evaluate('songRequests.length'), 1, 'short looping video still starts automatic recognition');
     assert.equal(await evaluate("document.getElementById('song'+current).hidden"), false);
     assert.equal(await evaluate("document.getElementById('song'+current).textContent.trim()"), 'Test song · Test artist');
+    const originalSlot = await evaluate('({index:current,code:posts[current].shortcode})');
+    await evaluate(`(() => {
+      const previousFetch = window.fetch;
+      window.creatorRequests = 0;
+      window.fetch = (url, options) => {
+        if (String(url).startsWith('/creator/')) {
+          creatorRequests++;
+          return Promise.resolve(new Response(JSON.stringify({posts:[{shortcode:'branch001',
+            owner:posts[current].owner,is_video:true,caption:'Same creator reel',reservation:'b'.repeat(32)}],
+            has_more:true}),{status:200,headers:{'Content-Type':'application/json'}}));
+        }
+        return previousFetch(url, options);
+      };
+    })()`);
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+    await sleep(200);
+    assert.equal(await evaluate('current'),originalSlot.index,'horizontal browse keeps mixed-feed position');
+    assert.equal(await evaluate('posts[current].shortcode'),'branch001');
+    assert.equal(await evaluate("document.getElementById('creator-browse').hidden"),false);
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowLeft',code:'ArrowLeft',windowsVirtualKeyCode:37});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowLeft',code:'ArrowLeft',windowsVirtualKeyCode:37});
+    assert.equal(await evaluate('posts[current].shortcode'),originalSlot.code);
+    await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+    await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39});
+    assert.equal(await evaluate('creatorRequests'),1,'back/forward reuses loaded creator reel');
+    await key('j');
+    await sleep(200);
+    assert.equal(await evaluate('creatorTrail'),null,'J resumes the mixed feed');
+    assert.equal(await evaluate('posts['+originalSlot.index+'].shortcode'),originalSlot.code,'original queue slot restored');
+    await evaluate(`(() => {
+      const previousFetch=window.fetch;
+      window.fetch=(url,options)=>String(url).startsWith('/creator/') ?
+        new Promise(resolve=>window.finishCreatorRequest=resolve) : previousFetch(url,options);
+      void browseCreator(1);
+    })()`);
+    await key('j');
+    const afterLeaving = await evaluate('posts[current].shortcode');
+    await evaluate(`finishCreatorRequest(new Response(JSON.stringify({posts:[{shortcode:'latebranch',
+      owner:'creator',reservation:'c'.repeat(32)}],has_more:true}),
+      {status:200,headers:{'Content-Type':'application/json'}}))`);
+    await sleep(100);
+    assert.equal(await evaluate('posts[current].shortcode'),afterLeaving,'late creator response cannot replace the mixed reel');
+    assert.equal(await evaluate('creatorTrail'),null);
     await evaluate('boot.feeds = []; updateFeedStatus()');
     assert.equal(await evaluate(`document.getElementById('feed-create').hidden`), false, 'new users see Create feed');
     console.log('Reel navigation, feed selection, creation and account entry passed');
