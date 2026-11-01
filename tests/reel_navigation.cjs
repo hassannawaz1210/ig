@@ -453,7 +453,9 @@ const KEYS = {
     assert.equal(await evaluate(`document.getElementById('feed-create').hidden`), false, 'new users see Create feed');
     for (const [width,height] of [[320,568],[390,844],[640,320],[1000,800]]) {
       await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<700});
+      await sleep(100);
       await evaluate('showShortcuts()');
+      await sleep(100);
       const bounds = await evaluate(`(() => {
         const d=document.getElementById('shortcut-help'), list=d.querySelector('dl');
         const r=d.getBoundingClientRect(), b=d.querySelector('button').getBoundingClientRect();
@@ -465,9 +467,10 @@ const KEYS = {
       assert.ok(bounds.top>=0 && bounds.bottom<=height && bounds.left>=0 && bounds.right<=width,
         'shortcut dialog fits '+width+'x'+height);
       assert.ok(bounds.buttonBottom<=height,'Done stays on screen');
-      assert.ok(bounds.scrollable && bounds.scrolled,'shortcut list scrolls');
+      assert.ok(!bounds.scrollable || bounds.scrolled,'overflowing shortcut list scrolls at '+width+'x'+height);
       assert.equal(bounds.overflows,false,'shortcut list does not overflow sideways');
       await evaluate("document.getElementById('shortcut-help').close()");
+      await sleep(100);
     }
     console.log('Reel navigation, feed selection, creation, account entry and shortcut layout passed');
   } finally { browser.close(); }

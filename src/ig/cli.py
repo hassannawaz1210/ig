@@ -22,6 +22,7 @@ HELP = """ig — browse Instagram logged out
   ig post <shortcode|url>   post JSON
   ig comments <code|url>    top comments of a post
   ig feed <username>       full archive JSON (may be slow)
+  ig discovery-stats       experiment results for recently watched discovery reels
   ig tags                  top hashtags seen locally
   ig tag <name>            local reels and creators using #<name>
   ig saved-reels           list reels you saved with S
@@ -47,7 +48,7 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "comments", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs"}
+    commands = {"profile", "post", "comments", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs", "discovery-stats"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
@@ -130,6 +131,9 @@ def _run(args):
                 del feeds[name]
                 print(f"removed feed '{name}'")
             POOLS.pop(name, None)
+    elif cmd == "discovery-stats":
+        from . import recommendations
+        print(json.dumps(recommendations.discovery_results(), indent=2))
     elif cmd == "tags":
         from . import recommendations
         rows = recommendations.top_tags()

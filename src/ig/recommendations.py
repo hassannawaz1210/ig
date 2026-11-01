@@ -130,7 +130,7 @@ def remember_reels(posts):
             data = json.loads(old[0]) if old else {'shortcode': code}
             before = (data.get('caption'), data.get('owner'))
             for key in ('owner', 'caption', 'tagged_users', 'audio_id', 'song',
-                        'commenters', 'reply_mentions', 'coauthors', 'audio_creator', 'paid_partnership'):
+                        'commenters', 'reply_mentions', 'coauthors', 'audio_creator', 'paid_partnership', 'discovery_source'):
                 if post.get(key) is not None:
                     data[key] = post[key]
             connection.execute('INSERT OR REPLACE INTO reels VALUES (?, ?, ?)',
@@ -352,7 +352,7 @@ def candidate_leads(post):
     return {name: strength for name, (strength, _) in candidate_lead_kinds(post).items()}
 
 
-def related_leads(owners, *, include_liked=False, reasons=None):
+def related_leads(owners, *, include_liked=False, reasons=None, topics=None):
     """Persist broad leads with weaker sponsor evidence, scoped to sources.
 
     When a dict is passed as reasons, it receives each lead's strongest
@@ -368,7 +368,12 @@ def related_leads(owners, *, include_liked=False, reasons=None):
                                   ).fetchall()
         posts = [(json.loads(raw), action) for raw, action in rows]
         for post, action in posts:
-            if post.get('owner') in owners or owners.intersection(post.get('coauthors') or []) or (include_liked and action == 'like'):
+            # A single explicitly liked reel can supply leads. The prospective
+            # creator still has to pass the normal multi-post topic checks.
+            liked_match = action == 'like' and (include_liked or any(
+                re.search(r'\b(?:' + TOPIC_WORDS.get(topic, r'(?!)') + r')\b',
+                          post.get('caption') or '', re.I) for topic in (topics or {})))
+            if post.get('owner') in owners or owners.intersection(post.get('coauthors') or []) or liked_match:
                 for name, (strength, kind) in candidate_lead_kinds(post).items():
                     if strength > leads.get(name, 0):
                         leads[name] = strength
@@ -469,6 +474,7 @@ EDIT_WORDS = (r'edits?|editors?|editing|(?:movie|film|fan|scene|velocity|cinemat
 
 
 TOPIC_WORDS = {
+    'music': r'music|songs?|singers?|albums?|musicians?|concerts?|vocals?|tiny desk|tinydesk|newmusic|livemusic|soul|jazz|hip hop|rnb|r&b',
     'memes': r'memes?|comedy|comedian|humou?r|satire|satirical|shitpost(?:ing)?|brainrot',
     'programming': r'programming|coding|coder|developer|software|computer science|python|javascript',
     'electronics': r'electronics?|circuits?|microcontrollers?|arduino|raspberry pi|soldering|pcb|robotics',
@@ -683,3 +689,53 @@ def record_view(code, owner, event):
     with database() as connection:
         connection.execute('INSERT OR IGNORE INTO viewed_reels VALUES (?,?,?,?)', (event, code, owner, time.time()))
         connection.execute('DELETE FROM viewed_reels WHERE event NOT IN (SELECT event FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT 200)')
+
+
+def discovery_results():
+    """Trials actually watched in the retained 200-view window, by source.
+
+    Only explicit likes/dislikes are learning rewards; auto-play completion
+    and passive exposure never count as approval. Repeated reports dedupe.
+    """
+    with database() as connection:
+        rows = connection.execute("SELECT DISTINCT v.code, r.data, f.action FROM viewed_reels v "
+            "JOIN reels r ON r.code=v.code LEFT JOIN feedback f ON f.code=v.code").fetchall()
+    results = {}
+    for code, raw, action in rows:
+        post = json.loads(raw)
+        source = post.get('discovery_source')
+        if not source:
+            continue
+        entry = results.setdefault(source, {'watched':0, 'likes':0, 'dislikes':0, 'creators':set()})
+        entry['watched'] += 1
+        entry['creators'].add(post.get('owner'))
+        entry['likes'] += action == 'like'
+        entry['dislikes'] += action == 'dislike'
+    return {source: {**entry, 'creators':len(entry['creators'])} for source, entry in results.items()}
+
+
+def discovery_weights(reasons):
+    """Smoothed source rewards with an exploration floor; no passive rewards."""
+    results = discovery_results()
+    weights = {}
+    for name, reason in reasons.items():
+        row = results.get(reason.get('source'), {})
+        likes, dislikes = row.get('likes', 0), row.get('dislikes', 0)
+        # Keep equal chances until there is some explicit evidence.
+        weights[name] = 1.0 if likes + dislikes < 8 else 0.25 + 1.5 * (likes + 2) / (likes + dislikes + 4)
+    return weights
+
+
+def saved_streak(saved, queued=()):
+    """Count saved creators since the last trial, including upcoming leases."""
+    with database() as connection:
+        owners = [r[0] for r in connection.execute(
+            'SELECT owner FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT 4')]
+    streak = 0
+    for owner in owners:
+        if owner not in saved:
+            break
+        streak += 1
+    for owner in queued:
+        streak = streak + 1 if owner in saved else 0
+    return streak

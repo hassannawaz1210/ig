@@ -136,6 +136,15 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         excluded = set(excluded or ())
         REFILL.collect(pool, _record_failure)
         snapshot = account_snapshot()
+        selected = active_feeds()
+        evidence = {}
+        leads = recommendations.related_leads(snapshot[0], include_liked=config.selected_feeds() is None,
+                                               topics=selected, reasons=evidence)
+        discover_into(pool, leads)
+        pool['discovery_weights'] = recommendations.discovery_weights(evidence)
+        pool['buffered'] = sum(holder == client for _, _, holder in reservations)
+        pool['saved_streak'] = recommendations.saved_streak(snapshot[0],
+            [owner for _, owner, holder in reservations if holder == client])
         candidates = available_accounts(pool, excluded, snapshot)
         REFILL.schedule(pool, candidates, snapshot[0], states=STATE)
         queued = Counter(owner for _, owner, holder in reservations if holder == client)
@@ -161,11 +170,13 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
             batch['retry_after_ms'] = 750
         blocked = blocked_accounts()
         posts = batch["posts"] = [p for p in batch["posts"] if p.get("owner") not in blocked]
-        # Prefer a different opening account whenever this batch has one.
-        for i, post in enumerate(posts):
-            if post.get("owner") != history["last_owner"]:
-                posts[0], posts[i] = posts[i], posts[0]
-                break
+        # Preserve discovery positions while varying the opening saved creator.
+        if posts and posts[0].get('owner') == history['last_owner']:
+            first_saved = posts[0].get('owner') in snapshot[0]
+            for i, post in enumerate(posts[1:], 1):
+                if post.get('owner') != history['last_owner'] and (post.get('owner') in snapshot[0]) == first_saved:
+                    posts[0], posts[i] = posts[i], posts[0]
+                    break
         posts = batch["posts"] = viewing_history.reserve(posts, client)
         recommendations.remember_reels(posts)
         codes = [p['shortcode'] for p in posts]
@@ -218,7 +229,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     # user to open each reel's media before we can discover its creator.
     lead_reasons = {}
     leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None,
-                                          reasons=lead_reasons)
+                                          reasons=lead_reasons, topics=selected)
     discover_into(pool, leads)
     liked_creators = recommendations.discovery_accounts()
     model = recommendations.preference_model()
@@ -238,6 +249,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     trial_requests_left = TRIAL_REQUESTS_PER_BATCH
     cached = None
     snapshot = snapshot or account_snapshot()
+    streak = pool.get('saved_streak', 3)
     while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded, snapshot)
         if not candidates:
@@ -271,11 +283,14 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         rested_trials = [a for a in unfamiliar if a not in cooldowns and a not in recent]
         # Reserve the first attempt for discovery instead of leaving an entire
         # batch to chance. Failed trials may fall back to saved creators.
-        if rested_trials and (not out or random.random() < TRIAL_FIRST_SHARE):
+        discovery_turn = bool(rested_trials) and streak >= 3
+        if discovery_turn:
             candidates = rested_trials
+        elif any(a in saved for a in candidates):
+            candidates = [a for a in candidates if a in saved]
         groups = [(name, [a for a in candidates if a in members]) for name, members in selected.items()]
         groups = [(name, group) for name, group in groups if group]
-        if groups and not (rested_trials and candidates == rested_trials):
+        if groups and not discovery_turn:
             least = min(used_topics[name] for name, _ in groups)
             _, candidates = random.choice([(name, group) for name, group in groups if used_topics[name] == least])
         if candidates and all(a not in saved for a in candidates):
@@ -374,14 +389,16 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             post, recommendations.view_baselines(state['posts'])) > 0
         reason.features = [] if exploratory else recommendations.liked_features(post, model)
         post['reason'] = reason.as_dict()
+        if username not in saved:
+            post['discovery_source'] = (lead_reasons.get(username) or {}).get('source', 'liked_creator' if username in liked_creators else 'other')
         pool['served'].add(post['shortcode'])
         out.append(post)
+        streak = streak + 1 if username in saved else 0
         if uncertain:
             uncertain_used = True
         for topic in memberships:
             used_topics[topic] += 1
-    random.shuffle(out)
-    return {'posts': out, 'has_more': bool(available_accounts(pool, excluded))}
+    return {'posts': out, 'has_more': bool(available_accounts(pool, excluded, snapshot))}
 
 
 def _spend_request(requests_left, trial_requests_left, saved):

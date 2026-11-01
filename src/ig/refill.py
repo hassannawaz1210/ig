@@ -1,5 +1,6 @@
 """Bounded background reels loading, independent of reel delivery."""
 import time
+import random
 from concurrent.futures import ThreadPoolExecutor
 from .instagram import RateLimited, ProfileUnavailable, BACKOFF
 from .reels import REELS, STATE, more_reels
@@ -13,6 +14,7 @@ class Refill:
         self.last_scheduled = {}
         self.completed_seconds = {}
         self.load_seconds = 12.0
+        self.next_discovery_at = 0.0
 
     def _load(self, name, paging):
         started = time.monotonic()
@@ -67,9 +69,37 @@ class Refill:
                     candidates.append((0 if unseen == 0 else 1, name, True))
         # One discovery source may run alongside saved-source replenishment.
         candidates.sort(key=lambda entry: (entry[0], self.last_scheduled.get(entry[1], 0)))
+        # When the queue is healthy, reserve one of the existing two workers
+        # for discovery. A fixed request cadence bounds background exploration.
+        ready = pool.get('buffered', 0) + sum(
+            p.get('is_video', False) and p['shortcode'] not in pool['served']
+            for name, state in states.items() if name in saved for p in state['posts'])
+        trials = [c for c in candidates if c[1] not in saved]
+        saved_candidates = [c for c in candidates if c[1] in saved]
+        trial_running = any(name not in saved for name in self.pending)
+        if trials and not trial_running and time.monotonic() >= self.next_discovery_at:
+            weights = pool.get('discovery_weights', {})
+            # Try never-inspected candidates before revisiting old sources.
+            oldest = min(self.last_scheduled.get(c[1], 0) for c in trials)
+            eligible = [c for c in trials if self.last_scheduled.get(c[1], 0) == oldest]
+            trial = random.choices(eligible, weights=[weights.get(c[1], 1) for c in eligible], k=1)[0]
+            if ready >= 6 or not saved_candidates:
+                candidates = [trial] + saved_candidates
+            else:
+                candidates = saved_candidates + [trial]
+        else:
+            if trials and time.monotonic() < self.next_discovery_at:
+                for _, name, _ in trials:
+                    self.retry_at[name] = self.next_discovery_at
+            candidates = saved_candidates
         for _, name, paging in candidates:
             if len(self.pending) >= 2:
                 break
+            if name not in saved:
+                if trial_running or time.monotonic() < self.next_discovery_at:
+                    continue
+                self.next_discovery_at = time.monotonic() + 30
+                trial_running = True
             self.last_scheduled[name] = time.monotonic()
             self.pending[name] = (self.executor.submit(self._load, name, paging), pool)
 

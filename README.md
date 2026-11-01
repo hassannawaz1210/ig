@@ -196,3 +196,26 @@ Batch loading prioritizes cached unseen clips and returns partial batches before
 The mixed reels view uses the reels-only profile query, with its own cursor and metadata cache in `reels.sqlite3`; it does not paginate the photo grid. One profile-page request initializes a shared anonymous session for reels queries; other creators and subsequent pages reuse it. This path does not fetch creator bios. Each listing contains up to 12 reel IDs; at most three post-detail requests run per worker step to supply captions for ranking. Fetched playback metadata is reused for 15 minutes in memory, avoiding a second request when playback starts. Media URLs and sessions are not written to the reels cache. Source loading and pagination run in at most two background workers. Reel batch requests use memory/disk caches only; a slow Instagram request does not hold the batch lock. Sources start replenishing when fewer than twelve unseen clips remain. Equally urgent sources rotate by their last loading attempt, so the first alphabetical accounts cannot monopolize the workers. While work is pending, empty batches ask the browser to retry after 750 ms; exhausted sources report that no more reels are available instead of retrying forever. Existing source restrictions and upstream rate limits still apply.
 
 Explicit coauthors from logged-out post HTML are discovery leads (strength 2.5), not saved memberships or endorsements. Original-audio creator handles are weaker leads (0.4); self-attribution and unpublished collaborators are ignored. Caption sponsor signals or Instagram’s paid-partnership flag reduce these strengths to 0.5 and 0.1. A reel involving an account in the selected feeds can supply collaborator leads even when that account is not the primary uploader. Existing topic checks, blocks, cooldowns, trial budgets and creator caps still apply. The Why panel labels collaboration and audio leads. Metadata is extracted during the existing post request and retained in local JSON records; no extra request or schema migration is needed.
+
+## Discovery experiment
+
+The `experiment/discovery` branch reserves one of the two existing background
+workers for unfamiliar creators when at least six reels are buffered or ready.
+If the queue is low, saved-source replenishment takes priority. Discovery starts
+are limited to one every 30 seconds, with at most one discovery worker active;
+Instagram backoff still applies.
+
+The mix aims for an unfamiliar creator after three saved-creator reels, using
+recent viewed creators and current queued reservations across refill calls.
+This is a best-effort target: topic checks, blocks, cooldowns, and available
+content take precedence. Sources are never added to saved feeds automatically.
+A liked reel can supply new leads in a selected feed when its caption matches
+that feed's topic; prospective creators still pass the usual topic checks.
+
+`ig discovery-stats` shows unique watched trial reels, creators, explicit likes,
+and explicit dislikes by discovery source in the retained 200-view window.
+Prefetch and repeated playback reports do not count as new trials. Source
+selection stays neutral until eight explicit ratings for a source, then uses a
+smoothed like ratio with a nonzero exploration floor. Automatic playback and
+completion are never positive rewards. The results are observational, not an
+A/B test or an unbiased estimate of recommendation quality.
