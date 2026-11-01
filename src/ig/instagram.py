@@ -169,10 +169,13 @@ def nested_find(obj, key):
 
 
 def audio_id(media):
-    clips = media.get('clips_metadata') or {}
-    music = clips.get('music_info') or {}
-    asset = music.get('music_asset_info') or {}
-    original = clips.get('original_sound_info') or {}
+    def object_field(obj, key):
+        value = obj.get(key)
+        return value if isinstance(value, dict) else {}
+    clips = object_field(media, 'clips_metadata')
+    music = object_field(clips, 'music_info')
+    asset = object_field(music, 'music_asset_info')
+    original = object_field(clips, 'original_sound_info')
     return str(asset.get('audio_cluster_id') or asset.get('id') or
                original.get('audio_asset_id') or original.get('id') or '') or None
 
@@ -252,6 +255,22 @@ def media_info(code: str) -> dict:
         "poster": best((m.get("image_versions2") or {}).get("candidates") or []),
         "slides": [],
     }
+    # Explicit collaborators and original-audio attribution from the same HTML.
+    def handle(user):
+        name = user.get("username") if isinstance(user, dict) else None
+        return name.lower() if isinstance(name, str) and config.USER_RE.fullmatch(name) else None
+
+    owner = (out.get("owner") or "").lower()
+    coauthors = m.get("coauthor_producers")
+    out["coauthors"] = sorted({name for user in coauthors if isinstance(user, dict)
+                              and not user.get("is_unpublished") and (name := handle(user))
+                              and name != owner})[:20] if isinstance(coauthors, list) else []
+    clips = m.get("clips_metadata")
+    original = clips.get("original_sound_info") if isinstance(clips, dict) else None
+    artist = handle(original.get("ig_artist")) if isinstance(original, dict) else None
+    out["audio_creator"] = artist if artist and artist != owner else ""
+    out["paid_partnership"] = m.get("is_paid_partnership") is True
+
     # accounts to feed the reels discovery pool
     tagged = []
     for ut in ((m.get("usertags") or {}).get("users") or []):

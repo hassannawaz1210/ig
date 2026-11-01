@@ -73,7 +73,7 @@ class ReelStore(instagram.ProfileStore):
                 continue
             item = {key: data.get(key) for key in (
                 "shortcode", "owner", "caption", "audio_id", "taken_at",
-                "like_count", "comment_count")}
+                "like_count", "comment_count", "coauthors", "audio_creator", "paid_partnership")}
             item.update(shortcode=code, owner=data.get("owner") or username,
                         is_video=True, image=data.get("poster") or listing.get("image"),
                         url=listing.get("url"), play_count=listing.get("play_count"))

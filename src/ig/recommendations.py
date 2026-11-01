@@ -130,7 +130,7 @@ def remember_reels(posts):
             data = json.loads(old[0]) if old else {'shortcode': code}
             before = (data.get('caption'), data.get('owner'))
             for key in ('owner', 'caption', 'tagged_users', 'audio_id', 'song',
-                        'commenters', 'reply_mentions'):
+                        'commenters', 'reply_mentions', 'coauthors', 'audio_creator', 'paid_partnership'):
                 if post.get(key) is not None:
                     data[key] = post[key]
             connection.execute('INSERT OR REPLACE INTO reels VALUES (?, ?, ?)',
@@ -313,16 +313,31 @@ def remember_commenters(code, result):
 def candidate_lead_kinds(post):
     """Leads from one reel as {name: (strength, kind)}.
 
-    kind is 'credit', 'mention', 'sponsored_credit', 'sponsored_mention',
-    'reply_mention', 'commenter', or 'hashtag'."""
+    Explicit coauthors outrank plain credits; audio attribution is weaker.
+    Sponsored evidence is discounted, and stronger evidence wins per handle."""
     caption = post.get('caption') or ''
     handles = set(post.get('tagged_users') or [])
     handles.update(re.findall(r'@([A-Za-z0-9._]{1,30})', caption))
-    promotional = bool(PROMOTIONAL_RE.search(caption))
+    promotional = bool(PROMOTIONAL_RE.search(caption)) or post.get('paid_partnership') is True
     leads = {name.rstrip('.').lower(): (0.2, 'sponsored_mention') if promotional else (1.0, 'mention')
              for name in handles if isinstance(name, str) and config.USER_RE.fullmatch(name)}
     for name in creator_credits(post):
         leads[name] = (0.5, 'sponsored_credit') if promotional else (2.0, 'credit')
+    owner = (post.get('owner') or '').lower()
+    coauthors = post.get('coauthors')
+    for name in coauthors if isinstance(coauthors, list) else []:
+        if not isinstance(name, str) or not config.USER_RE.fullmatch(name) or name.lower() == owner:
+            continue
+        name = name.lower()
+        strength, kind = (0.5, 'sponsored_coauthor') if promotional else (2.5, 'coauthor')
+        if leads.get(name, (0,))[0] < strength:
+            leads[name] = (strength, kind)
+    name = post.get('audio_creator')
+    if isinstance(name, str) and config.USER_RE.fullmatch(name) and name.lower() != owner:
+        name = name.lower()
+        strength, kind = (0.1, 'sponsored_audio_creator') if promotional else (0.4, 'audio_creator')
+        if leads.get(name, (0,))[0] < strength:
+            leads[name] = (strength, kind)
     for name in post.get('reply_mentions') or []:
         if config.USER_RE.fullmatch(name) and leads.get(name, (0,))[0] < REPLY_MENTION_LEAD:
             leads[name] = (REPLY_MENTION_LEAD, 'reply_mention')
@@ -353,7 +368,7 @@ def related_leads(owners, *, include_liked=False, reasons=None):
                                   ).fetchall()
         posts = [(json.loads(raw), action) for raw, action in rows]
         for post, action in posts:
-            if post.get('owner') in owners or (include_liked and action == 'like'):
+            if post.get('owner') in owners or owners.intersection(post.get('coauthors') or []) or (include_liked and action == 'like'):
                 for name, (strength, kind) in candidate_lead_kinds(post).items():
                     if strength > leads.get(name, 0):
                         leads[name] = strength

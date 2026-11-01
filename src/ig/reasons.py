@@ -31,6 +31,10 @@ def _join(items) -> str:
 
 
 LEAD_TEXT = {
+    "coauthor": "collaborated on a reel by @{via}",
+    "sponsored_coauthor": "collaborated on a sponsored reel by @{via}",
+    "audio_creator": "created original audio used in a reel by @{via}",
+    "sponsored_audio_creator": "created original audio used in a sponsored reel by @{via}",
     "credit": "was credited in a reel by @{via}",
     "mention": "was tagged or mentioned in a reel by @{via}",
     "sponsored_credit": "was credited in a sponsored reel by @{via}",
