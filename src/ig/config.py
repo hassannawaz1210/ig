@@ -107,7 +107,36 @@ def _rename_edits_schema(db):
             db.execute("UPDATE text_preferences SET value=? WHERE key='selected_feeds'", (json.dumps(selection),))
 
 
-SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema, _rename_edits_schema)
+def _deleted_feeds_schema(db):
+    db.execute('CREATE TABLE IF NOT EXISTS deleted_feeds (id INTEGER PRIMARY KEY, name TEXT NOT NULL, accounts TEXT NOT NULL, deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, restored INTEGER NOT NULL DEFAULT 0)')
+
+
+SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema, _rename_edits_schema, _deleted_feeds_schema)
+
+
+def delete_feed(name):
+    with database() as db:
+        feeds = _read_feeds(db)
+        if name not in feeds:
+            raise KeyError(name)
+        cursor = db.execute('INSERT INTO deleted_feeds(name, accounts) VALUES (?, ?)',
+                            (name, json.dumps(feeds.pop(name))))
+        deletion_id = cursor.lastrowid
+        _write_feeds(db, feeds)
+        return deletion_id
+
+
+def restore_feed(deletion_id):
+    with database() as db:
+        row = db.execute('SELECT name, accounts FROM deleted_feeds WHERE id=? AND restored=0', (deletion_id,)).fetchone()
+        if row is None:
+            raise KeyError(deletion_id)
+        name, accounts = row
+        feeds = _read_feeds(db)
+        feeds[name] = list(dict.fromkeys(accounts_from_feed(feeds.get(name)) + json.loads(accounts)))
+        _write_feeds(db, feeds)
+        db.execute('UPDATE deleted_feeds SET restored=1 WHERE id=?', (deletion_id,))
+        return name
 
 
 @contextmanager

@@ -42,9 +42,9 @@ class AddFeedTests(ProjectTests):
 
 
 class ManageFeedTests(ProjectTests):
-    def request_feed(self, body):
+    def request_feed(self, body, path='/feeds'):
         handler = Handler.__new__(Handler)
-        handler.path = '/feeds'
+        handler.path = path
         data = json.dumps(body).encode()
         handler.headers = {'Content-Length': str(len(data))}
         handler.rfile = io.BytesIO(data)
@@ -89,3 +89,32 @@ class ManageFeedTests(ProjectTests):
         with patch.object(handler, '_send') as send:
             handler.do_GET()
         self.assertEqual(json.loads(send.call_args.args[1]), [])
+
+
+    def test_delete_and_undo_only_change_the_requested_feed(self):
+        config.save_feeds({'edits':['first','shared'], 'memes':['shared']})
+        config.set_selected_feeds(['edits'])
+        config.set_blocked('blocked', True)
+        status, result = self.request_feed({'name':'edits'}, '/feeds/delete')
+        self.assertEqual(status, 200)
+        self.assertEqual(config.load_feeds(), {'memes':['shared']})
+        self.assertEqual(config.selected_feeds(), [])
+        self.assertEqual(config.blocked_accounts(), {'blocked'})
+        status, restored = self.request_feed({'deletion_id':result['deletion_id']}, '/feeds/restore')
+        self.assertEqual(status, 200)
+        self.assertEqual(config.load_feeds()['edits'], ['first','shared'])
+        self.assertEqual(config.selected_feeds(), ['edits'])
+        self.assertEqual(self.request_feed({'deletion_id':result['deletion_id']}, '/feeds/restore')[0], 404)
+
+    def test_restore_merges_if_feed_was_recreated(self):
+        config.save_feeds({'edits':['old','shared']})
+        deletion = config.delete_feed('edits')
+        config.save_feeds({'edits':['new','shared']})
+        config.restore_feed(deletion)
+        self.assertEqual(config.load_feeds()['edits'], ['new','shared','old'])
+
+    def test_invalid_delete_does_not_change_data(self):
+        config.save_feeds({'keep':['creator']})
+        for name, status in [('missing',404), ('bad/name',400), (None,400)]:
+            self.assertEqual(self.request_feed({'name':name}, '/feeds/delete')[0], status)
+        self.assertEqual(config.load_feeds(), {'keep':['creator']})

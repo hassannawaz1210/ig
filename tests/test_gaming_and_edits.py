@@ -38,7 +38,7 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
     def test_fresh_database_starts_empty(self):
         feeds = config.load_feeds()
         self.assertEqual(feeds, {})
-        self.assertEqual(self.version(), 4)
+        self.assertEqual(self.version(), len(config.SETTINGS_MIGRATIONS))
 
     def test_legacy_upgrade_does_not_add_feeds(self):
         self.make_version_2({'movie_edits': USER_MOVIE_EDITS, 'saved': ['houseofgaming'], 'memes': ['memes']})
@@ -67,7 +67,7 @@ class EditsAndGamingMigrationTests(unittest.TestCase):
             feeds['edits'].append('netflix')  # Re-added on purpose after upgrading.
             del feeds['gaming']
         self.assertEqual(config.load_feeds(), {'edits': first['edits'] + ['netflix']})
-        self.assertEqual(self.version(), 4)
+        self.assertEqual(self.version(), len(config.SETTINGS_MIGRATIONS))
 
     def test_rename_merges_memberships_and_preserves_selection(self):
         self.make_version_2({'movie_edits':['film','shared'],'edits':['cars','shared']})

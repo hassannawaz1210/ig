@@ -43,6 +43,8 @@ def fake_posts(count: int, start: int = 0) -> list[dict]:
 class FakeReelsServer(BaseHTTPRequestHandler):
     """The reels page and its static files, with stub JSON endpoints."""
     batches = 0
+    selected = None
+    deleted = None
     feed_names = ['memes', 'saved', 'gym', 'programming', 'electronics', 'edits', 'gaming', 'islam']
 
     def log_message(self, *args):
@@ -56,6 +58,11 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/preferences':
+            selection = self.selected
+            if selection is not None:
+                selection = [n for n in selection if n in self.feed_names]
+            return self.reply(200, json.dumps({'feeds':self.feed_names,'selected_feeds':selection}).encode(), 'application/json')
         if self.path == '/feeds':
             return self.reply(200, json.dumps(self.feed_names).encode(), 'application/json')
         if self.path.startswith('/static/'):
@@ -80,6 +87,15 @@ class FakeReelsServer(BaseHTTPRequestHandler):
             data = {'posts': fake_posts(12, 12 * FakeReelsServer.batches), 'has_more': True}
         elif self.path == '/preferences':
             data = json.loads(body)
+            FakeReelsServer.selected = data['selected_feeds']
+        elif self.path == '/feeds/delete':
+            name = json.loads(body)['name']
+            self.feed_names.remove(name)
+            FakeReelsServer.deleted = name
+            data = {'name':name, 'deleted':True, 'deletion_id':1}
+        elif self.path == '/feeds/restore':
+            self.feed_names.append(self.deleted)
+            data = {'name':self.deleted,'restored':True}
         elif self.path == '/feeds':
             request = json.loads(body)
             name = request['name'].lower().replace(' ', '_')

@@ -116,6 +116,9 @@ document.addEventListener('keydown', event => {
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 :
       (at + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length;
     choices[next]?.focus();
+  } else if (at >= 0 && event.key === 'Delete' && choices[at].dataset.feed) {
+    event.preventDefault();
+    if (!event.repeat) deleteFeed(choices[at].dataset.feed);
   } else if (at >= 0 && [' ', 'Enter'].includes(event.key)) {
     event.preventDefault();
     if (event.repeat) return;
@@ -150,27 +153,76 @@ document.querySelectorAll('.feed-choice').forEach(button => {
   button.addEventListener('click', () => chooseFeedSelection(button.dataset.all ? null : button.dataset.feed));
 });
 renderFeedSelection();
-window.addEventListener('ig-feeds-changed', async event => {
-  try {
-    const response = await fetch('/feeds');
-    if (!response.ok) throw new Error('Could not refresh feeds');
-    boot.feeds = await response.json();
-    const container = document.getElementById('feed-choices');
-    for (const name of boot.feeds) {
-      if ([...container.querySelectorAll('[data-feed]')].some(b => b.dataset.feed === name)) continue;
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'feed-choice'; button.dataset.feed = name;
-      button.innerHTML = icon('check') + '<span>' + esc(name.replaceAll('_', ' ')) + '</span>';
-      button.onclick = () => chooseFeedSelection(name);
-      container.append(button);
-    }
-    renderFeedSelection();
-    actionStatus(event.detail.created ? 'Created ' + event.detail.name.replaceAll('_', ' ') : 'Accounts added');
-    selectionVersion += 1;
-    fetching = false; // Ignore batches requested before the membership change.
-    retryLoading();
-  } catch (error) { actionStatus('Saved · refresh to update the feed list'); }
+document.querySelectorAll('.feed-delete').forEach(button => {
+  button.onclick = () => deleteFeed(button.dataset.feed);
 });
+async function refreshFeedList(detail) {
+  const response = await fetch('/preferences');
+  if (!response.ok) throw new Error('Could not refresh feeds');
+  const data = await response.json();
+  boot.feeds = data.feeds;
+  const container = document.getElementById('feed-choices');
+  for (const button of container.querySelectorAll('.feed-choice[data-feed]')) {
+    if (!boot.feeds.includes(button.dataset.feed)) (button.closest('.feed-row') || button).remove();
+  }
+  for (const name of boot.feeds) {
+    if ([...container.querySelectorAll('.feed-choice[data-feed]')].some(b => b.dataset.feed === name)) continue;
+    const row = document.createElement('div'); row.className = 'feed-row';
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'feed-choice'; button.dataset.feed = name;
+    button.innerHTML = icon('check') + '<span>' + esc(name.replaceAll('_', ' ')) + '</span>';
+    button.onclick = () => chooseFeedSelection(name);
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'feed-delete';
+    remove.setAttribute('aria-label', 'Delete ' + name + ' feed');
+    remove.title = 'Delete feed'; remove.innerHTML = icon('trash');
+    remove.onclick = () => deleteFeed(name);
+    row.append(button, remove); container.append(row);
+  }
+  if (detail.deleted || detail.restored) {
+    clearTimeout(selectionTimer); selectionTimer = null;
+    selectedFeeds = data.selected_feeds;
+    chosenFeeds = copyFeeds(selectedFeeds);
+    document.querySelector('#feed-menu summary').focus();
+    feedsChanged();
+  } else {
+    actionStatus(detail.created ? 'Created ' + detail.name.replaceAll('_', ' ') : 'Accounts added');
+    selectionVersion += 1;
+    fetching = false;
+    retryLoading();
+  }
+  renderFeedSelection();
+}
+window.addEventListener('ig-feeds-changed', event => {
+  refreshFeedList(event.detail).catch(() => actionStatus('Saved · refresh to update the feed list'));
+});
+let deletingFeed = false;
+async function deleteFeed(name) {
+  if (deletingFeed || savingFeeds) return;
+  deletingFeed = true;
+  try {
+    const response = await fetch('/feeds/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not delete feed');
+    try { await refreshFeedList(data); } catch (_) { /* Undo must remain available if refreshing fails. */ }
+    actionStatus('Deleted ' + name.replaceAll('_', ' '));
+    const undo = document.createElement('button');
+    undo.textContent = 'Undo'; undo.type = 'button';
+    undo.onclick = async () => {
+      undo.disabled = true;
+      try {
+        const response = await fetch('/feeds/restore', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({deletion_id:data.deletion_id})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not restore feed');
+        await refreshFeedList(result);
+        actionStatus('Restored ' + name.replaceAll('_', ' '));
+      } catch (error) { undo.disabled = false; undo.textContent = 'Retry undo'; }
+    };
+    document.getElementById('action-status').append(undo);
+  } catch (error) { actionStatus(error.message); }
+  finally { deletingFeed = false; }
+}
 async function saveFeedSelection() {
   selectionTimer = null;
   // One save at a time; the running save checks for newer taps when it ends.

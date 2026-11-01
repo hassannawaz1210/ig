@@ -69,6 +69,7 @@ const KEYS = {
   Space: {key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' '},
   Enter: {key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13},
   Escape: {key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27},
+  Delete: {key: 'Delete', code: 'Delete', windowsVirtualKeyCode:46},
   End: {key: 'End', code: 'End', windowsVirtualKeyCode: 35},
   '+': {key: '+', code: 'Equal', windowsVirtualKeyCode: 187, text: '+'},
   a: {key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, text: 'a'},
@@ -268,6 +269,17 @@ const KEYS = {
     assert.equal(await evaluate(`document.querySelector('#feed-picker textarea').value`),
       await evaluate(`'@' + posts[current].owner`), 'A pre-fills the current account');
     await submitFeed();
+    await key(',');
+    await key('End');
+    assert.equal(await evaluate('document.activeElement.dataset.feed'), 'my_feed');
+    await key('Delete');
+    await sleep(200);
+    assert.equal(await evaluate(`document.querySelector('.feed-choice[data-feed="my_feed"]')`), null);
+    assert.ok(await evaluate(`!!document.querySelector('#action-status button')`), 'delete offers Undo without a modal');
+    await evaluate(`document.querySelector('#action-status button').click()`);
+    await sleep(200);
+    assert.ok(await evaluate(`!!document.querySelector('.feed-choice[data-feed="my_feed"]')`), 'Undo restores the feed');
+    assert.deepEqual(await evaluate('selectedFeeds'), ['islam'], 'deleting another feed preserves selection');
     await evaluate('boot.feeds = []; updateFeedStatus()');
     assert.equal(await evaluate(`document.getElementById('feed-create').hidden`), false, 'new users see Create feed');
     console.log('Reel navigation, feed selection, creation and account entry passed');

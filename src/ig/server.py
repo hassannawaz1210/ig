@@ -1,4 +1,4 @@
-from . import recommendations
+from . import recommendations, config
 from .media import fetch_video
 import json
 import logging
@@ -447,6 +447,31 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 log.exception("Could not save the blocklist")
                 return self._send(500, b"could not save blocklist", "text/plain")
+        if self.path in ("/feeds/delete", "/feeds/restore"):
+            try:
+                length = int(self.headers.get('Content-Length') or 0)
+                if not 0 < length <= 1024:
+                    raise ValueError('Invalid request size')
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    raise ValueError('Invalid request')
+                if self.path == '/feeds/delete':
+                    name = body.get('name')
+                    if not isinstance(name, str) or not FEED_RE.fullmatch(name):
+                        raise ValueError('Invalid feed')
+                    result = {'name':name, 'deleted':True, 'deletion_id':config.delete_feed(name)}
+                else:
+                    deletion_id = body.get('deletion_id')
+                    if type(deletion_id) is not int:
+                        raise ValueError('Invalid deletion')
+                    result = {'name':config.restore_feed(deletion_id), 'restored':True}
+                return self._send(200, json.dumps(result).encode(), 'application/json')
+            except KeyError:
+                return self._send(404, b'{"error":"Feed not found"}', 'application/json')
+            except (ValueError, TypeError) as error:
+                return self._send(400, json.dumps({'error':str(error)}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context='Changing a feed')
         if self.path == "/feeds":
             try:
                 length = int(self.headers.get("Content-Length") or 0)

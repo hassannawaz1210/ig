@@ -70,8 +70,10 @@ def reels_html() -> str:
     """The reels page shell. The page fetches its reels after it loads."""
     check = icon("check")
     choices = "".join(
-        f'<button type="button" class="feed-choice" data-feed="{escape(name, quote=True)}" '
+        f'<div class="feed-row"><button type="button" class="feed-choice" data-feed="{escape(name, quote=True)}" '
         f'aria-pressed="false">{check}<span>{escape(name.replace("_", " "))}</span></button>'
+        f'<button type="button" class="feed-delete" data-feed="{escape(name, quote=True)}" '
+        f'aria-label="Delete {escape(name, quote=True)} feed" title="Delete feed">{icon("trash")}</button></div>'
         for name in load_feeds())
     return render("reels.html", feed_choices=choices, boot=_page_data({
         "feeds": list(load_feeds()),

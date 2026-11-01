@@ -33,6 +33,7 @@ function showShortcuts() {
     <dt><kbd>A</kbd></dt><dd>Add current account to a feed (or enter accounts when no reel is loaded)</dd>
     <dt><kbd>Shift+A</kbd></dt><dd>Enter accounts to add</dd>
     <dt><kbd>+</kbd></dt><dd>Create a feed</dd>
+    <dt><kbd>Delete</kbd></dt><dd>Delete highlighted feed in the selector (Undo available)</dd>
     <dt><kbd>R</kbd></dt><dd>Remove account from all feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
     <dt><kbd>C</kbd></dt><dd>Show / hide comments</dd>
@@ -53,14 +54,14 @@ async function chooseFeed(username = '', createNew = false) {
   dialog.id = 'feed-picker';
   dialog.setAttribute('aria-labelledby', 'feed-picker-title');
   dialog.innerHTML = `<style>
-    #feed-picker {color-scheme:dark;box-sizing:border-box;width:360px;max-width:calc(100vw - 24px);
-      padding:20px;border:1px solid #393939;border-radius:6px;background:#181818;color:#eee;font:13px/1.5 system-ui;}
+    #feed-picker {color-scheme:dark;box-sizing:border-box;width:320px;max-width:calc(100vw - 24px);
+      padding:14px;border:1px solid #393939;border-radius:6px;background:#181818;color:#eee;font:13px/1.5 system-ui;}
     #feed-picker::backdrop {background:#0009;}
-    #feed-picker h2 {font-size:16px;font-weight:600;margin:0 0 18px;}
-    #feed-picker label {display:block;margin-top:14px;color:#ccc;}
+    #feed-picker h2 {font-size:16px;font-weight:600;margin:0 0 10px;}
+    #feed-picker label {display:block;margin-top:10px;color:#ccc;}
     #feed-picker input,#feed-picker select,#feed-picker textarea {box-sizing:border-box;display:block;width:100%;
       margin-top:5px;padding:9px;background:#111;border:1px solid #444;border-radius:3px;color:#eee;font:inherit;}
-    #feed-picker textarea {resize:vertical;min-height:74px;}
+    #feed-picker textarea {resize:vertical;min-height:48px;}
     #feed-picker [hidden] {display:none;}
     #feed-picker .fp-note {color:#999;font-size:11px;margin:6px 0;}
     #feed-picker .fp-actions {display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:18px;}
@@ -68,15 +69,15 @@ async function chooseFeed(username = '', createNew = false) {
     #feed-picker button[type=submit] {background:#eee;color:#111;border-color:#eee;}
     #feed-picker :focus-visible {outline:2px solid #bbb;outline-offset:2px;}
     #feed-picker button:disabled {opacity:.5;cursor:wait;}
-    #feed-picker .fp-status {color:#ddd;min-height:18px;margin:10px 0 0;}
+    #feed-picker .fp-status {color:#ddd;margin:10px 0 0;}
+    #feed-picker .fp-status:empty {display:none;}
   </style><form>
     <h2 id="feed-picker-title">Add accounts</h2>
     <label>Feed<select name="destination" aria-label="Feed" disabled></select></label>
-    <label class="fp-new" hidden>New feed name<input name="feedname" maxlength="20" placeholder="e.g. photography" autocomplete="off"></label>
-    <label>Instagram accounts<textarea name="accounts" rows="3" placeholder="@username or Instagram profile links"></textarea></label>
-    <p class="fp-note">Separate accounts with spaces, commas or new lines.</p>
+    <label class="fp-new" hidden>Name<input name="feedname" maxlength="20" placeholder="Feed name" autocomplete="off"></label>
+    <label>Instagram accounts<textarea name="accounts" rows="2" placeholder="@username or Instagram profile links"></textarea></label>
     <p class="fp-status" role="status">Loading feeds…</p>
-    <div class="fp-actions"><span class="fp-note">Ctrl+Enter to save</span><button type="button">Cancel</button><button type="submit" disabled>Add accounts</button></div>
+    <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Add accounts</button></div>
   </form>`;
   const form = dialog.querySelector('form');
   const select = form.elements.destination;
@@ -91,8 +92,9 @@ async function chooseFeed(username = '', createNew = false) {
     dialog.querySelector('.fp-new').hidden = !creating;
     name.required = creating;
     accounts.required = !creating;
-    dialog.querySelector('h2').textContent = creating ? 'Create feed' : 'Add accounts';
-    submit.textContent = creating ? 'Create feed' : 'Add accounts';
+    select.closest('label').hidden = createNew;
+    dialog.querySelector('h2').textContent = creating ? 'New feed' : 'Add accounts';
+    submit.textContent = creating ? 'Create' : 'Add';
   }
   select.onchange = () => { mode(); if (!select.value) name.focus(); };
   const result = new Promise(resolve => {
