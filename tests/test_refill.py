@@ -25,8 +25,8 @@ class BackgroundRefillTests(TempDirs):
             return states[name], True
         self.addCleanup(release.set)
         with patch('ig.feeds.REFILL',self.refill), patch('ig.feeds.STATE',states), \
-             patch.object(feeds.PROFILES,'cached',return_value=None), \
-             patch.object(feeds.PROFILES,'load',side_effect=load) as network:
+             patch.object(feeds.REELS,'cached',return_value=None), \
+             patch.object(feeds.REELS,'load',side_effect=load) as network:
             pool=feeds.make_pool(['cold'])
             result=feeds.pool_more(pool)
             self.assertTrue(entered.wait(1))
@@ -51,7 +51,7 @@ class BackgroundRefillTests(TempDirs):
 
     def test_pagination_starts_before_the_last_clips_are_delivered(self):
         state={'posts':[{'shortcode':str(i),'is_video':True} for i in range(10)],'has_more':True}
-        with patch('ig.refill.more_posts',return_value={}) as paging:
+        with patch('ig.refill.more_reels',return_value={}) as paging:
             self.refill.schedule({'served':set()}, ['creator'], {'creator'}, states={'creator':state})
             for future,_ in self.refill.pending.values(): future.result(timeout=2)
         paging.assert_called_once_with('creator')
@@ -59,9 +59,9 @@ class BackgroundRefillTests(TempDirs):
     def test_discovery_does_not_delay_replenishing_saved_sources(self):
         state = {'posts': [{'shortcode': str(i), 'is_video': True} for i in range(10)],
                  'has_more': True}
-        with patch('ig.refill.PROFILES.cached', return_value=None), \
-             patch('ig.refill.PROFILES.load', return_value=({}, False)), \
-             patch('ig.refill.more_posts', return_value={}) as paging:
+        with patch('ig.refill.REELS.cached', return_value=None), \
+             patch('ig.refill.REELS.load', return_value=({}, False)), \
+             patch('ig.refill.more_reels', return_value={}) as paging:
             self.refill.schedule({'served': set()}, ['trial1', 'trial2', 'saved'], {'saved'},
                                  states={'saved': state})
             for future, _ in self.refill.pending.values():
@@ -72,6 +72,6 @@ class BackgroundRefillTests(TempDirs):
     def test_full_source_does_not_fetch_unneeded_pages(self):
         state = {'posts': [{'shortcode': str(i), 'is_video': True} for i in range(12)],
                  'has_more': True}
-        with patch('ig.refill.more_posts') as paging:
+        with patch('ig.refill.more_reels') as paging:
             self.refill.schedule({'served': set()}, ['saved'], {'saved'}, states={'saved': state})
         paging.assert_not_called()

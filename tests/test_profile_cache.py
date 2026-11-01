@@ -190,7 +190,7 @@ class BatchFailureTests(TempDirs):
 
         def load(username):
             raise error
-        with patch('ig.feeds.STATE', states), patch.object(feeds.PROFILES, 'load', side_effect=load), \
+        with patch('ig.feeds.STATE', states), patch.object(feeds.REELS, 'load', side_effect=load), \
                 patch('ig.feeds.random.random', return_value=1):
             return feeds._pool_more(pool)
 
@@ -246,7 +246,7 @@ class RequestBudgetTests(TempDirs):
         pool = feeds.make_pool(saved)
         feeds.discover_into(pool, leads)
         # 0.1 makes every pick prefer a new creator, the worst case for saved accounts.
-        with patch('ig.feeds.STATE', {}), patch.object(feeds.PROFILES, 'load', side_effect=load), \
+        with patch('ig.feeds.STATE', {}), patch.object(feeds.REELS, 'load', side_effect=load), \
                 patch('ig.feeds.random.random', return_value=0.1):
             result = feeds._pool_more(pool)
         strangers = [name for name in loaded if name.startswith('stranger')]
@@ -265,7 +265,7 @@ class FailedLoadBudgetTests(TempDirs):
         def load(username):
             tries.append(username)
             raise UnexpectedResponse('no posts')
-        with patch('ig.feeds.STATE', {}), patch.object(feeds.PROFILES, 'load', side_effect=load), \
+        with patch('ig.feeds.STATE', {}), patch.object(feeds.REELS, 'load', side_effect=load), \
                 self.assertLogs('ig.feeds', 'INFO'):
             feeds._pool_more(feeds.make_pool(names))
         self.assertEqual(len(tries), feeds.REQUESTS_PER_BATCH)
@@ -276,7 +276,7 @@ class FastBatchTests(TempDirs):
         config.save_feeds({'memes':['ready','cold']})
         states={'ready':{'posts':[{'shortcode':'ready01','owner':'ready','is_video':True}],
                          'has_more':False, 'fetched_at':0}}
-        with patch('ig.feeds.STATE',states), patch.object(feeds.PROFILES,'load',side_effect=AssertionError('network blocks playback')):
+        with patch('ig.feeds.STATE',states), patch.object(feeds.REELS,'load',side_effect=AssertionError('network blocks playback')):
             result=feeds._pool_more(feeds.make_pool(['ready','cold']))
         self.assertEqual([p['owner'] for p in result['posts']],['ready'])
         self.assertTrue(result['has_more'])
@@ -285,7 +285,7 @@ class FastBatchTests(TempDirs):
         config.save_feeds({'memes':['one','two']})
         def load(name):
             return {'posts':[{'shortcode':name+'01','owner':name,'is_video':True}], 'has_more':False}, True
-        with patch('ig.feeds.STATE',{}), patch.object(feeds.PROFILES,'load',side_effect=load) as network:
+        with patch('ig.feeds.STATE',{}), patch.object(feeds.REELS,'load',side_effect=load) as network:
             result=feeds._pool_more(feeds.make_pool(['one','two']))
         self.assertEqual(network.call_count,1)
         self.assertEqual(len(result['posts']),1)

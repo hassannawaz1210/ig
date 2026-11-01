@@ -18,8 +18,9 @@ from . import logs
 from . import instagram
 from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
 from .feeds import MIX, feed_pool, pool_more, feed_accounts
-from .instagram import (load_profile, more_posts, media_info, InstagramError, RateLimited,
+from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError, PROFILES, STATE)
+from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
 from .views import viewer_html, reels_html, static_file
@@ -42,7 +43,7 @@ def saved_reel_details(code: str) -> dict:
     if not isinstance(owner, str) or not USER_RE.fullmatch(owner):
         return {}
     try:
-        state = STATE.get(owner) or PROFILES.cached(owner)
+        state = REELS.cached(owner) or STATE.get(owner) or PROFILES.cached(owner)
     except Exception:
         # The reel can still be saved with the metadata stored for it.
         log.warning("Could not read the cached profile of @%s for saved reel %s", owner, code, exc_info=True)

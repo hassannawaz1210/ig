@@ -4,7 +4,8 @@ import threading
 from . import recommendations, config, history as viewing_history
 from .history import load_history
 from .config import USER_RE, load_feeds, accounts_from_feed, prefer_memes, blocked_accounts
-from .instagram import STATE, PROFILES, more_posts, InstagramError, RateLimited, ProfileUnavailable
+from .instagram import InstagramError, RateLimited, ProfileUnavailable
+from .reels import STATE, REELS, more_reels
 from .reasons import Reason
 from .refill import REFILL
 
@@ -192,7 +193,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             break
         if requests_left <= 0 or trial_requests_left <= 0:
             if cached is None:
-                cached = PROFILES.cache.fresh_usernames()
+                cached = REELS.cache.fresh_usernames()
             loaded = [a for a in candidates if a in STATE or a in cached]
             candidates = loaded if requests_left <= 0 else \
                 loaded + [a for a in candidates if a in saved and a not in STATE and a not in cached]
@@ -234,13 +235,13 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         try:
             state = STATE.get(username)
             if not allow_network and state is None:
-                state = PROFILES.cached(username)
+                state = REELS.cached(username)
                 if state is None:
                     continue
             # Over budget, an older in-memory copy is better than another request.
-            if state is None or (requests_left > 0 and PROFILES.is_stale(state) and not any(
+            if state is None or (requests_left > 0 and REELS.is_stale(state) and not any(
                     p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])):
-                state, used_network = PROFILES.load(username)
+                state, used_network = REELS.load(username)
                 if used_network:
                     requests_left, trial_requests_left = _spend_request(
                         requests_left, trial_requests_left, username in saved)
@@ -284,7 +285,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         if not fresh and state.get('has_more') and requests_left > 0:
             requests_left -= 1
             try:
-                more_posts(username)
+                more_reels(username)
             except RateLimited as error:
                 log.warning("Could not page @%s: %s", username, error)
                 requests_left = 0

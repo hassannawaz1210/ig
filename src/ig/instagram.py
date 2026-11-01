@@ -27,6 +27,12 @@ COMMENTS_DOC_ID = "27261273046856309"
 COMMENTS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWPostCommentsPaginationQuery"
 
 
+REELS_DOC_ID = "27838951732404191"
+
+
+REELS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWProfileReelsTabContentQuery"
+
+
 REQUEST_TIMEOUT = 30          # seconds for one Instagram request
 PAGE_SIZE = 50                # posts per pagination request
 PAGINATION_PAUSE = (1.0, 2.2) # random wait in seconds; stays under the hourly cap
@@ -340,6 +346,89 @@ def post_comments(code: str, first: int = 20, after: str | None = None) -> dict:
     has_more = bool(page_info.get("has_next_page"))
     return {"shortcode": media.get("code") or code, "owner": owner, "comments": comments,
             "next_cursor": page_info.get("end_cursor") if has_more else None,
+            "has_more": has_more}
+
+
+def reels_tab(username: str, first: int = 12, after: str | None = None,
+              *, context: dict | None = None) -> dict:
+    """One page of a profile's reels tab, without login.
+
+    The mixed grid mixes reels with photos, but every profile also exposes a
+    reels-only listing with view counts (play_count) that the grid does not
+    carry. The listing is slim — no captions or timestamps; those arrive with
+    the post payload when a reel is actually loaded."""
+    username = username.lstrip("@").lower()
+    context = context if context is not None else {}
+    if context.get("session") is None:
+        session, html = fetch_profile_page(username)
+        match = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', html)
+        context.update(session=session, lsd=match.group(1) if match else "")
+        for payload in sjs_payloads(html, "xig_user_by_username"):
+            user = nested_find(payload, "xig_user_by_username")
+            if isinstance(user, dict):
+                if user.get("is_private"):
+                    raise ProfileUnavailable(f"@{username} is private")
+                context["biography"] = user.get("biography") or ""
+                break
+    session = context["session"]
+    lsd = context["lsd"]
+    csrf = session.cookies.get("csrftoken", "")
+    variables = json.dumps({"after": after, "first": first, "username": username},
+                           separators=(",", ":"))
+    body = urlencode({
+        "av": "0", "__d": "www", "__user": "0", "__a": "1",
+        "__comet_req": "7", "lsd": lsd,
+        "jazoest": "2" + str(sum(ord(c) for c in lsd)),
+        "fb_api_caller_class": "RelayModern",
+        "fb_api_req_friendly_name": REELS_FRIENDLY_NAME,
+        "server_timestamps": "true", "variables": variables,
+        "doc_id": REELS_DOC_ID,
+    })
+    r = request(session, "POST", "https://www.instagram.com/api/graphql", data=body,
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-fb-friendly-name": REELS_FRIENDLY_NAME,
+                    "x-fb-lsd": lsd, "x-csrftoken": csrf,
+                    "x-ig-app-id": WEB_APP_ID, "x-asbd-id": ASBD_ID,
+                    "origin": "https://www.instagram.com",
+                    "referer": f"https://www.instagram.com/{username}/reels/",
+                })
+    try:
+        payload = r.json()
+    except ValueError:
+        BACKOFF.hit()
+        raise RateLimited("Instagram blocked loading the reels tab; wait a few minutes") from None
+    if not isinstance(payload, dict):
+        raise UnexpectedResponse("Instagram sent an invalid reels listing")
+    if payload.get("require_login") or payload.get("status") == "fail":
+        BACKOFF.hit()
+        raise RateLimited("Instagram is limiting logged-out browsing; wait a few minutes")
+    if payload.get("errors"):
+        raise UnexpectedResponse("Instagram would not load the reels tab; "
+                                 "the query id may need refreshing")
+    user = ((payload.get("data") or {}).get("xig_user_by_username") or {})
+    if user.get("is_private"):
+        raise ProfileUnavailable(f"@{username} is private")
+    connection = (user.get("user") or user).get("polaris_clips_connection")
+    if connection is None:
+        raise UnexpectedResponse(f"Instagram sent no reels tab for @{username}")
+    reels = []
+    for edge in connection.get("edges") or []:
+        node = edge.get("node") or {}
+        if not node.get("code"):
+            continue
+        reels.append({
+            "shortcode": node["code"],
+            "url": f"https://www.instagram.com/reel/{node['code']}/",
+            "like_count": node.get("like_count"),
+            "comment_count": node.get("comment_count"),
+            "play_count": node.get("play_count"),
+            "image": node.get("display_uri"),
+        })
+    page_info = connection.get("page_info") or {}
+    has_more = bool(page_info.get("has_next_page"))
+    return {"username": user.get("username") or username, "reels": reels,
+            "cursor": page_info.get("end_cursor") if has_more else None,
             "has_more": has_more}
 
 

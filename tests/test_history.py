@@ -55,7 +55,7 @@ class HistoryTests(unittest.TestCase):
             return {'posts': state['posts'][-1:]}
         with patch('ig.feeds.STATE', {'a': state}), \
              patch('ig.feeds.load_feeds', return_value={'memes': ['a']}), \
-             patch('ig.refill.more_posts', side_effect=next_page):
+             patch('ig.refill.more_reels', side_effect=next_page):
             pool = feeds.make_pool(['a'])
             result = feeds.pool_more(pool)
             for future, _ in list(feeds.REFILL.pending.values()):
