@@ -145,6 +145,40 @@ const KEYS = {
     for (let n = 0; n < 12; n++) { await wheel(8); await sleep(16); }
     await expectReel(6, 'one trackpad swipe moves one reel');
 
+    // Real touch input in a phone viewport, including a pause longer than the
+    // desktop scroll-burst timeout and a fast fling with native momentum.
+    await send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:5});
+    const touch = (type, points) => send('Input.dispatchTouchEvent', {type,
+      touchPoints:points.map(([x,y,id=1]) => ({x,y,id}))});
+    const swipe = async (from, to, pause=0) => {
+      await touch('touchStart', [[180,from]]);
+      await touch('touchMove', [[180,(from+to)/2]]);
+      if (pause) await sleep(pause);
+      await touch('touchMove', [[180,to]]);
+      await touch('touchEnd', []);
+    };
+    await sleep(250);
+    await swipe(740,100); await expectReel(7, 'a phone fling moves one reel');
+    await sleep(600); await expectReel(7, 'momentum cannot advance another reel');
+    await swipe(740,100,350); await expectReel(8, 'a paused phone swipe moves one reel');
+    await swipe(100,740); await expectReel(7, 'a downward swipe goes back one reel');
+    await swipe(440,420); await expectReel(7, 'a small touch movement does not navigate');
+    await touch('touchStart', [[180,740]]);
+    await touch('touchMove', [[180,100]]);
+    await touch('touchCancel', []);
+    await expectReel(7, 'a cancelled swipe does not navigate');
+    await swipe(740,100); await swipe(740,100);
+    await expectReel(9, 'two distinct quick phone swipes move two reels');
+    await touch('touchStart', [[100,440]]);
+    await touch('touchMove', [[280,440]]);
+    await touch('touchEnd', []);
+    await expectReel(9, 'a horizontal gesture does not advance the feed');
+    await send('Emulation.setTouchEmulationEnabled', {enabled:false});
+    await send('Emulation.clearDeviceMetricsOverride');
+    await evaluate('showSlide(6)');
+    await expectReel(6, 'desktop navigation resumes after touch');
+
     // The feed selector stays open while choosing multiple feeds. Resuming
     // J/K navigation must dismiss it instead of silently swallowing the key.
     await evaluate(`document.querySelector('#feed-menu summary').click();

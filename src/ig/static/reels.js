@@ -1216,8 +1216,8 @@ feed.addEventListener('wheel', e => {
   if (now - lastWheel > SCROLL_BURST_GAP_MS) goRel(Math.sign(e.deltaY));
   lastWheel = now;
 }, {passive:false});
-// Other scrolling we did not start (touch, or a keyboard-scrolling extension
-// such as Vimium, which handles j/k before this page sees them) can also arrive
+// Other scrolling we did not start (such as a keyboard-scrolling extension
+// like Vimium, which handles j/k before this page sees them) can also arrive
 // as a burst of small steps, and snapping turns each step into a whole reel.
 // Let each burst move at most one reel from where it started.
 let scrollBurst = null; // {to, step, last}
@@ -1258,8 +1258,43 @@ function noteScroll() {
   if (!burstFrame) burstFrame = requestAnimationFrame(watchScrollBurst);
 }
 feed.addEventListener('scroll', noteScroll, {passive:true});
-// Each new swipe may move one more reel, even while the last one is settling.
-feed.addEventListener('touchstart', () => { scrollBurst = null; }, {passive:true});
+// Touch gestures have explicit start/end boundaries. Do not infer a new swipe
+// from pauses between scroll events: slow dragging and momentum can both pause.
+// Cancel native vertical panning and commit one move when the finger lifts.
+let reelTouch = null;
+feed.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1 || scrollsItself(e.target)) { reelTouch = null; return; }
+  const t = e.touches[0];
+  reelTouch = {id:t.identifier, x:t.clientX, y:t.clientY, dx:0, dy:0, vertical:false};
+}, {passive:true});
+feed.addEventListener('touchmove', e => {
+  if (!reelTouch) return;
+  if (e.touches.length !== 1) { reelTouch = null; return; }
+  const t = [...e.touches].find(t => t.identifier === reelTouch.id);
+  if (!t) { reelTouch = null; return; }
+  reelTouch.dx = t.clientX - reelTouch.x;
+  reelTouch.dy = t.clientY - reelTouch.y;
+  if (!reelTouch.vertical && Math.abs(reelTouch.dx) > Math.abs(reelTouch.dy)) {
+    if (Math.abs(reelTouch.dx) > 10) reelTouch = null;
+    return;
+  }
+  if (e.cancelable) {
+    e.preventDefault();
+    reelTouch.vertical = true;
+  } else {
+    reelTouch = null; // The browser already owns this gesture; don't also navigate.
+  }
+}, {passive:false});
+feed.addEventListener('touchend', e => {
+  const gesture = reelTouch;
+  reelTouch = null;
+  if (!gesture || e.touches.length || !gesture.vertical) return;
+  const t = [...e.changedTouches].find(t => t.identifier === gesture.id);
+  if (!t) return;
+  const distance = gesture.y - t.clientY;
+  if (Math.abs(distance) >= 48) goRel(Math.sign(distance));
+}, {passive:true});
+feed.addEventListener('touchcancel', () => { reelTouch = null; }, {passive:true});
 updateFeedStatus();
 more();
 
