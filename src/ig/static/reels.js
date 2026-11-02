@@ -58,7 +58,7 @@ let blockedAccounts = new Set(boot.blocked);
 let sessionBlocked = new Set();
 try { sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); } catch (_) {}
 // A dropped reel was queued for an earlier feed choice and removed from the page.
-function isHidden(p) { return p && (p._dropped || p.feedback === 'dislike' || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }
+function isHidden(p) { return p && (p._dropped || (p.feedback === 'dislike' && p.shortcode !== boot.post_code) || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }
 function visibleIndices() { return posts.map((p,i) => isHidden(p) ? -1 : i).filter(i => i >= 0); }
 function actionStatus(message) { document.getElementById('action-status').textContent = message; }
 
@@ -310,6 +310,7 @@ async function saveFeedSelection() {
 // Keep the current reel and earlier ones, and replace what was queued after
 // it with a batch for the new selection. Nothing reloads.
 function feedsChanged() {
+  if (boot.post_code) { window.location.href = '/'; return; }
   selectionVersion += 1;
   emptySince = null;
   lastNavigation = null;
@@ -359,18 +360,18 @@ function updateFeedStatus() {
   let state = 'loading', text = 'Loading reels…';
   if (loadFailures >= FAILURES_BEFORE_ERROR) {
     state = 'error';
-    text = `Couldn’t load reels: ${loadError} · retrying`;
+    text = boot.post_code ? `Couldn’t open reel: ${loadError}` : `Couldn’t load reels: ${loadError} · retrying`;
   } else if (exhausted && !queued) {
     state = 'empty';
-    text = 'No reels available right now';
+    text = boot.post_code ? 'This creator is blocked' : 'No reels available right now';
   }
-  box.hidden = mode === null;
+  box.hidden = mode === null || Boolean(boot.post_code && visible.length > 0);
   box.dataset.mode = mode || 'overlay';
   box.dataset.state = state;
   document.getElementById('feed-status-text').textContent = text;
   document.getElementById('feed-retry').hidden = state === 'loading';
-  const empty = Array.isArray(boot.feeds) && boot.feeds.length === 0;
-  const needsAccounts = Array.isArray(boot.feeds) && boot.feeds.length > 0 && feeded.size === 0;
+  const empty = !boot.post_code && Array.isArray(boot.feeds) && boot.feeds.length === 0;
+  const needsAccounts = !boot.post_code && Array.isArray(boot.feeds) && boot.feeds.length > 0 && feeded.size === 0;
   document.getElementById('feed-create').hidden = !empty;
   document.getElementById('feed-add').hidden = !needsAccounts;
   if (empty) {
@@ -448,7 +449,7 @@ function append(chunk) {
   const heldTokens = new Set(posts.filter(p => !p._dropped).map(p => p.reservation));
   const released = [];
   chunk = chunk.filter(p => {
-    if (isHidden(p) || existing.has(p.shortcode) || shownCodes.has(p.shortcode)) {
+    if (isHidden(p) || existing.has(p.shortcode) || (shownCodes.has(p.shortcode) && p.shortcode !== boot.post_code)) {
       if (p.reservation && !heldTokens.has(p.reservation)) released.push(p.reservation);
       return false;
     }
@@ -626,8 +627,30 @@ function retryMore(delay = RETRY_DELAY_MS) {
     retryTimer = null; if (current < 0) more(); else maybeMore();
   }, delay);
 }
+async function loadDirectReel() {
+  fetching = true;
+  updateFeedStatus();
+  try {
+    const response = await fetch('/reels/media', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({code:boot.post_code}),
+      signal:AbortSignal.timeout(45000)});
+    const data = await response.json();
+    if (!response.ok || data.error || !data.video) throw new Error(data.error || 'No playable video in this post');
+    exhausted = true;
+    loadFailures = 0;
+    append([{...data, shortcode:boot.post_code, _rich:true,
+      image:data.poster, url:'https://www.instagram.com/reel/' + boot.post_code + '/'}]);
+  } catch (error) {
+    loadFailures = FAILURES_BEFORE_ERROR;
+    loadError = error.message || 'Could not load this reel';
+  } finally {
+    fetching = false;
+    updateFeedStatus();
+  }
+}
 async function more() {
   if (fetching || exhausted) return;
+  if (boot.post_code) return loadDirectReel();
   fetching = true;
   const version = selectionVersion;
   const accountVersion = accountChangeVersion;

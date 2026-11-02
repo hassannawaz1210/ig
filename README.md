@@ -37,6 +37,14 @@ py -3 -m venv .venv
 `ig` starts the server and opens your browser. If it doesn't open, use the URL
 printed in the terminal. Run `ig stop` when you're done.
 
+To open a reel someone shared with you:
+
+```sh
+ig watch 'https://www.instagram.com/reel/DfNNjp-xLDt/'
+```
+
+You can also choose **Open reel link** in the feed menu and paste a link.
+
 ## Make it yours
 
 Start with **Create feed** and add some Instagram handles or profile links.

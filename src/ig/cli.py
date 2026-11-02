@@ -6,6 +6,7 @@ from .config import FEED_RE, USER_RE, load_feeds, edit_feeds, accounts_from_feed
 from .feeds import MIX, POOLS
 from .instagram import profile, post, feed, InstagramError
 from .server import open_user, serve, stop_server
+from .links import post_code
 
 HELP = """ig — browse Instagram logged out
 
@@ -19,6 +20,7 @@ HELP = """ig — browse Instagram logged out
   ig add <feed> <acc...>    create or extend a feed
   ig rm <feed> [acc...]     remove accounts or a feed
   ig profile <username>    profile JSON
+  ig watch <url|shortcode>  open a reel in the player
   ig post <shortcode|url>   post JSON
   ig comments <code|url>    top comments of a post
   ig feed <username>       full archive JSON (may be slow)
@@ -48,12 +50,14 @@ def main(args=None):
     if args and args[0] in ("-h", "--help", "help"):
         print(HELP)
         return 0
-    commands = {"profile", "post", "comments", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs", "discovery-stats"}
+    if args and args[0].startswith(("https://", "http://")):
+        args.insert(0, "watch")
+    commands = {"watch", "profile", "post", "comments", "feed", "open", "stop", "go", "feeds", "add", "rm", "serve", "blocked", "block", "unblock", "tags", "tag", "saved-reels", "phone", "logs", "discovery-stats"}
     if args and args[0] == "boost":
         raise SystemExit("Feed weighting has been removed.")
     if args and args[0] not in commands:
         args.insert(0, "go")
-    if args and args[0] in {"profile", "post", "comments", "feed", "open", "go", "add", "rm", "block", "unblock", "tag"} and len(args) < 2:
+    if args and args[0] in {"watch", "profile", "post", "comments", "feed", "open", "go", "add", "rm", "block", "unblock", "tag"} and len(args) < 2:
         raise SystemExit(f"missing argument for ig {args[0]} (see ig --help)")
     try:
         return _run(args)
@@ -79,6 +83,12 @@ def _run(args):
     arg = argv[2] if len(argv) > 2 else ""
     if cmd == "":
         open_user("/")
+    elif cmd == "watch" or (cmd == "open" and arg.startswith(("http://", "https://"))):
+        try:
+            code = post_code(arg)
+        except ValueError as error:
+            raise SystemExit(str(error))
+        open_user(f"/reel/{code}")
     elif cmd == "open":
         open_user(arg.lstrip("@").lower())
     elif cmd == "go":

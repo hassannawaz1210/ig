@@ -66,7 +66,7 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                                    "empty_message": empty_message}))
 
 
-def reels_html() -> str:
+def reels_html(code: str | None = None) -> str:
     """The reels page shell. The page fetches its reels after it loads."""
     check = icon("check")
     choices = "".join(
@@ -76,6 +76,7 @@ def reels_html() -> str:
         f'aria-label="Delete {escape(name, quote=True)} feed" title="Delete feed">{icon("trash")}</button></div>'
         for name in load_feeds())
     return render("reels.html", feed_choices=choices, boot=_page_data({
+        "post_code": code,
         "feeds": list(load_feeds()),
         "feed_accounts": sorted(feed_accounts()),
         "blocked": sorted(blocked_accounts()),

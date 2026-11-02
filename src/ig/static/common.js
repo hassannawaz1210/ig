@@ -157,3 +157,19 @@ async function chooseFeed(username = '', createNew = false) {
   } catch (error) { status.textContent = error.message; }
   return result;
 }
+
+function openReelLink() {
+  const value = window.prompt('Instagram reel link or shortcode');
+  if (value === null) return;
+  let code = value.trim();
+  if (!/^[A-Za-z0-9_-]{5,30}$/.test(code)) {
+    try {
+      const url = new URL(code);
+      if (!['http:', 'https:'].includes(url.protocol) ||
+          !['instagram.com','www.instagram.com','m.instagram.com'].includes(url.host) || url.username || url.password) throw Error();
+      code = url.pathname.match(/^\/(?:reel|reels|p)\/([A-Za-z0-9_-]{5,30})\/?$/)?.[1];
+      if (!code) throw Error();
+    } catch (_) { window.alert('Enter an Instagram reel/post link or shortcode'); return; }
+  }
+  window.location.href = '/reel/' + encodeURIComponent(code);
+}

@@ -5,7 +5,7 @@ const source = fs.readFileSync(process.argv[2], 'utf8');
 
 // A fake reels page: just enough DOM for reels.js, with every request recorded.
 // `respond(url, options)` returns the fake fetch result.
-function createPage(respond, {chips = []} = {}) {
+function createPage(respond, {chips = [], boot = {}} = {}) {
   const elements = new Map();
   const calls = [];
   const timers = [];
@@ -13,7 +13,7 @@ function createPage(respond, {chips = []} = {}) {
     if (id === 'feed-picker' || id === 'shortcut-help') return null;
     if (!elements.has(id)) elements.set(id, {
       id,
-      textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null}) : '', style: {}, dataset: {},
+      textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null, ...boot}) : '', style: {}, dataset: {},
       getBoundingClientRect() {return {top:0,bottom:800,height:800};},
       scrollIntoView() {},
       listeners: {}, addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); },
@@ -590,3 +590,22 @@ async function viewingTests() {
   vm.runInContext('refillSeconds=10000',ctx);
   assert.equal(vm.runInContext('refillTarget()',ctx),48,'latency cannot create an unbounded queue');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+// Explicit links work without feeds and do not refill from the mixed feed.
+(async () => {
+  const page = createPage(async url => ({ok:true,json:async()=>({
+    shortcode:'direct1',owner:'creator',video:'https://example.test/video.mp4',caption:'linked reel'
+  })}), {boot:{post_code:'direct1',feeds:[]}});
+  vm.runInContext("shownCodes.add('direct1')",page.ctx);
+  await new Promise(setImmediate);
+  assert.equal(vm.runInContext('posts.length',page.ctx),1,'explicit link bypasses watched exclusion');
+  assert.equal(vm.runInContext('posts[0]._rich',page.ctx),true,'reuse fetched media');
+  assert.equal(page.element('feed-status').hidden,true,'no create-feed or exhausted banner over the linked reel');
+  assert.equal(page.calls.filter(c=>c.url==='/reels/media').length,1,'fetch linked media once');
+  assert.equal(page.calls.filter(c=>c.url==='/reels/more').length,0,'do not fetch mixed feed');
+  const failure = createPage(async()=>({ok:false,json:async()=>({error:'Unavailable'})}),
+    {boot:{post_code:'direct2',feeds:[]}});
+  await new Promise(setImmediate);
+  assert.match(failure.element('feed-status-text').textContent,/Unavailable/);
+  assert.equal(failure.element('feed-retry').hidden,false,'failed link can be retried');
+})().catch(error => {console.error(error);process.exitCode=1;});
