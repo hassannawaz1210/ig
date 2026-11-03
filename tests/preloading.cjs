@@ -43,7 +43,8 @@ function createPage(respond, {chips = [], boot = {}} = {}) {
     setTimeout(fn, ms) {timers.push({run: fn, ms}); return timers.length;},
     clearTimeout(id) { if (id) timers[id - 1].cancelled = true; },
     console: {error() {}, warn() {}, log: console.log},
-    window: {location: {reload() { ctx.didReload = true; }}, addEventListener() {}},
+    window: {location: {reload() { ctx.didReload = true; }}, listeners:{},
+      addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }},
     fetch: async (url, options) => {
       calls.push({url, options});
       return respond(url, options);
@@ -71,6 +72,11 @@ const {ctx, element, calls, timers} = createPage(async url =>
   assert.equal(vm.runInContext('bulkRenders',bulk.ctx),1);
   assert.equal(vm.runInContext('bulkRefills',bulk.ctx),1);
   assert.equal(vm.runInContext('new Set([...accountUpdates.values()].map(v=>v.version)).size',bulk.ctx),1);
+  vm.runInContext(`
+    localStorage={getItem:()=> 'smooth'}; replaceExpiredQueue=()=>{};
+    window.listeners.pageshow.forEach(listener=>listener({persisted:true}));
+  `,bulk.ctx);
+  assert.equal(vm.runInContext('scrollAnimation',bulk.ctx),'smooth','Back from Settings applies saved motion preference');
   // R must also remove discovery creators; a later server block must override
   // an older local add, while in-flight responses cannot undo newer actions.
   let finishBatch;

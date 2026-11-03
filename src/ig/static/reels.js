@@ -884,7 +884,14 @@ function replaceExpiredQueue() {
   more();
 }
 window.addEventListener('pageshow', event => {
-  if (event.persisted) replaceExpiredQueue();
+  if (event.persisted) {
+    // Back from Settings can restore this document without reading fresh boot data.
+    try {
+      const saved = localStorage.getItem('ig-scroll-animation');
+      if (['smooth', 'snappy'].includes(saved)) scrollAnimation = saved;
+    } catch (_) {}
+    replaceExpiredQueue();
+  }
 });
 let hiddenSince = null;
 document.addEventListener('visibilitychange', () => {
