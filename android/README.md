@@ -7,14 +7,22 @@ the app's private files directory; clearing app data or uninstalling deletes the
 The first build targets **64-bit ARM phones, Android 7.0+**. Python 3.13 and the
 official Android `curl-cffi` 0.17.0 wheel preserve the existing logged-out request
 implementation. Upstream currently ships no Android x86_64 wheel, so the same
-APK cannot run on an x86_64 emulator.
+APK needs ARM translation on an x86_64 emulator. CI uses a Google APIs image
+with that support; a plain x86_64 image will not work.
 
 ## Build
 
-Use Android Studio or JDK 17, Android SDK 35, Python 3.13, and Gradle 8.11.1:
+The reproducible build runs on Linux with JDK 17, Android SDK 35 (including
+command-line tools), Python 3.13, and Gradle 8.11.1. Set `ANDROID_HOME` to your SDK.
+The native dependency build also needs `git`, `patch`, `patchelf`, `unzip`, and
+`wget`. It downloads the required NDK through the SDK tools.
+
+CFFI 2.1.1 is built from source because the available prebuilt Android CFFI
+package is too old for curl-cffi. No dependency version checks are bypassed:
 
 ```sh
 cd android
+bash ci/build-cffi.sh
 ./gradlew :app:assembleDebug
 ```
 
@@ -47,3 +55,5 @@ This is a feasibility build, not feature parity: Android initially uses the
 progressive video fallback, and automatic song recognition is unavailable until
 its native dependencies are ported. See the main usage guide for shared features.
 Live Instagram requests remain subject to its logged-out limits.
+
+See [device checks](ci/README.md) for emulator and physical-phone tests.

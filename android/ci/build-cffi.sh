@@ -17,6 +17,9 @@ git init -q "$build_root/chaquopy"
 git -C "$build_root/chaquopy" remote add origin https://github.com/chaquo/chaquopy.git
 git -C "$build_root/chaquopy" fetch --depth 1 origin "$chaquopy_commit"
 git -C "$build_root/chaquopy" checkout -q --detach FETCH_HEAD
+# The upstream compiler wrapper only allows headers/libraries under its own
+# checkout. Keep the recipe there so native libffi/Python include paths survive.
+cp "$recipe/meta.yaml" "$build_root/chaquopy/server/pypi/packages/cffi/meta.yaml"
 python3.13 -m venv "$build_root/tools"
 "$build_root/tools/bin/python" -m pip install -r "$build_root/chaquopy/server/pypi/requirements.txt"
 cd "$build_root/chaquopy"
@@ -25,7 +28,7 @@ mkdir -p server/pypi/dist/chaquopy-libffi
 wget -q "https://chaquo.com/pypi-13.1/chaquopy-libffi/$libffi_wheel" \
   -O "server/pypi/dist/chaquopy-libffi/$libffi_wheel"
 cd server/pypi
-"$build_root/tools/bin/python" build-wheel.py --python 3.13 --abi arm64-v8a --api-level 24 "$recipe"
+"$build_root/tools/bin/python" build-wheel.py --python 3.13 --abi arm64-v8a --api-level 24 cffi
 cp dist/cffi/cffi-2.1.1-*-cp313-cp313-android_24_arm64_v8a.whl "$wheel_dir/"
 cp "dist/chaquopy-libffi/$libffi_wheel" "$wheel_dir/"
 "$build_root/tools/bin/python" - "$wheel_dir" <<'PY'
