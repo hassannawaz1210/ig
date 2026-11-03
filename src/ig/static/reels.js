@@ -1047,7 +1047,8 @@ function showLocalPage(destination, push = true) {
   }
   localPage.href = destination.href;
   localPage.closing = false;
-  localPage.back.hidden = destination.pathname === '/settings';
+  // Settings, profiles and Saved reels have their own header with a back arrow.
+  localPage.back.hidden = !/^\/reel\//.test(destination.pathname);
   localPage.frame.title = destination.pathname === '/settings' ? 'Settings' : 'ig page';
   if (push) history.pushState({igLocalPage:destination.href,igLocalDepth:(history.state?.igLocalDepth || 0)+1},'',destination.href);
 }

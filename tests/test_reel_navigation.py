@@ -65,6 +65,9 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         if self.path == '/settings':
             return self.reply(200, views.render('settings.html', boot=views._page_data(
                 {'android':False, 'scroll_animation':'snappy'})).encode(), 'text/html; charset=utf-8')
+        if self.path == '/settings/feeds':
+            return self.reply(200, views.render('feeds.html', boot=views._page_data(
+                {'android':False})).encode(), 'text/html; charset=utf-8')
         if self.path == '/preferences':
             selection = self.selected
             if selection is not None:

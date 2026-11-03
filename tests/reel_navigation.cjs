@@ -790,6 +790,21 @@ const KEYS = {
     assert.equal(await evaluate('muted'),false,'Settings does not reset effective sound on return');
     assert.equal(await evaluate('autoScroll'),true,'auto-scroll survives Settings round trip');
     assert.deepEqual(await evaluate('selectedFeeds'),['memes'],'feed selection survives Settings round trip');
+    // Pages with their own header (Settings, Feeds, profiles) don't get a second back bar.
+    await evaluate("showLocalPage(new URL('/settings/feeds', location.href))");
+    for(let i=0;!(await evaluate("!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#settings-feeds .feed-setting')"));i++){
+      assert.ok(i<80,'Feeds page did not load');await sleep(50);
+    }
+    assert.equal(await evaluate("document.getElementById('local-page-back').hidden"),true,'one back control on the Feeds page');
+    // Its back arrow leads to Settings, whose back arrow returns to the player.
+    await evaluate("document.querySelector('#local-page iframe').contentDocument.querySelector('.page-header .back').click()");
+    for(let i=0;!(await evaluate("location.pathname==='/settings' && !!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#auto-scroll-on')"));i++){
+      assert.ok(i<80,'Feeds back arrow did not open Settings');await sleep(50);
+    }
+    await evaluate("document.querySelector('#local-page iframe').contentDocument.querySelector('.page-header .back').click()");
+    for(let i=0;!(await evaluate("!document.getElementById('local-page')"));i++){
+      assert.ok(i<80,'Settings back arrow did not return to reels');await sleep(50);
+    }
     // Mount a real playable clip, then leave and return without replacing its
     // element, its playback position, its queue, or the comments drawer.
     await evaluate(`(async()=>{
