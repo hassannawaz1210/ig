@@ -663,10 +663,14 @@ const KEYS = {
       const indices=visibleIndices(); showSlide(indices[0]); scrollAnimation='smooth';
       goRel(1); return indices.slice(0,4);
     })()`);
-    await sleep(100);
+    await sleep(80);
     assert.equal(await evaluate('current'),motionIndices[1],'smooth intermediate frames keep the selected reel');
+    const sliding = await evaluate(`({offset:slideOffset(current), height:feed.clientHeight, snap:feed.style.scrollSnapType})`);
+    assert.ok(sliding.offset > 2 && sliding.offset < sliding.height - 2,'smooth visibly moves between reels instead of jumping');
+    assert.equal(sliding.snap,'none','native snapping cannot collapse the animation');
     await sleep(1000);
     assert.equal(await shown(),motionIndices[1],'smooth navigation lands on exactly one reel');
+    assert.equal(await evaluate('feed.style.scrollSnapType'),'','native snap is restored after transition');
     await key('j',{repeats:4});
     await sleep(1200);
     assert.equal(await shown(),motionIndices[2],'held key does not skip multiple reels in smooth mode');

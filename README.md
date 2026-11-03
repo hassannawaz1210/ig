@@ -61,8 +61,8 @@ more, or remove an account from that feed. Feed deletion asks for confirmation
 and offers Undo.
 
 Settings also lets each user choose **Smooth** reel transitions or **Snappy**
-instant switches. Snappy preserves the existing behavior; Smooth respects the
-device's reduced-motion setting. The choice is saved in the local profile.
+instant switches. Smooth slides the next reel into view; Snappy preserves the
+existing behavior. The choice is saved in the local profile.
 
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
 following** on desktop or Android. Select your Instagram export ZIP, `following.json`,

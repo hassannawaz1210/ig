@@ -1092,21 +1092,37 @@ function showSlide(i) {
   if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
   if (current !== i) recordQuickSkip(current);
-  const animate = current >= 0 && current !== i && scrollAnimation === 'smooth' &&
-    !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const animate = current >= 0 && current !== i && scrollAnimation === 'smooth';
+  if (scrollTarget?.frame) cancelAnimationFrame(scrollTarget.frame);
+  scrollTarget = null;
   current = i;
   scrollBurst = null; // a deliberate move ends any scroll burst; see noteScroll
   const target = document.getElementById('s'+i);
-  scrollTarget = animate && target ? {index:i} : null;
-  target?.scrollIntoView({behavior:scrollTarget ? 'smooth' : 'instant', block:'start'});
-  if (scrollTarget) {
-    const pending = scrollTarget;
-    // Recover if resizing, hiding a reel, or a browser gesture interrupts a slide.
-    setTimeout(() => {
+  if (animate && target) {
+    // Native smooth scrolling combined with mandatory snap is inconsistent
+    // across browsers/WebView. Slide one viewport ourselves, then restore snap.
+    const from = feed.scrollTop;
+    const to = from + slideOffset(i);
+    const pending = {index:i, started:performance.now(), frame:0};
+    scrollTarget = pending;
+    feed.style.scrollSnapType = 'none';
+    const frame = now => {
       if (scrollTarget !== pending) return;
-      scrollTarget = null;
-      if (current === i && !isHidden(posts[i])) target.scrollIntoView({behavior:'instant', block:'start'});
-    }, 1200);
+      const progress = Math.min(1, Math.max(0, (now - pending.started) / 280));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      feed.scrollTop = from + (to - from) * eased;
+      if (progress < 1 && !isHidden(posts[i])) pending.frame = requestAnimationFrame(frame);
+      else {
+        if (!isHidden(posts[i])) target.scrollIntoView({behavior:'instant', block:'start'});
+        scrollTarget = null;
+        feed.style.scrollSnapType = '';
+        lastScrollTop = feed.scrollTop;
+      }
+    };
+    pending.frame = requestAnimationFrame(frame);
+  } else {
+    target?.scrollIntoView({behavior:'instant', block:'start'});
+    feed.style.scrollSnapType = '';
   }
   activate(i);
 }
@@ -1357,10 +1373,7 @@ function watchScrollBurst() {
 function noteScroll() {
   const now = performance.now(), top = feed.scrollTop, moved = top - lastScrollTop;
   lastScrollTop = top;
-  if (scrollTarget) {
-    if (Math.abs(slideOffset(scrollTarget.index)) < 1) scrollTarget = null;
-    return;
-  }
+  if (scrollTarget) return;
   if (scrollBurst && now - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
   if (!scrollBurst) {
     if (current < 0 || isHidden(posts[current]) || !document.getElementById('s'+current)) return;
