@@ -58,6 +58,19 @@ let response = {posts: [], has_more: true};
 const {ctx, element, calls, timers} = createPage(async url =>
   ({ok: true, json: async () => url.endsWith('/media') ? {video: 'https://example.test/video.mp4'} : response}));
 (async () => {
+  // A following import updates the page once, even for thousands of accounts.
+  const bulk = createPage(async () => ({ok:true,json:async()=>({posts:[],has_more:false})}));
+  await new Promise(setImmediate);
+  vm.runInContext(`
+    let bulkRenders=0, bulkRefills=0;
+    syncAccountButtons=()=>{bulkRenders++}; hideFilteredReels=()=>{};
+    maybeMore=()=>{bulkRefills++}; current=0;
+    accountsChanged(Array.from({length:7500}, (_,i)=>'imported'+i), true);
+  `, bulk.ctx);
+  assert.equal(vm.runInContext('feeded.size',bulk.ctx),7500);
+  assert.equal(vm.runInContext('bulkRenders',bulk.ctx),1);
+  assert.equal(vm.runInContext('bulkRefills',bulk.ctx),1);
+  assert.equal(vm.runInContext('new Set([...accountUpdates.values()].map(v=>v.version)).size',bulk.ctx),1);
   // R must also remove discovery creators; a later server block must override
   // an older local add, while in-flight responses cannot undo newer actions.
   let finishBatch;

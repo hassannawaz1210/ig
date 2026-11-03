@@ -1,11 +1,24 @@
 let accountChanged = () => {};
+let accountsChanged = (usernames, saved) => { for (const username of usernames) accountChanged(username, saved); };
+function notifyAccountsChange(usernames, saved) {
+  if (!usernames.length) return;
+  accountsChanged(usernames, saved);
+  try { localStorage.setItem('ig-account-change', JSON.stringify({usernames, saved, at:Date.now()})); } catch (_) {}
+}
 function notifyAccountChange(username, saved) {
   accountChanged(username, saved);
   try { localStorage.setItem('ig-account-change', JSON.stringify({username, saved, at:Date.now()})); } catch (_) {}
 }
 if (typeof window !== 'undefined') window.addEventListener('storage', event => {
+  if (event.key === 'ig-feed-import' && event.newValue) {
+    try { window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail:JSON.parse(event.newValue)})); } catch (_) {}
+    return;
+  }
   if (event.key !== 'ig-account-change' || !event.newValue) return;
-  try { const change = JSON.parse(event.newValue); accountChanged(change.username, change.saved); } catch (_) {}
+  try { const change = JSON.parse(event.newValue);
+    if (Array.isArray(change.usernames)) accountsChanged(change.usernames, change.saved);
+    else accountChanged(change.username, change.saved);
+  } catch (_) {}
 });
 function showShortcuts() {
   if (document.getElementById('shortcut-help')) return;
@@ -54,14 +67,80 @@ function showShortcuts() {
   dialog.querySelector('button').onclick = () => dialog.close();
   document.body.append(dialog); dialog.showModal();
 }
-async function chooseFeed(username = '', createNew = false) {
-  if (document.getElementById('feed-picker')) return false;
+function importFollowing() {
+  const menu = document.getElementById('feed-menu');
+  if (menu) menu.open = false;
+  return chooseFeed('', false, true);
+}
+function notifyFeedImport(data) {
+  const detail = {...data, imported:true, at:Date.now()};
+  window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail}));
+  try { localStorage.setItem('ig-feed-import', JSON.stringify(detail)); } catch (_) {}
+}
+function importFeeds() {
+  if (document.getElementById('feed-picker')) return;
+  const menu = document.getElementById('feed-menu');
+  if (menu) menu.open = false;
   const dialog = document.createElement('dialog');
-  dialog.id = 'feed-picker';
-  dialog.setAttribute('aria-labelledby', 'feed-picker-title');
-  dialog.innerHTML = `<style>
+  dialog.id = 'feed-picker'; dialog.setAttribute('aria-labelledby', 'feed-picker-title');
+  dialog.innerHTML = feedPickerStyles() + `<form>
+    <h2 id="feed-picker-title">Import feeds</h2>
+    <label>ig export<input type="file" name="backup" accept=".json,application/json"></label>
+    <p class="fp-note">Choose a file made with Export feeds in ig. Feeds with the same name are merged; permanent blocks are kept.</p>
+    <p class="fp-preview" hidden></p>
+    <p class="fp-names" hidden style="max-height:140px;overflow:auto;overflow-wrap:anywhere"></p>
+    <p class="fp-status" role="status"></p>
+    <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Merge feeds</button></div>
+  </form>`;
+  const form = dialog.querySelector('form'), file = form.elements.backup;
+  const submit = form.querySelector('[type=submit]'), cancel = form.querySelector('[type=button]');
+  const status = form.querySelector('.fp-status'), preview = form.querySelector('.fp-preview');
+  const names = form.querySelector('.fp-names');
+  const controller = new AbortController();
+  let selected = null, saving = false, completed = false;
+  dialog.addEventListener('close', () => {controller.abort(); dialog.remove();}, {once:true});
+  dialog.addEventListener('cancel', event => {if (saving) event.preventDefault();});
+  cancel.onclick = () => dialog.close();
+  const postFile = async (path, data, signal) => {
+    const response = await fetch(path, {method:'POST',body:data,headers:{'Content-Type':'application/json'},signal});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not import this file.');
+    return result;
+  };
+  file.onchange = async () => {
+    const chosen = file.files[0];
+    if (!chosen) return;
+    selected = null; submit.disabled = true; preview.hidden = true; names.hidden = true;
+    if (chosen.size > 5 * 1024 * 1024) { status.textContent = 'Choose an ig export smaller than 5 MB.'; return; }
+    file.disabled = true; status.textContent = 'Reading feeds…';
+    try {
+      const data = await postFile('/feeds/import/preview', chosen, controller.signal);
+      preview.textContent = `${data.feeds} feed${data.feeds === 1 ? '' : 's'} · ${data.accounts} account${data.accounts === 1 ? '' : 's'} · ${data.blocked} permanent block${data.blocked === 1 ? '' : 's'}`;
+      names.textContent = data.names.map(name => name.replaceAll('_', ' ')).join(' · ');
+      preview.hidden = false; names.hidden = !data.feeds; selected = chosen;
+      status.textContent = ''; submit.disabled = false;
+    } catch (error) { if (error.name !== 'AbortError') status.textContent = error.message; }
+    finally {file.disabled = false;}
+  };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (!selected || saving || completed || submit.disabled) return;
+    saving = true; submit.disabled = true; cancel.disabled = true; file.disabled = true;
+    status.textContent = 'Merging feeds…';
+    try {
+      const data = await postFile('/feeds/import', selected);
+      completed = true; notifyFeedImport(data);
+      status.textContent = `${data.feeds} feed${data.feeds === 1 ? '' : 's'} merged · ${data.added} account${data.added === 1 ? '' : 's'} added · ${data.blocked} block${data.blocked === 1 ? '' : 's'} added`;
+      submit.hidden = true; cancel.textContent = 'Done';
+    } catch (error) { status.textContent = error.message; }
+    finally {saving = false; cancel.disabled = false; file.disabled = completed; submit.disabled = completed;}
+  };
+  document.body.append(dialog); dialog.showModal();
+}
+function feedPickerStyles() {
+  return `<style>
     #feed-picker {color-scheme:dark;box-sizing:border-box;width:320px;max-width:calc(100vw - 24px);
-      padding:14px;border:1px solid #393939;border-radius:6px;background:#181818;color:#eee;font:13px/1.5 system-ui;}
+      max-height:85dvh;overflow-y:auto;padding:14px;border:1px solid #393939;border-radius:6px;background:#181818;color:#eee;font:13px/1.5 system-ui;}
     #feed-picker::backdrop {background:#0009;}
     #feed-picker h2 {font-size:16px;font-weight:600;margin:0 0 10px;}
     #feed-picker label {display:block;margin-top:10px;color:#ccc;}
@@ -77,11 +156,29 @@ async function chooseFeed(username = '', createNew = false) {
     #feed-picker button:disabled {opacity:.5;cursor:wait;}
     #feed-picker .fp-status {color:#ddd;margin:10px 0 0;}
     #feed-picker .fp-status:empty {display:none;}
-  </style><form>
+    #feed-picker .fp-help {margin:10px 0;color:#bbb;font-size:12px;}
+    #feed-picker .fp-help summary {cursor:pointer;}
+    #feed-picker .fp-help ol {padding-left:20px;}
+    #feed-picker .fp-import-link {padding:0;border:0;background:none;text-decoration:underline;color:#bbb;}
+  </style>`;
+}
+async function chooseFeed(username = '', createNew = false, importing = false) {
+  if (document.getElementById('feed-picker')) return false;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'feed-picker';
+  dialog.setAttribute('aria-labelledby', 'feed-picker-title');
+  dialog.innerHTML = feedPickerStyles() + `<form>
     <h2 id="feed-picker-title">Add accounts</h2>
+    ${importing ? `<label>Instagram export<input name="exportfile" type="file" accept=".zip,.json,.html,.htm,application/zip,application/json,text/html"></label>
+    <details class="fp-help"><summary>Where do I get the file?</summary><ol>
+      <li>In Instagram, open Accounts Center → Your information and permissions.</li>
+      <li>Export or download your information. Choose Followers and following, All time, and JSON.</li>
+      <li>Select the downloaded ZIP, or its following.json / following.html file here (up to 25 MB).</li>
+    </ol><p>Processed by your local ig app; only account handles are saved.</p></details>` : ''}
     <label>Feed<select name="destination" aria-label="Feed" disabled></select></label>
     <label class="fp-new" hidden>Name<input name="feedname" maxlength="20" placeholder="Feed name" autocomplete="off"></label>
     <label>Instagram accounts<textarea name="accounts" rows="2" placeholder="@username or Instagram profile links"></textarea></label>
+    ${importing ? '<p class="fp-note fp-count">Choose a file to preview accounts.</p><p class="fp-note">Existing and blocked accounts are skipped.</p>' : '<button type="button" class="fp-import-link">Import following from Instagram</button>'}
     <p class="fp-status" role="status">Loading feeds…</p>
     <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Add accounts</button></div>
   </form>`;
@@ -91,22 +188,58 @@ async function chooseFeed(username = '', createNew = false) {
   const accounts = form.elements.accounts;
   const submit = form.querySelector('[type=submit]');
   const status = dialog.querySelector('.fp-status');
+  const cancel = form.querySelector('.fp-actions [type=button]');
+  const file = form.elements.exportfile;
+  const count = dialog.querySelector('.fp-count');
   accounts.value = username ? '@' + username : '';
-  let saving = false;
+  let saving = false, previewing = false, feedsReady = false, previewReady = false, completed = false;
+  const controller = new AbortController();
+  const handles = () => [...new Set(accounts.value.split(/[\s,]+/).filter(Boolean).map(value => value.replace(/^@/, '').toLowerCase()))];
+  const updateImport = () => {
+    if (!importing) return;
+    const total = handles().length;
+    count.textContent = previewReady ? `${total} account${total === 1 ? '' : 's'} · edit this list before importing` : 'Choose a file to preview accounts.';
+    if (total > 7500) count.textContent = 'Import up to 7,500 accounts at once. Remove some handles to continue.';
+    submit.disabled = !feedsReady || !previewReady || !total || total > 7500 || saving || previewing || completed;
+  };
+  accounts.oninput = updateImport;
   function mode() {
     const creating = select.value === '';
     dialog.querySelector('.fp-new').hidden = !creating;
     name.required = creating;
-    accounts.required = !creating;
+    accounts.required = importing || !creating;
     select.closest('label').hidden = createNew;
-    dialog.querySelector('h2').textContent = creating ? 'New feed' : 'Add accounts';
-    submit.textContent = creating ? 'Create' : 'Add';
+    dialog.querySelector('h2').textContent = importing ? 'Import following' : creating ? 'New feed' : 'Add accounts';
+    submit.textContent = importing ? 'Import' : creating ? 'Create' : 'Add';
   }
   select.onchange = () => { mode(); if (!select.value) name.focus(); };
   const result = new Promise(resolve => {
-    dialog.addEventListener('close', () => { dialog.remove(); resolve(dialog.returnValue === 'added'); }, {once:true});
+    dialog.addEventListener('close', () => { controller.abort(); dialog.remove(); resolve(dialog.returnValue === 'added'); }, {once:true});
   });
-  form.querySelector('[type=button]').onclick = () => dialog.close();
+  cancel.onclick = () => dialog.close(completed ? 'added' : '');
+  const importLink = form.querySelector('.fp-import-link');
+  if (importLink) importLink.onclick = () => { dialog.close(); result.then(() => importFollowing()); };
+  dialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
+  if (file) file.onchange = async () => {
+    const selected = file.files[0];
+    if (!selected) return;
+    previewReady = false; accounts.value = ''; updateImport();
+    if (selected.size > 25 * 1024 * 1024) {
+      status.textContent = 'File exceeds 25 MB. Choose following.json / following.html from the ZIP, or export only Followers and following.';
+      return;
+    }
+    previewing = true; file.disabled = true; status.textContent = 'Reading following…';
+    try {
+      const response = await fetch('/following/preview', {method:'POST', body:selected,
+        headers:{'Content-Type':'application/octet-stream', 'X-File-Name':encodeURIComponent(selected.name)}, signal:controller.signal});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not read this export.');
+      accounts.value = data.accounts.map(account => '@' + account).join('\n');
+      accounts.rows = 5; accounts.placeholder = '@username'; previewReady = true;
+      status.textContent = '';
+    } catch (error) { if (error.name !== 'AbortError') status.textContent = error.message; }
+    finally { previewing = false; file.disabled = false; updateImport(); }
+  };
   form.addEventListener('keydown', event => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -119,18 +252,27 @@ async function chooseFeed(username = '', createNew = false) {
     saving = true;
     submit.disabled = true;
     select.disabled = true;
+    cancel.disabled = true;
+    if (file) file.disabled = true;
     status.textContent = 'Saving…';
     const creating = select.value === '';
     try {
-      const response = await fetch('/feeds', {method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:creating ? name.value : select.value, create:creating, accounts:accounts.value})});
+      const response = await fetch(importing ? '/following/import' : '/feeds', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:creating ? name.value : select.value, create:creating, accounts:importing ? handles() : accounts.value})});
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save. Try again.');
-      for (const account of data.accounts) notifyAccountChange(account, true);
+      if (importing) notifyAccountsChange(data.accounts, true);
+      else for (const account of data.accounts) notifyAccountChange(account, true);
       window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail:data}));
-      if (dialog.isConnected) dialog.close(!username || data.accounts.includes(username.toLowerCase()) ? 'added' : 'saved');
+      if (importing) {
+        completed = true;
+        status.textContent = `${data.added} added to ${data.name.replaceAll('_', ' ')} · ${data.existing} already present · ${data.blocked} blocked skipped`;
+        submit.hidden = true; cancel.textContent = 'Done';
+        accounts.readOnly = true; name.disabled = true;
+      } else if (dialog.isConnected) dialog.close(!username || data.accounts.includes(username.toLowerCase()) ? 'added' : 'saved');
     } catch (error) { status.textContent = error.message; }
-    finally { saving = false; submit.disabled = false; select.disabled = false; }
+    finally { saving = false; submit.disabled = false; select.disabled = completed; cancel.disabled = false;
+      if (file) file.disabled = completed; updateImport(); }
   };
   document.body.append(dialog);
   dialog.showModal();
@@ -149,9 +291,12 @@ async function chooseFeed(username = '', createNew = false) {
     select.append(option);
     if (createNew || !names.length) select.value = '';
     else if (typeof chosenFeeds !== 'undefined' && chosenFeeds?.length === 1 && names.includes(chosenFeeds[0])) select.value = chosenFeeds[0];
-    select.disabled = false; submit.disabled = false; status.textContent = '';
+    feedsReady = true; select.disabled = false; submit.disabled = false;
+    if (status.textContent === 'Loading feeds…') status.textContent = '';
     mode();
-    if (!select.value) name.focus();
+    updateImport();
+    if (importing) file.focus();
+    else if (!select.value) name.focus();
     else if (username) select.focus();
     else accounts.focus();
   } catch (error) { status.textContent = error.message; }

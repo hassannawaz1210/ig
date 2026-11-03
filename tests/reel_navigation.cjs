@@ -535,6 +535,129 @@ const KEYS = {
     assert.equal(landscape.width,844,'Android comments remain a full-width sheet in landscape');
     assert.equal(landscape.bottom,390);
     assert.equal(landscape.feedWidth,844,'Android comments do not squeeze the reel into a desktop column');
-    console.log('Reel navigation, feed selection, creation, account entry and shortcut layout passed');
+    await evaluate(`(() => {
+      const previousFetch = window.fetch;
+      window.importWrites = [];
+      window.importPreviewError = false;
+      window.fetch = async (url, options) => {
+        if (url === '/following/preview') {
+          if (options.headers['X-File-Name'] !== 'following.json' || !(options.body instanceof File))
+            throw new Error('Export must be sent as a raw file with its name');
+          return new Response(JSON.stringify(importPreviewError ? {error:'No following accounts found'} :
+            {accounts:['alpha','beta','blocked']}), {status:importPreviewError ? 400 : 200});
+        }
+        if (url === '/following/import') {
+          const body = JSON.parse(options.body);
+          importWrites.push(body);
+          if (body.create) await previousFetch('/feeds', {method:'POST',body:JSON.stringify({...body,accounts:'alpha'})});
+          return new Response(JSON.stringify({name:body.name.toLowerCase().replaceAll(' ','_'),
+            created:body.create,accounts:['alpha'],added:1,existing:0,blocked:1}));
+        }
+        return previousFetch(url, options);
+      };
+      window.pickFollowingFile = () => {
+        const input = document.querySelector('#feed-picker input[type=file]');
+        const files = new DataTransfer();
+        files.items.add(new File(['{}'], 'following.json', {type:'application/json'}));
+        input.files = files.files;
+        input.dispatchEvent(new Event('change'));
+      };
+    })()`);
+    for (const android of [false,true]) {
+      await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
+      await evaluate(`document.body.classList.toggle('android-app', ${android}); closeComments(); void chooseFeed()`);
+      await sleep(100);
+      await evaluate("document.querySelector('#feed-picker .fp-import-link').click()");
+      await sleep(100);
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true,'import requires a preview');
+      await evaluate('pickFollowingFile()');
+      await sleep(100);
+      assert.equal(await evaluate("document.querySelector('#feed-picker textarea').value"),'@alpha\n@beta\n@blocked');
+      assert.equal(await evaluate('importWrites.length'),android?1:0,'preview makes no changes');
+      const bounds=await evaluate(`(() => {const r=document.getElementById('feed-picker').getBoundingClientRect();
+        return {left:r.left,right:r.right,bottom:r.bottom,top:r.top};})()`);
+      assert.ok(bounds.top>=0 && bounds.bottom<=844 && bounds.left>=0 && bounds.right<=(android?390:1000),'import fits viewport');
+      if (android) { assert.equal(bounds.bottom,844,'Android import is a bottom sheet');
+        fs.writeFileSync('/tmp/ig-following-import-mobile.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64')); }
+      else fs.writeFileSync('/tmp/ig-following-import-desktop.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+      await evaluate("document.getElementById('feed-picker').close()");
+      await sleep(50);
+      await evaluate('void importFollowing()'); await sleep(100);
+      await evaluate('importPreviewError=true; pickFollowingFile()'); await sleep(100);
+      assert.equal(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),'No following accounts found');
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true);
+      await evaluate('importPreviewError=false; pickFollowingFile()'); await sleep(100);
+      await evaluate(`(() => {
+        const form=document.querySelector('#feed-picker form');
+        form.elements.accounts.value='@alpha\\n@blocked'; form.elements.accounts.dispatchEvent(new Event('input'));
+        form.elements.destination.value=${android ? "''" : "'edits'"}; form.elements.destination.dispatchEvent(new Event('change'));
+        if (${android}) form.elements.feedname.value='Imported';
+        form.requestSubmit();
+      })()`);
+      await sleep(250);
+      const request=await evaluate('importWrites.at(-1)');
+      assert.deepEqual(request.accounts,['alpha','blocked'],'edited selection is imported');
+      assert.equal(request.name,android?'Imported':'edits'); assert.equal(request.create,android);
+      assert.match(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),/1 added.*1 blocked skipped/);
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').hidden"),true,'completed import cannot submit twice');
+      await evaluate("document.querySelector('#feed-picker .fp-actions button[type=button]').click()");
+      await sleep(50);
+    }
+    await evaluate(`(() => {
+      const previousFetch = window.fetch;
+      window.backupMerges = 0; window.backupPreviewError = false; window.backupMergeError = false;
+      window.fetch = async (url, options) => {
+        if (url === '/feeds/import/preview') {
+          if (!(options.body instanceof File)) throw new Error('Preview requires raw backup file');
+          window.previewedBackup = options.body;
+          return new Response(JSON.stringify(backupPreviewError ? {error:'Not an ig feed export'} :
+            {feeds:2,names:['edits','imported'],accounts:3,blocked:1}),{status:backupPreviewError?400:200});
+        }
+        if (url === '/feeds/import') {
+          if (options.body !== previewedBackup) throw new Error('Merge requires exactly the previewed file');
+          if (backupMergeError) return new Response(JSON.stringify({error:'Could not merge. Try again.'}),{status:500});
+          backupMerges++;
+          return new Response(JSON.stringify({feeds:2,added:1,blocked:1,
+            feed_accounts:['creator0','creator1','alpha'],blocked_accounts:['creator0']}));
+        }
+        return previousFetch(url,options);
+      };
+      window.pickBackupFile = () => {
+        const input = document.querySelector('#feed-picker input[type=file]');
+        const files = new DataTransfer();
+        files.items.add(new File(['{}'],'ig-feeds.json',{type:'application/json'}));
+        input.files=files.files; input.dispatchEvent(new Event('change'));
+      };
+    })()`);
+    assert.equal(await evaluate("document.querySelector('.feed-tools a[href=\"/feeds/export\"]').textContent"),'Export feeds');
+    for (const android of [false,true]) {
+      await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
+      await evaluate(`document.body.classList.toggle('android-app',${android}); importFeeds()`);
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true);
+      await evaluate('backupPreviewError=true; pickBackupFile()'); await sleep(100);
+      assert.equal(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),'Not an ig feed export');
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true);
+      await evaluate('backupPreviewError=false; pickBackupFile()'); await sleep(100);
+      assert.match(await evaluate("document.querySelector('#feed-picker .fp-preview').textContent"),/2 feeds.*3 accounts.*1 permanent block/);
+      assert.equal(await evaluate('backupMerges'),android?1:0,'preview does not merge feeds');
+      const bounds=await evaluate(`(() => {const r=document.getElementById('feed-picker').getBoundingClientRect();
+        return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};})()`);
+      assert.ok(bounds.top>=0 && bounds.bottom<=844 && bounds.left>=0 && bounds.right<=(android?390:1000));
+      if (android) {assert.equal(bounds.bottom,844); fs.writeFileSync('/tmp/ig-feed-backup-mobile.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));}
+      await evaluate("document.querySelector('#feed-picker button[type=button]').click()"); await sleep(50);
+      assert.equal(await evaluate('backupMerges'),android?1:0,'cancel does not merge feeds');
+      await evaluate('importFeeds(); pickBackupFile()'); await sleep(100);
+      await evaluate("backupMergeError=true; document.querySelector('#feed-picker form').requestSubmit()"); await sleep(100);
+      assert.equal(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),'Could not merge. Try again.');
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),false,'failed merge can be retried');
+      await evaluate("backupMergeError=false; document.querySelector('#feed-picker form').requestSubmit()"); await sleep(250);
+      assert.equal(await evaluate('backupMerges'),android?2:1);
+      assert.equal(await evaluate("blockedAccounts.has('creator0') && feeded.has('creator0') && feeded.has('creator1')"),true,'blocked feed memberships stay blocked after merge');
+      assert.equal(await evaluate("posts.filter(p=>p.owner==='creator0').every(isHidden)"),true,'newly blocked creators disappear immediately');
+      assert.match(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),/2 feeds merged.*1 account added.*1 block added/);
+      assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').hidden"),true);
+      await evaluate("document.querySelector('#feed-picker button[type=button]').click()"); await sleep(50);
+    }
+    console.log('Reel navigation, feed selection, creation, account entry, imports and shortcut layout passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

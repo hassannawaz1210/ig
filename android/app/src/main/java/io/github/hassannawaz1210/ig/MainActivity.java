@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -18,6 +19,7 @@ import android.webkit.CookieManager;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -36,6 +38,12 @@ import com.chaquo.python.android.AndroidPlatform;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -45,6 +53,9 @@ import java.util.regex.Pattern;
 public final class MainActivity extends Activity {
     private static final ExecutorService BACKEND = Executors.newSingleThreadExecutor();
     private static final Object PYTHON_LOCK = new Object();
+    private static final int CHOOSE_IMPORT_FILE = 41;
+    private static final int SAVE_FEEDS_FILE = 42;
+    private static final int MAX_BACKUP_BYTES = 5 * 1024 * 1024;
     private static final Pattern POST_PATH = Pattern.compile("^/(?:reel|reels|p)/([A-Za-z0-9_-]{5,30})/?$");
     private static final Pattern SHARED_LINK = Pattern.compile("https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p)/[A-Za-z0-9_-]{5,30}/?(?:\\?[^\\s]*)?", Pattern.CASE_INSENSITIVE);
     private WebView web;
@@ -54,6 +65,9 @@ public final class MainActivity extends Activity {
     private String pendingPath = "/";
     private boolean starting;
     private boolean paused;
+    private ValueCallback<Uri[]> fileSelection;
+    private boolean choosingBackup;
+    private Uri pendingBackupDestination;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -73,6 +87,10 @@ public final class MainActivity extends Activity {
             return insets;
         });
         if (savedInstanceState != null) {
+            choosingBackup = savedInstanceState.getBoolean("choosingBackup", false);
+            String destination = savedInstanceState.getString("backupDestination");
+            if (destination != null && "content".equals(Uri.parse(destination).getScheme()))
+                pendingBackupDestination = Uri.parse(destination);
             String saved = savedInstanceState.getString("path", "/");
             if (saved.startsWith("/") && !saved.startsWith("//")) pendingPath = saved;
         }
@@ -103,6 +121,11 @@ public final class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed()) return;
                     origin = localOrigin;
                     token = localToken;
+                    if (pendingBackupDestination != null) {
+                        Uri destination = pendingBackupDestination;
+                        pendingBackupDestination = null;
+                        writeFeedsBackup(destination);
+                    }
                     createWebView();
                     CookieManager cookies = CookieManager.getInstance();
                     cookies.setAcceptCookie(true);
@@ -142,6 +165,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showFailure(String text) {
+        finishFileSelection(null);
         if (web != null) { web.destroy(); web = null; }
         root.removeAllViews();
         root.setGravity(Gravity.CENTER);
@@ -153,6 +177,7 @@ public final class MainActivity extends Activity {
     }
 
     private void createWebView() {
+        finishFileSelection(null);
         if (web != null) web.destroy();
         root.removeAllViews();
         root.setGravity(Gravity.TOP);
@@ -163,7 +188,8 @@ public final class MainActivity extends Activity {
         settings.setDomStorageEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        // The document picker grants access only to the file the user selects.
+        settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
@@ -181,6 +207,29 @@ public final class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                                       FileChooserParams params) {
+                if (view.getUrl() == null || !isLocal(Uri.parse(view.getUrl()))
+                        || params.getMode() != FileChooserParams.MODE_OPEN || fileSelection != null) {
+                    callback.onReceiveValue(null);
+                    return true;
+                }
+                fileSelection = callback;
+                Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("*/*")
+                        .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                                "application/json", "text/html", "application/zip",
+                                "application/x-zip-compressed", "application/octet-stream", "text/plain"
+                        })
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                try { startActivityForResult(pick, CHOOSE_IMPORT_FILE); }
+                catch (ActivityNotFoundException | SecurityException error) {
+                    finishFileSelection(null);
+                    Toast.makeText(MainActivity.this, "Could not open the file picker", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            }
             @Override public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
                 if (!isLocal(Uri.parse(url))) { result.cancel(); return true; }
                 new AlertDialog.Builder(MainActivity.this).setMessage(message)
@@ -236,8 +285,44 @@ public final class MainActivity extends Activity {
                 && uri.getPort() == expected.getPort() && uri.getUserInfo() == null;
     }
 
+    private void finishFileSelection(Uri[] files) {
+        ValueCallback<Uri[]> callback = fileSelection;
+        fileSelection = null;
+        if (callback != null) callback.onReceiveValue(files);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == SAVE_FEEDS_FILE) {
+            if (!choosingBackup) return;
+            choosingBackup = false;
+            Uri destination = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (destination != null && "content".equals(destination.getScheme())
+                    && checkUriPermission(destination, android.os.Process.myPid(), android.os.Process.myUid(),
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+                if (origin == null || token == null) pendingBackupDestination = destination;
+                else writeFeedsBackup(destination);
+            }
+            return;
+        }
+        if (requestCode != CHOOSE_IMPORT_FILE || fileSelection == null) return;
+        Uri selected = resultCode == RESULT_OK && data != null ? data.getData() : null;
+        // Never accept file:// paths or an ungranted URI from another app.
+        if (selected != null && "content".equals(selected.getScheme())
+                && checkUriPermission(selected, android.os.Process.myPid(), android.os.Process.myUid(),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            finishFileSelection(new Uri[] {selected});
+        } else {
+            finishFileSelection(null);
+        }
+    }
+
     private boolean routeNavigation(Uri uri) {
         if (isLocal(uri)) {
+            if ("/feeds/export".equals(uri.getPath())) {
+                chooseBackupDestination();
+                return true;
+            }
             if (uri.getPath() != null && uri.getPath().matches("/download/[A-Za-z0-9_-]{5,30}")) {
                 saveDownload(uri);
                 return true;
@@ -256,6 +341,10 @@ public final class MainActivity extends Activity {
 
     private void saveDownload(Uri uri) {
         String path = uri.getPath();
+        if (isLocal(uri) && "/feeds/export".equals(path)) {
+            chooseBackupDestination();
+            return;
+        }
         if (!isLocal(uri) || path == null || !path.matches("/download/[A-Za-z0-9_-]{5,30}")) return;
         String filename = path.substring("/download/".length()) + ".mp4";
         try {
@@ -270,6 +359,64 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException error) {
             Toast.makeText(this, "Could not start download", Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void chooseBackupDestination() {
+        if (choosingBackup) return;
+        choosingBackup = true;
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json")
+                .putExtra(Intent.EXTRA_TITLE, "ig-feeds.json")
+                .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        try { startActivityForResult(save, SAVE_FEEDS_FILE); }
+        catch (ActivityNotFoundException | SecurityException error) {
+            choosingBackup = false;
+            Toast.makeText(this, "Could not open the file picker", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void writeFeedsBackup(Uri destination) {
+        final String address = origin + "/feeds/export";
+        final String accessToken = token;
+        BACKEND.execute(() -> {
+            HttpURLConnection connection = null;
+            String message;
+            try {
+                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(20000);
+                connection.setRequestProperty("Cookie", "ig_android=" + accessToken);
+                if (connection.getResponseCode() != 200) throw new IOException("Backup request failed");
+                // Read and validate before opening the chosen destination, so
+                // a backend failure cannot overwrite it with an error page.
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (InputStream input = connection.getInputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        if (bytes.size() + count > MAX_BACKUP_BYTES) throw new IOException("Backup is too large");
+                        bytes.write(buffer, 0, count);
+                    }
+                }
+                new JSONObject(bytes.toString("UTF-8"));
+                try (OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                    if (output == null) throw new IOException("Could not open backup destination");
+                    bytes.writeTo(output);
+                }
+                message = "Feeds exported";
+            } catch (Exception error) {
+                android.util.Log.e("ig", "Feed export failed", error);
+                message = "Could not export feeds. Try again.";
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            final String result = message;
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) Toast.makeText(this, result, Toast.LENGTH_LONG).show();
+            });
+        });
     }
 
     private boolean acceptSharedLink(Intent intent) {
@@ -298,6 +445,8 @@ public final class MainActivity extends Activity {
             if (current.getEncodedQuery() != null) pendingPath += "?" + current.getEncodedQuery();
         }
         state.putString("path", pendingPath);
+        state.putBoolean("choosingBackup", choosingBackup);
+        if (pendingBackupDestination != null) state.putString("backupDestination", pendingBackupDestination.toString());
         super.onSaveInstanceState(state);
     }
 
@@ -326,6 +475,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        finishFileSelection(null);
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();
     }

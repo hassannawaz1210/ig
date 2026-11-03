@@ -1,4 +1,4 @@
-from . import recommendations, config, history
+from . import recommendations, config, history, following, backup
 from .media import fetch_video
 import json
 import math
@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import logs
 from . import instagram
@@ -274,6 +274,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b"ok", "text/plain")
         if not self._allowed():
             return
+        if self.path == '/feeds/export':
+            try:
+                filename = 'ig-feeds-' + time.strftime('%Y-%m-%d') + '.json'
+                return self._send(200, backup.export(), 'application/json',
+                                  {'Content-Disposition': f'attachment; filename="{filename}"'})
+            except backup.TooLarge as error:
+                return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context='Exporting feeds')
         if self.path.startswith("/static/"):
             found = static_file(self.path.removeprefix("/static/"))
             if found is None:
@@ -389,11 +398,95 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("Could not update Saved reels")
             return self._send(500, b"could not update Saved reels", "text/plain")
 
+    def _import_feeds(self):
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            if length > backup.MAX_BYTES:
+                self.close_connection = True
+                raise backup.TooLarge('Feed backups must be 5 MB or smaller.')
+            if length <= 0:
+                self.close_connection = True
+                raise ValueError('Choose an ig feed backup.')
+            data = self.rfile.read(length)
+            if len(data) != length:
+                raise ValueError('The upload was incomplete. Please try again.')
+            document = backup.parse(data)
+            result = backup.summary(document) if self.path.endswith('/preview') else backup.merge(document)
+            return self._send(200, json.dumps(result).encode(), 'application/json')
+        except backup.TooLarge as error:
+            return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
+        except (ValueError, TypeError) as error:
+            return self._send(400, json.dumps({'error': str(error)}).encode(), 'application/json')
+        except Exception as error:
+            return self._fail(error, as_json=True, context='Importing feeds')
+
+    def _following(self):
+        """Preview an export or atomically add its selected handles to one feed."""
+        try:
+            limit = following.MAX_UPLOAD if self.path == '/following/preview' else 500_000
+            length = int(self.headers.get('Content-Length') or 0)
+            if length > limit:
+                self.close_connection = True
+                raise following.TooLarge('Upload is too large (25 MB maximum). Extract following.json or following.html from the ZIP.'
+                                         if self.path == '/following/preview' else 'Import request is too large.')
+            if length <= 0:
+                self.close_connection = True
+                raise ValueError('Choose a following export.' if self.path == '/following/preview' else 'Empty import request.')
+            data = self.rfile.read(length)
+            if len(data) != length:
+                raise ValueError('The upload was incomplete. Please try again.')
+            if self.path == '/following/preview':
+                filename = unquote(self.headers.get('X-File-Name', ''))
+                result = {'accounts': following.parse_export(data, filename)}
+            else:
+                body = json.loads(data)
+                if not isinstance(body, dict) or not isinstance(body.get('name'), str):
+                    raise ValueError('Enter a feed name.')
+                name = re.sub(r'\s+', '_', body['name'].strip().lower())
+                if not FEED_RE.fullmatch(name):
+                    raise ValueError('Use 1–20 letters, numbers, spaces, underscores or hyphens.')
+                create = body.get('create', False)
+                entries = body.get('accounts')
+                if not isinstance(create, bool) or not isinstance(entries, list) or not entries:
+                    raise ValueError('Select at least one account to import.')
+                if len(entries) > following.MAX_ACCOUNTS:
+                    raise following.TooLarge('Import at most 7,500 accounts at once.')
+                if any(not isinstance(value, str) or not USER_RE.fullmatch(value) for value in entries):
+                    raise ValueError('Use Instagram handles only.')
+                accounts = list(dict.fromkeys(value.lower() for value in entries))
+                with config.database() as db:
+                    feeds = config._read_feeds(db)
+                    blocked = {row[0] for row in db.execute('SELECT username FROM blocked_accounts')}
+                    skipped = sum(account in blocked for account in accounts)
+                    allowed = [account for account in accounts if account not in blocked]
+                    if create and name in feeds:
+                        return self._send(409, b'{"error":"That feed already exists"}', 'application/json')
+                    if not create and name not in feeds:
+                        raise ValueError('Choose an existing feed.')
+                    previous = accounts_from_feed(feeds.get(name))
+                    previous_set = set(previous)
+                    added = [account for account in allowed if account not in previous_set]
+                    feeds[name] = previous + added
+                    config._write_feeds(db, feeds)
+                result = {'name': name, 'created': create, 'accounts': added,
+                          'added': len(added), 'existing': len(allowed) - len(added), 'blocked': skipped}
+            return self._send(200, json.dumps(result).encode(), 'application/json')
+        except following.TooLarge as error:
+            return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
+        except (ValueError, TypeError, RecursionError) as error:
+            return self._send(400, json.dumps({'error': str(error)}).encode(), 'application/json')
+        except Exception as error:
+            return self._fail(error, as_json=True, context='Importing following')
+
     def do_POST(self):
         if self.access is not None and self.path == "/sign-in":
             return self.access.sign_in(self)
         if not self._allowed():
             return
+        if self.path in ('/feeds/import/preview', '/feeds/import'):
+            return self._import_feeds()
+        if self.path in ('/following/preview', '/following/import'):
+            return self._following()
         if self.path.startswith("/comments/"):
             split = urlsplit(self.path)
             code = split.path.removeprefix("/comments/")

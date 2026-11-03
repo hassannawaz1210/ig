@@ -19,6 +19,9 @@
         <a href="/">Back to mixed feed</a>
         <button type="button" onclick="document.getElementById('feed-menu').open=false; chooseFeed('', true)">Create feed <kbd>+</kbd></button>
         <button type="button" onclick="document.getElementById('feed-menu').open=false; chooseFeed()">Add accounts <kbd>Shift A</kbd></button>
+        <button type="button" onclick="importFollowing()">Import following</button>
+        <a href="/feeds/export">Export feeds</a>
+        <button type="button" onclick="importFeeds()">Import feeds</button>
       </div>
       <div class="feed-panel-footer"><a id="saved-reels-link" href="/saved-reels" target="_blank" rel="noopener">{{icon:bookmark}}<span>Saved reels</span></a><span class="count" id="count"></span></div>
     </div>

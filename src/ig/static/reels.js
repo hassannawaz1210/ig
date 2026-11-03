@@ -44,17 +44,21 @@ function syncAccountButtons() {
     button.onclick = saved ? () => rmAcc(p.owner, button) : () => addAcc(p.owner, button);
   });
 }
-accountChanged = (username, saved) => {
+accountsChanged = (usernames, saved) => {
+  if (!usernames.length) return;
   const version = ++accountChangeVersion;
-  accountUpdates.set(username, {value:saved, version});
-  blockUpdates.set(username, {value:!saved, version});
-  saved ? feeded.add(username) : feeded.delete(username);
-  saved ? blockedAccounts.delete(username) : blockedAccounts.add(username);
+  for (const username of usernames) {
+    accountUpdates.set(username, {value:saved, version});
+    blockUpdates.set(username, {value:!saved, version});
+    saved ? feeded.add(username) : feeded.delete(username);
+    saved ? blockedAccounts.delete(username) : blockedAccounts.add(username);
+  }
   syncAccountButtons();
   hideFilteredReels();
   exhausted = false;
   if (current < 0) more(); else maybeMore();
 };
+accountChanged = (username, saved) => accountsChanged([username], saved);
 let blockedAccounts = new Set(boot.blocked);
 let sessionBlocked = new Set();
 try { sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); } catch (_) {}
@@ -211,7 +215,7 @@ async function refreshFeedList(detail) {
     document.querySelector('#feed-menu summary').focus();
     feedsChanged();
   } else {
-    actionStatus(detail.created ? 'Created ' + detail.name.replaceAll('_', ' ') : 'Accounts added');
+    actionStatus(detail.imported ? 'Feeds imported' : detail.created ? 'Created ' + detail.name.replaceAll('_', ' ') : 'Accounts added');
     selectionVersion += 1;
     emptySince = null;
     lastNavigation = null;
@@ -221,6 +225,19 @@ async function refreshFeedList(detail) {
   renderFeedSelection();
 }
 window.addEventListener('ig-feeds-changed', event => {
+  if (event.detail.imported) {
+    const version = ++accountChangeVersion;
+    const importedAccounts = new Set(event.detail.feed_accounts);
+    const importedBlocks = new Set(event.detail.blocked_accounts);
+    for (const username of new Set([...feeded, ...importedAccounts]))
+      accountUpdates.set(username, {value:importedAccounts.has(username), version});
+    for (const username of new Set([...blockedAccounts, ...importedBlocks]))
+      blockUpdates.set(username, {value:importedBlocks.has(username), version});
+    feeded = importedAccounts;
+    blockedAccounts = importedBlocks;
+    syncAccountButtons();
+    hideFilteredReels();
+  }
   refreshFeedList(event.detail).catch(() => actionStatus('Saved · refresh to update the feed list'));
 });
 let deletingFeed = false;

@@ -55,6 +55,28 @@ Start with **Create feed** and add some Instagram handles or profile links.
 Name your feeds however you like, then use the feed selector to watch one or
 mix a few together. New installations start empty.
 
+Already follow accounts on Instagram? Choose **Import following** in the feed
+menu on desktop or Android. Select your Instagram export ZIP, `following.json`,
+or `following.html`, review the handles, and import into an existing or new feed.
+Duplicates are skipped, blocked accounts stay blocked, and existing feeds are
+preserved. This is a one-time import, not automatic synchronization.
+
+Get the export from Instagram's **Accounts Center → Your information and
+permissions**, under the information export/download controls. Select
+**Followers and following**, **All time**, and preferably **JSON**. Import files
+up to 25 MB; for a larger archive, extract just the following file first.
+The export is processed locally and only account handles are saved. Private
+accounts still cannot be viewed without logging in, which ig does not support.
+
+To move your setup to another device, choose **Export feeds** in the feed menu.
+Then choose **Import feeds** in ig on the other device and select that JSON file.
+Review it and press **Merge feeds**: matching feed names are combined, duplicate
+accounts are skipped, and permanent blocklists are combined. Your existing feeds
+and current feed selection stay intact. This file contains feeds and permanent
+blocks; it does not include viewing history, learned preferences, saved reels,
+or temporary session blocks. On Android, choose where to save the export using
+the system file picker.
+
 You can also add accounts from the terminal:
 
 ```sh

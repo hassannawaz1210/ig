@@ -49,6 +49,12 @@ protects local routes; it is never put in an external URL or JavaScript bridge.
 External links open in the user's browser. Android's Share menu accepts Instagram
 reel links. Back closes the current sheet/dialog before navigating back.
 
+The feed menu supports importing Instagram's following export (ZIP, JSON, or
+HTML). **Export feeds** saves an ig JSON file through Android's system file
+picker; **Import feeds** merges that file on Android or desktop. Feeds and
+permanent blocks are included, while history and saved reels are not. Existing
+feeds are kept when importing. No storage permission is needed.
+
 Closing or backgrounding the activity pauses video playback. Android may kill
 its process; reopening starts the backend again using the same stored feeds.
 Downloads use Android DownloadManager and are saved to the app's external-files
