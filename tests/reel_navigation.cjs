@@ -16,7 +16,7 @@ async function launch() {
   const browser = spawn(binary, ['--headless', '--no-sandbox', '--no-first-run', '--no-default-browser-check',
     '--remote-debugging-port=0', '--user-data-dir=' + profile, '--window-size=1000,800', 'about:blank'],
     {stdio: ['ignore', 'ignore', 'pipe']});
-  const close = () => { browser.kill('SIGKILL'); fs.rmSync(profile, {recursive: true, force: true}); };
+  const close = () => { browser.kill('SIGKILL'); fs.rmSync(profile, {recursive: true, force: true, maxRetries: 20, retryDelay: 50}); };
   let socketUrl;
   try {
     socketUrl = await new Promise((resolve, reject) => {
