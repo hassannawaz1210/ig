@@ -161,7 +161,13 @@ print(json.dumps({'playback': config.playback_preferences(),
     def test_settings_boot_has_android_flag_and_auth_applies(self):
         with patch.object(views, '_template', return_value='{{boot}}'), patch.object(config, 'ANDROID', True):
             self.assertEqual(json.loads(views.settings_html()), {'android': True, 'scroll_animation': 'snappy'})
-        for path, body in [('/settings', None), ('/settings/data', None),
+            self.assertEqual(json.loads(views.feeds_html()), {'android': True})
+            boot = json.loads(views.viewer_html('@someone', 'posts', [], username='someone'))
+            self.assertTrue(boot['android'], 'profile page gets the phone layout in the app')
+        page = self.request('/settings/feeds')
+        self.assertEqual((page[0], page[2]), (200, 'text/html; charset=utf-8'))
+        self.assertIn(b'id="settings-feeds"', page[1])
+        for path, body in [('/settings', None), ('/settings/feeds', None), ('/settings/data', None),
                            ('/settings/scroll', {'mode': 'snappy'}),
                            ('/settings/playback', {'sound': True}),
                            ('/feeds/accounts/remove', {'name': 'one', 'username': 'keep'})]:

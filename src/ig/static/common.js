@@ -463,3 +463,36 @@ function showReelActions(index = current) {
   action('Remove and block this creator', 'trash', () => confirmRemoveCreator(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
   dialog.append(actions); dialog.showModal();
 }
+
+// ---- Helpers shared by the Settings and Feeds pages ----
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+async function settingsRequest(path, body) {
+  const response = await fetch(path, body === undefined ? {} : {method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  let data;
+  try { data = await response.json(); }
+  catch (error) { throw new Error(response.ok ? 'Unexpected reply from ig. Try again.' : 'Could not save. Try again.'); }
+  if (!response.ok) throw new Error(data.error || 'Could not save. Try again.');
+  return data;
+}
+// A status line that hides itself after a few seconds; one with an Undo button
+// stays longer, and nothing hides while the pointer or focus is on it.
+function autoHideStatus(status, {hideMs = 5000, undoHideMs = 10000} = {}) {
+  let timer = null;
+  const later = () => {
+    clearTimeout(timer); timer = null;
+    if (!status.textContent) return;
+    const hide = () => {
+      if (status.matches(':hover, :focus-within')) timer = setTimeout(hide, 1000);
+      else { timer = null; status.replaceChildren(); }
+    };
+    timer = setTimeout(hide, status.querySelector('button') ? undoHideMs : hideMs);
+  };
+  new MutationObserver(later).observe(status, {childList:true, characterData:true, subtree:true});
+  return {pending: () => timer !== null};
+}

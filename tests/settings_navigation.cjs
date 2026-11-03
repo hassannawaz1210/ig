@@ -79,7 +79,7 @@ async function launch() {
       for(let i=0;!(await evaluate(expression));i++) {assert.ok(i<60,'Timed out: '+expression);await sleep(50);}
     };
     await send('Page.enable'); await send('Page.navigate',{url});
-    await waitFor("document.querySelectorAll('.feed-setting').length===3");
+    await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
     assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'snappy');
     assert.equal(await evaluate("document.getElementById('feeds-total').textContent"),'3 feeds · 162 accounts');
     await evaluate(`(() => {
@@ -97,22 +97,22 @@ async function launch() {
     await evaluate('releaseScrollWrite()');
     await waitFor("document.getElementById('settings-status').textContent==='Smooth scrolling enabled.'");
     await waitFor('scrollFlushDone');
-    assert.ok(await evaluate('statusTimer!==null'),'status message is scheduled to hide');
+    assert.ok(await evaluate('statusHider.pending()'),'status message is scheduled to hide');
     await sleep(5300);
     assert.equal(await evaluate("document.getElementById('settings-status').textContent"),'','status hides after a few seconds');
     assert.equal(await evaluate("getComputedStyle(document.getElementById('settings-status')).display"),'none','empty status takes no space');
-    await send('Page.reload'); await waitFor("document.querySelectorAll('.feed-setting').length===3");
+    await send('Page.reload'); await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
     assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'smooth','scroll preference survives reload');
     assert.equal(await evaluate("document.getElementById('sound-on')"),null,'sound stays on the existing reel control');
     await evaluate("localStorage.setItem('ig-auto-scroll','true')");
-    await send('Page.reload'); await waitFor("document.querySelectorAll('.feed-setting').length===3");
+    await send('Page.reload'); await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
     await evaluate('playbackWrite');
     assert.equal(await evaluate("document.getElementById('auto-scroll-on').checked"),true,'legacy choice migrated to SQLite');
     await evaluate("localStorage.clear(); document.getElementById('auto-scroll-on').click()");
     await waitFor("document.getElementById('settings-status').textContent==='Auto-scroll turned off.'");
     await evaluate("Storage.prototype.setItem=()=>{throw new Error('blocked')}; document.getElementById('auto-scroll-on').click()");
     await waitFor("document.getElementById('settings-status').textContent==='Auto-scroll turned on.'");
-    await send('Page.reload'); await waitFor("document.querySelectorAll('.feed-setting').length===3");
+    await send('Page.reload'); await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
     assert.equal(await evaluate("document.getElementById('auto-scroll-on').checked"),true,'SQLite works when browser storage is blocked');
     await evaluate(`window.originalFetch=window.fetch; window.fetch=(url,options)=>url==='/settings/playback'?
       Promise.resolve(new Response(JSON.stringify({error:'Could not save playback preferences'}),{status:500})):originalFetch(url,options);
@@ -122,6 +122,22 @@ async function launch() {
     await evaluate('window.fetch=originalFetch');
     await evaluate("document.querySelector('input[value=snappy]').click()");
     await waitFor("document.getElementById('settings-status').textContent==='Snappy scrolling enabled.'");
+    // Settings only links to the feed list; feeds are managed on their own page.
+    assert.equal(await evaluate("document.querySelectorAll('.feed-setting').length"),0,'Settings does not list every feed');
+    assert.equal(await evaluate("document.querySelector('a[href=\"/feeds/export\"]').textContent.includes('Export feeds')"),true);
+    await evaluate("document.querySelector('a[href=\"/settings/feeds\"]').click()");
+    await waitFor("location.pathname==='/settings/feeds' && document.querySelectorAll('.feed-setting').length===3");
+    assert.equal(await evaluate("document.getElementById('feeds-total').textContent"),'3 feeds · 162 accounts');
+    assert.equal(await evaluate("document.querySelectorAll('.feed-setting[open]').length"),0,'feeds start collapsed');
+    // Finding a feed by name or by one of its accounts.
+    const search=async q=>evaluate(`(() => { const s=document.getElementById('feed-search'); s.value=${JSON.stringify(q)};
+      s.dispatchEvent(new Event('input')); return [...document.querySelectorAll('.feed-setting:not([hidden])')].map(f=>f.dataset.name); })()`);
+    assert.deepEqual(await search('mem'),['memes']);
+    assert.deepEqual((await search('@shared')).sort(),['edits','memes']);
+    assert.deepEqual(await search('zzz'),[]);
+    assert.ok(await evaluate("!!document.querySelector('.no-match')"),'no matching feeds says so');
+    await search('');
+    assert.equal(await evaluate("document.querySelectorAll('.feed-setting:not([hidden])').length"),3);
     await evaluate("document.querySelector('[data-name=edits] summary').click()");
     await waitFor("document.querySelectorAll('[data-name=edits] .account-row').length===2");
     await evaluate("document.querySelector('[data-name=edits] button[aria-label=\"Remove @shared from edits\"]').click()");
@@ -159,8 +175,8 @@ async function launch() {
     for(const android of [false,true]) {
       await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
       await evaluate(`document.body.classList.toggle('android-app',${android}); window.scrollTo(0,0)`);
-      assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'Settings fits without horizontal scrolling');
-      fs.writeFileSync('/tmp/ig-settings-'+(android?'mobile':'desktop')+'.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+      assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth'),'Feeds page fits without horizontal scrolling');
+      fs.writeFileSync('/tmp/ig-feeds-'+(android?'mobile':'desktop')+'.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
       await evaluate('void importFollowing()');await waitFor("document.querySelector('#feed-picker h2')?.textContent==='Import following'");
       assert.equal(await evaluate("document.querySelector('#feed-picker h2').textContent"),'Import following');
       if(android)assert.equal(await evaluate("document.getElementById('feed-picker').getBoundingClientRect().bottom"),844);
@@ -169,7 +185,8 @@ async function launch() {
       assert.equal(await evaluate("document.querySelector('#feed-picker h2').textContent"),'Import feeds');
       await evaluate("document.getElementById('feed-picker').close()");await sleep(50);
     }
-    assert.equal(await evaluate("document.querySelector('a[href=\"/feeds/export\"]').textContent.includes('Export feeds')"),true);
+    await evaluate("history.back()");
+    await waitFor("location.pathname==='/settings' && document.getElementById('feeds-total')?.textContent==='4 feeds · 163 accounts'");
     console.log('Settings: playback persistence, membership removal, confirmations, add/create/delete/undo, large feeds, imports and mobile layout passed');
   } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

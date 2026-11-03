@@ -23,7 +23,7 @@ from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
 from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
-from .views import viewer_html, reels_html, settings_html, static_file
+from .views import viewer_html, reels_html, settings_html, feeds_html, static_file
 
 log = logging.getLogger(__name__)
 
@@ -274,10 +274,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b"ok", "text/plain")
         if not self._allowed():
             return
-        if self.path in ('/settings', '/settings/data'):
+        if self.path in ('/settings', '/settings/feeds', '/settings/data'):
             try:
                 if self.path == '/settings':
                     return self._send(200, settings_html().encode(), 'text/html; charset=utf-8')
+                if self.path == '/settings/feeds':
+                    return self._send(200, feeds_html().encode(), 'text/html; charset=utf-8')
                 return self._send(200, json.dumps({'feeds': load_feeds(),
                     'selected_feeds': selected_feeds(),
                     'blocked_accounts': sorted(blocked_accounts()),

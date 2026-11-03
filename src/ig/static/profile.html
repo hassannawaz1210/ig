@@ -3,29 +3,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{{title}}</title>
 <link rel="stylesheet" href="/static/profile.css"></head>
 <body>
-<header>
+<header class="page-header">
+  <a class="back" href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a>
   <div class="hleft">
     <h1>{{title}}</h1>
-    <p><span id="count"></span> loaded · {{subtitle}}</p>
+    <p><span id="count"></span> · {{subtitle}}</p>
   </div>
   {{add_button}}
 </header>
-<div class="grid" id="grid"></div>
+<div class="toolbar">
+  <div class="layouts" role="radiogroup" aria-label="Layout">
+    <button type="button" role="radio" data-layout="grid" title="Grid" aria-label="Grid"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+    <button type="button" role="radio" data-layout="cards" title="Cards" aria-label="Cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="12" rx="2"/><path d="M4 19h16M4 22h10"/></svg></button>
+    <button type="button" role="radio" data-layout="list" title="List" aria-label="List"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="6" height="6" rx="1"/><rect x="3" y="14" width="6" height="6" rx="1"/><path d="M12 6h9M12 9h6M12 16h9M12 19h6"/></svg></button>
+  </div>
+</div>
+<div class="grid" id="grid" data-layout="grid"></div>
 {{more_button}}
 
-<div class="lb" id="lb" hidden>
-  <button class="x" onclick="closeLb()" title="close (Esc)">✕</button>
-  <button class="nav prev" onclick="step(-1)" title="previous (←)">‹</button>
+<div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Post">
+  <div class="lbtop">
+    <span class="lbpos" id="lbpos"></span>
+    <button class="x" type="button" onclick="closeLb()" title="Close (Esc)" aria-label="Close">✕</button>
+  </div>
+  <button class="nav prev" type="button" onclick="step(-1)" title="Previous (←)" aria-label="Previous">‹</button>
   <div id="lbcontent"></div>
+  <button class="nav next" type="button" onclick="step(1)" title="Next (→)" aria-label="Next">›</button>
   <div class="lbmeta">
     <div class="lbstats" id="lbstats"></div>
     <div class="lbcap" id="lbcap"></div>
+    <div class="lbbtns">
+      <a id="lbopen" href="#" target="_blank" rel="noopener">Open on Instagram {{icon:external}}</a>
+    </div>
   </div>
-  <div class="lbbtns">
-    <a id="lbopen" href="#" target="_blank" rel="noopener">open on Instagram {{icon:external}}</a>
-    <button onclick="closeLb()">close</button>
-  </div>
-  <button class="nav next" onclick="step(1)" title="next (→)">›</button>
 </div>
 
 <script id="boot" type="application/json">{{boot}}</script>

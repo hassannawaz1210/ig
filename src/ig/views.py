@@ -64,7 +64,7 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                   add_button=add_button,
                   more_button='<button id="more">Load more</button>' if paged else "",
                   boot=_page_data({"posts": posts, "username": username,
-                                   "empty_message": empty_message}))
+                                   "empty_message": empty_message, "android": config.ANDROID}))
 
 
 def reels_html(code: str | None = None) -> str:
@@ -87,6 +87,11 @@ def reels_html(code: str | None = None) -> str:
         "blocked": sorted(blocked_accounts()),
         "selected_feeds": selected_feeds(),
     }))
+
+
+def feeds_html() -> str:
+    """Settings → Feeds: every feed and its accounts. The page loads them itself."""
+    return render('feeds.html', boot=_page_data({'android': config.ANDROID}))
 
 
 def settings_html() -> str:
