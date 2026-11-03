@@ -7,6 +7,10 @@ Like individual reels to shape recommendations, save favorites, or block
 accounts you don't want to see. There's keyboard navigation, comments, video
 downloads, automatic song recognition, and phone access over Wi-Fi.
 
+An experimental standalone Android app is being built on this branch. It reuses
+the Python backend and adds a touch-first interface. See [Android setup](android/README.md)
+for build instructions and current limitations.
+
 ## Getting started
 
 You'll need Python 3.11+ and a browser. Linux is tested; macOS and Windows

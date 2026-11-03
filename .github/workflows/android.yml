@@ -32,6 +32,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Install native wheel build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y patchelf patch unzip wget
+      - name: Build native Android CFFI
+        shell: bash
+        run: |
+          mkdir -p android/build/smoke
+          set -o pipefail
+          bash android/ci/build-cffi.sh 2>&1 | tee android/build/smoke/cffi-build.txt
+      - name: Keep native Android wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: ig-android-native-wheels
+          path: android/wheels/*.whl
+          if-no-files-found: error
+          retention-days: 14
       - name: Build standalone APK and instrumentation tests
         working-directory: android
         run: gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest
@@ -40,6 +55,13 @@ jobs:
         with:
           name: ig-android-debug
           path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Keep on-device test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ig-android-instrumentation
+          path: android/app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
           retention-days: 14
       - name: Enable emulator acceleration

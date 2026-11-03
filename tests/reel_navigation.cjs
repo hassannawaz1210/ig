@@ -511,6 +511,16 @@ const KEYS = {
     await evaluate("document.querySelector('#android-link-sheet input').value='https://example.com/reel/abcde'; document.querySelector('#android-link-sheet form').requestSubmit()");
     assert.ok(await evaluate("document.querySelector('#android-link-sheet .link-error').textContent.length>0"),'bad links show inline feedback');
     await evaluate("document.getElementById('android-link-sheet').close()");
+    await send('Emulation.setDeviceMetricsOverride', {width:844,height:390,deviceScaleFactor:1,mobile:true});
+    await evaluate('posts[current]._comments=[]; posts[current].comment_count=0; posts[current]._commentCursor=null; closeComments(); toggleComments(current)');
+    await sleep(300);
+    const landscape = await evaluate(`(() => {
+      const panel=document.getElementById('comments-panel').getBoundingClientRect();
+      return {width:panel.width,bottom:panel.bottom,feedWidth:feed.getBoundingClientRect().width};
+    })()`);
+    assert.equal(landscape.width,844,'Android comments remain a full-width sheet in landscape');
+    assert.equal(landscape.bottom,390);
+    assert.equal(landscape.feedWidth,844,'Android comments do not squeeze the reel into a desktop column');
     console.log('Reel navigation, feed selection, creation, account entry and shortcut layout passed');
   } finally { browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

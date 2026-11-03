@@ -603,6 +603,9 @@ async function viewingTests() {
   assert.equal(page.element('feed-status').hidden,true,'no create-feed or exhausted banner over the linked reel');
   assert.equal(page.calls.filter(c=>c.url==='/reels/media').length,1,'fetch linked media once');
   assert.equal(page.calls.filter(c=>c.url==='/reels/more').length,0,'do not fetch mixed feed');
+  await vm.runInContext("boot.android=true; downloadReel(0, {disabled:false})",page.ctx);
+  assert.equal(page.ctx.window.location.href,'/download/direct1','Android hands downloads to the native shell');
+  assert.equal(page.calls.filter(c=>c.url.startsWith('/download/')).length,0,'Android avoids buffering a blob in JavaScript');
   const failure = createPage(async()=>({ok:false,json:async()=>({error:'Unavailable'})}),
     {boot:{post_code:'direct2',feeds:[]}});
   await new Promise(setImmediate);

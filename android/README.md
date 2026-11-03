@@ -15,7 +15,7 @@ Use Android Studio or JDK 17, Android SDK 35, Python 3.13, and Gradle 8.11.1:
 
 ```sh
 cd android
-gradle :app:assembleDebug
+./gradlew :app:assembleDebug
 ```
 
 The APK is `app/build/outputs/apk/debug/app-debug.apk`. To install it on a connected

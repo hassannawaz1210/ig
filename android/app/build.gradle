@@ -28,6 +28,9 @@ chaquopy {
     defaultConfig {
         version = '3.13'
         pip {
+            // Built from the pinned upstream source by android/ci before Gradle.
+            options '--find-links', file('../wheels').absolutePath
+            install 'cffi==2.1.1'
             install 'curl-cffi==0.17.0'
             install 'segno==1.6.6'
         }

@@ -237,7 +237,13 @@ public final class MainActivity extends Activity {
     }
 
     private boolean routeNavigation(Uri uri) {
-        if (isLocal(uri)) return false;
+        if (isLocal(uri)) {
+            if (uri.getPath() != null && uri.getPath().matches("/download/[A-Za-z0-9_-]{5,30}")) {
+                saveDownload(uri);
+                return true;
+            }
+            return false;
+        }
         openExternal(uri);
         return true;
     }
@@ -266,22 +272,23 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void acceptSharedLink(Intent intent) {
-        if (!Intent.ACTION_SEND.equals(intent.getAction()) || !"text/plain".equals(intent.getType())) return;
+    private boolean acceptSharedLink(Intent intent) {
+        if (!Intent.ACTION_SEND.equals(intent.getAction()) || !"text/plain".equals(intent.getType())) return false;
         String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-        if (text == null) return;
+        if (text == null) return false;
         Matcher link = SHARED_LINK.matcher(text);
-        if (!link.find()) { Toast.makeText(this, "Share an Instagram reel link", Toast.LENGTH_SHORT).show(); return; }
+        if (!link.find()) { Toast.makeText(this, "Share an Instagram reel link", Toast.LENGTH_SHORT).show(); return false; }
         Uri uri = Uri.parse(link.group());
         Matcher post = POST_PATH.matcher(uri.getPath() == null ? "" : uri.getPath());
-        if (post.matches()) pendingPath = "/reel/" + post.group(1);
+        if (!post.matches()) return false;
+        pendingPath = "/reel/" + post.group(1);
+        return true;
     }
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        acceptSharedLink(intent);
-        if (web != null && origin != null) web.loadUrl(origin + pendingPath);
+        if (acceptSharedLink(intent) && web != null && origin != null) web.loadUrl(origin + pendingPath);
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {

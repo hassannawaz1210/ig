@@ -971,6 +971,10 @@ async function recognizeSong(i) {
 async function downloadReel(i, button) {
   const post = posts[i];
   if (!post || button.disabled) return;
+  if (boot.android) {
+    window.location.href = '/download/' + encodeURIComponent(post.shortcode);
+    return;
+  }
   button.disabled = true;
   const label = button.querySelector('span:last-child');
   label.textContent = 'saving…';

@@ -1,0 +1,12 @@
+# Based on Chaquopy's CFFI recipe. Build the required version from upstream
+# source rather than overriding curl-cffi's declared native ABI requirement.
+package:
+  name: cffi
+  version: "2.1.1"
+
+build:
+  number: 1
+
+requirements:
+  host:
+    - chaquopy-libffi 3.3
