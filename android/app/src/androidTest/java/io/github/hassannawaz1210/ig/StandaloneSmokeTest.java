@@ -170,7 +170,7 @@ public class StandaloneSmokeTest {
                     + "input.style='position:fixed;left:10px;top:10px;width:200px;height:80px;z-index:2147483647;background:white';"
                     + "input.onclick=()=>window.fixtureClicked=true;input.oncancel=()=>window.fixtureUpload='cancelled';"
                     + "input.onchange=async()=>{try{const file=input.files[0];"
-                    + "if(!(await file.text()).includes('fixture_creator'))throw Error('File unreadable');"
+                    + "const text=await file.text();if(!text.includes('fixture_creator'))throw Error('File unreadable: size='+file.size+', read='+text.length);"
                     + "const response=await fetch('/following/preview',{method:'POST',body:file});"
                     + "const data=await response.json();window.fixtureUpload=response.ok&&data.accounts.includes('fixture_creator')?'ok':JSON.stringify(data);"
                     + "}catch(error){window.fixtureUpload=String(error)}};document.body.append(input);return true})()");

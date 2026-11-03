@@ -14,6 +14,8 @@ import android.provider.OpenableColumns;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 
 /** Test APK only: fixed following fixture and an in-memory backup destination. */
@@ -21,11 +23,20 @@ public final class FollowingFixtureProvider extends ContentProvider {
     static final Uri FILE = Uri.parse("content://io.github.hassannawaz1210.ig.test.following/following.json");
     static final Uri BACKUP = Uri.parse("content://io.github.hassannawaz1210.ig.test.following/ig-feeds.json");
     private volatile String savedBackup;
+    private File followingFile;
     private static final byte[] CONTENT = ("{\"relationships_following\":[{\"string_list_data\":["
             + "{\"href\":\"https://www.instagram.com/fixture_creator/\",\"value\":\"fixture_creator\"}]}]}")
             .getBytes(StandardCharsets.UTF_8);
 
-    @Override public boolean onCreate() { return true; }
+    @Override public boolean onCreate() {
+        followingFile = new File(getContext().getCacheDir(), "following-fixture.json");
+        try (FileOutputStream output = new FileOutputStream(followingFile)) {
+            output.write(CONTENT);
+        } catch (IOException error) {
+            throw new IllegalStateException("Could not create following fixture", error);
+        }
+        return true;
+    }
     @Override public String getType(Uri uri) { return "application/json"; }
     @Override public Bundle call(String method, String arg, Bundle extras) {
         if ("readBackup".equals(method)) {
@@ -79,17 +90,9 @@ public final class FollowingFixtureProvider extends ContentProvider {
             }
         }
         if (!FILE.equals(uri) || !"r".equals(mode)) throw new FileNotFoundException();
-        try {
-            ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-            new Thread(() -> {
-                try (ParcelFileDescriptor.AutoCloseOutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
-                    output.write(CONTENT);
-                } catch (IOException ignored) { /* Reader may cancel. */ }
-            }, "following-fixture").start();
-            return pipe[0];
-        } catch (IOException error) {
-            throw new FileNotFoundException(error.toString());
-        }
+        // Chromium stats/seeks upload descriptors. A pipe has no file length
+        // and does not model the regular files returned by Downloads.
+        return ParcelFileDescriptor.open(followingFile, ParcelFileDescriptor.MODE_READ_ONLY);
     }
     @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException(); }
     @Override public int delete(Uri uri, String selection, String[] args) { throw new UnsupportedOperationException(); }
