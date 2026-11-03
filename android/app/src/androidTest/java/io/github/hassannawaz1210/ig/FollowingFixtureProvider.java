@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Binder;
 import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 
@@ -34,8 +35,15 @@ public final class FollowingFixtureProvider extends ContentProvider {
         }
         if (!"grant".equals(method)) throw new IllegalArgumentException("Unknown fixture method");
         savedBackup = null;
-        getContext().grantUriPermission("io.github.hassannawaz1210.ig", FILE, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        getContext().grantUriPermission("io.github.hassannawaz1210.ig", BACKUP, Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        // Like DocumentsProvider, access needs an explicit URI grant rather
+        // than being public (public providers can make granting a no-op).
+        long identity = Binder.clearCallingIdentity();
+        try {
+            getContext().grantUriPermission("io.github.hassannawaz1210.ig", FILE, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getContext().grantUriPermission("io.github.hassannawaz1210.ig", BACKUP, Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
         return Bundle.EMPTY;
     }
     @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String order) {

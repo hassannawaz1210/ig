@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -297,9 +296,7 @@ public final class MainActivity extends Activity {
             if (!choosingBackup) return;
             choosingBackup = false;
             Uri destination = resultCode == RESULT_OK && data != null ? data.getData() : null;
-            if (destination != null && "content".equals(destination.getScheme())
-                    && checkUriPermission(destination, android.os.Process.myPid(), android.os.Process.myUid(),
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            if (destination != null && "content".equals(destination.getScheme())) {
                 if (origin == null || token == null) pendingBackupDestination = destination;
                 else writeFeedsBackup(destination);
             }
@@ -307,10 +304,10 @@ public final class MainActivity extends Activity {
         }
         if (requestCode != CHOOSE_IMPORT_FILE || fileSelection == null) return;
         Uri selected = resultCode == RESULT_OK && data != null ? data.getData() : null;
-        // Never accept file:// paths or an ungranted URI from another app.
-        if (selected != null && "content".equals(selected.getScheme())
-                && checkUriPermission(selected, android.os.Process.myPid(), android.os.Process.myUid(),
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+        // Only document URIs from the pending picker are accepted. Android
+        // enforces access when WebView opens them; public providers need no
+        // explicit URI grant, so checkUriPermission alone is too restrictive.
+        if (selected != null && "content".equals(selected.getScheme())) {
             finishFileSelection(new Uri[] {selected});
         } else {
             finishFileSelection(null);

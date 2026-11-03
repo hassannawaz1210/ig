@@ -3,6 +3,7 @@ package io.github.hassannawaz1210.ig;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.net.Uri;
@@ -144,6 +145,20 @@ public class StandaloneSmokeTest {
     private static void checkFileUpload(ActivityScenario<MainActivity> scenario) throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         instrumentation.getContext().getContentResolver().call(FollowingFixtureProvider.FILE, "grant", null, null);
+        Context app = instrumentation.getTargetContext();
+        assertEquals("Fixture did not grant read access to target app", PackageManager.PERMISSION_GRANTED,
+                app.checkUriPermission(FollowingFixtureProvider.FILE, android.os.Process.myPid(), android.os.Process.myUid(),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        try (java.io.InputStream input = app.getContentResolver().openInputStream(FollowingFixtureProvider.FILE)) {
+            assertNotNull("Fixture provider did not open", input);
+            assertEquals("Fixture was unreadable", '{', input.read());
+        }
+        try (java.io.InputStream denied = app.getContentResolver().openInputStream(
+                Uri.parse("content://io.github.hassannawaz1210.ig.test.following/private.json"))) {
+            fail("Android allowed reading an ungranted protected document");
+        } catch (SecurityException expected) {
+            // Selection does not bypass the platform's document permissions.
+        }
         Intent result = new Intent().setData(FollowingFixtureProvider.FILE)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(
@@ -210,6 +225,9 @@ public class StandaloneSmokeTest {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         String originalPath = evaluate(scenario, "location.pathname");
         instrumentation.getContext().getContentResolver().call(FollowingFixtureProvider.FILE, "grant", null, null);
+        assertEquals("Fixture did not grant write access to target app", PackageManager.PERMISSION_GRANTED,
+                instrumentation.getTargetContext().checkUriPermission(FollowingFixtureProvider.BACKUP,
+                        android.os.Process.myPid(), android.os.Process.myUid(), Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
         Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(
                 documentIntent(Intent.ACTION_CREATE_DOCUMENT),
                 new Instrumentation.ActivityResult(Activity.RESULT_OK,

@@ -1,9 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission android:name="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
+        android:protectionLevel="signature" />
     <application>
         <provider
             android:name="io.github.hassannawaz1210.ig.FollowingFixtureProvider"
             android:authorities="io.github.hassannawaz1210.ig.test.following"
             android:exported="true"
+            android:readPermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
+            android:writePermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
             android:grantUriPermissions="true" />
     </application>
 </manifest>
