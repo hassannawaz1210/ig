@@ -26,12 +26,10 @@
   <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{{icon:keyboard}}</button>
   <button id="creator-browse" type="button" hidden onclick="leaveCreatorBrowse()" title="Return to mixed feed"></button>
   <span id="action-status" role="status" aria-live="polite"></span>
-  <button id="auto-scroll" type="button" onclick="toggleAutoScroll()" title="Auto-scroll (T)" aria-label="Auto-scroll (T)" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 5 6 6 6-6M6 13l6 6 6-6"/></svg></button>
   <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{{icon:muted}}</button></div>
 <div id="feed"></div>
 <nav class="android-only android-nav" aria-label="Navigation">
   <a href="/" aria-label="Watch reels" aria-current="page"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m10 8 6 4-6 4Z"/></svg><span>Watch</span></a>
-  <button type="button" onclick="event.stopPropagation(); openFeedMenu()">{{icon:folder}}<span>Feeds</span></button>
   <a href="/saved-reels">{{icon:bookmark}}<span>Saved</span></a>
   <a href="/settings">{{icon:settings}}<span>Settings</span></a>
 </nav>

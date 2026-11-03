@@ -227,8 +227,6 @@ body:has(#comments-panel:not([hidden])) .info { max-width:calc(100% - 84px);
   width:clamp(120px, calc((100vw - var(--comments-width) - 56.25dvh) / 2 - 28px), 280px); }
 body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--comments-width)) / 2); }
 #comments-backdrop, .sheet-handle { display:none; }
-#auto-scroll { border:0;background:transparent;color:#aaa;padding:4px;cursor:pointer; }
-#auto-scroll[aria-pressed="true"] { color:#c5b2ff;background:#302841;border-radius:6px; }
 @media (max-width:640px) {
   #comments-panel { top:auto;left:0;right:0;bottom:0;width:100%;height:76dvh;max-height:calc(100dvh - env(safe-area-inset-top) - 24px);
     border:0;border-radius:20px 20px 0 0;background:#202020;transform:translateY(var(--sheet-drag, 0px));
@@ -258,7 +256,9 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .android-only, .android-reel-more { display:none; }
 .android-app { --android-nav-height:calc(62px + env(safe-area-inset-bottom)); }
 .android-app .top { padding:calc(8px + env(safe-area-inset-top)) 14px 8px;gap:8px; }
-.android-app #shortcuts, .android-app #auto-scroll, .android-app .feed-key-hints,
+.profile-action { display:none; }
+.android-app .bar > .profile-action { display:flex; }
+.android-app #shortcuts, .android-app .feed-key-hints,
 .android-app .feed-panel kbd, .android-app .info .date { display:none; }
 .android-app .feed-menu summary { min-height:28px;padding:8px 0;background:none;border:0;font-size:16px; }
 .android-app .feed-menu { max-width:calc(100vw - 104px); }
@@ -279,7 +279,7 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .android-app .bar .ico { min-width:48px;min-height:48px;justify-content:center;gap:4px; }
 .android-app .bar .em .icon { width:28px;height:28px; }
 .android-app .bar > .ico:nth-child(2), .android-app .bar > .why-button,
-.android-app .bar > .account-action, .android-app .bar > .download,
+.android-app .bar > .download,
 .android-app .bar > a { display:none; }
 .android-app .bar .reel-save > span:last-child { display:none; }
 .android-app .android-reel-more { display:flex;font-size:28px;line-height:1; }
@@ -349,3 +349,12 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
   .android-app .bar { bottom:10px;gap:0; }
   .android-app .bar .ico { min-height:40px; }
 }
+/* Remove-creator confirmation: a centered card on desktop, a bottom sheet on Android. */
+.confirm-sheet { width:min(400px, calc(100vw - 32px));box-sizing:border-box;border:1px solid #333;border-radius:14px;
+  padding:20px;background:#1c1c1c;color:#eee;font:15px/1.5 system-ui; }
+.confirm-sheet p { margin:12px 0 18px;color:#bbb;font-size:14px; }
+.confirm-actions { display:flex;justify-content:flex-end;gap:10px; }
+.confirm-actions button { min-height:44px;padding:10px 16px;border:1px solid #444;border-radius:10px;background:none;color:#eee;font:inherit;cursor:pointer; }
+.confirm-actions .confirm-remove { background:#5c1f1b;border-color:#5c1f1b;color:#ffd6d2;font-weight:600; }
+.android-app .confirm-sheet { width:100%;border:0;border-radius:20px 20px 0 0; }
+.android-app .confirm-actions button { flex:1;min-height:48px; }

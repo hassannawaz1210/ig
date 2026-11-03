@@ -1,3 +1,20 @@
+// Playback choices that belong to this device (sound, auto-scroll). They live in
+// localStorage so leaving the reels page (for Settings, a profile, etc.) and
+// coming back keeps them. Storage can be blocked, so every access is guarded and
+// falls back to the default.
+const devicePreferences = {
+  keys: {sound: 'ig-sound-on', autoScroll: 'ig-auto-scroll'},
+  get(name) {
+    try { return localStorage.getItem(this.keys[name]) === 'true'; }
+    catch (error) { console.warn('Could not read the ' + name + ' preference', error); return false; }
+  },
+  set(name, value) {
+    try { localStorage.setItem(this.keys[name], String(Boolean(value))); return true; }
+    catch (error) { console.warn('Could not save the ' + name + ' preference', error); return false; }
+  },
+  // Name of the preference stored under a localStorage key, for storage events.
+  nameFor(key) { return Object.keys(this.keys).find(name => this.keys[name] === key) || null; },
+};
 let accountChanged = () => {};
 let accountsChanged = (usernames, saved) => { for (const username of usernames) accountChanged(username, saved); };
 function notifyAccountsChange(usernames, saved) {
@@ -391,13 +408,10 @@ function showReelActions(index = current) {
     actions.append(button);
   }
   action('Not interested', 'less', () => rateReel(index, 'dislike'));
-  action('Add creator to a feed', 'plus', () => chooseFeed(post.owner));
   action('More from this creator', 'user', () => { if (current !== index) showSlide(index); browseCreator(1); });
-  action('View profile', 'external', () => { window.location.href = '/u/' + encodeURIComponent(post.owner); });
   if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));
   action('Download video', 'download', () => downloadReel(index, document.getElementById('s'+index)?.querySelector('.download')));
-  action(autoScroll ? 'Turn off auto-scroll' : 'Auto-scroll after each reel', 'check', () => toggleAutoScroll());
   action('Block for this session', 'less', () => { if (current !== index) showSlide(index); blockCurrent(true); });
-  action('Remove and block this creator', 'trash', () => rmAcc(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
+  action('Remove and block this creator', 'trash', () => confirmRemoveCreator(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
   dialog.append(actions); dialog.showModal();
 }

@@ -6,6 +6,10 @@ let scrollTarget = null;
 window.addEventListener('storage', event => {
   if (event.key === 'ig-scroll-animation' && ['smooth', 'snappy'].includes(event.newValue))
     scrollAnimation = event.newValue;
+  // Settings open in another tab changed a device preference.
+  const preference = devicePreferences.nameFor(event.key);
+  if (preference === 'sound') { soundBlocked = false; setMuted(event.newValue !== 'true'); }
+  if (preference === 'autoScroll') setAutoScroll(event.newValue === 'true');
 });
 if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
@@ -17,7 +21,7 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
-let autoScroll = false;
+let autoScroll = devicePreferences.get('autoScroll');
 let creatorTrail = null;
 let shownCodes = new Set();
 try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
@@ -33,7 +37,7 @@ function excludedReelCodes() {
 const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 let reservationTimer = null;
 const pendingReleases = new Set();
-let slides = 0, muted = true, fetching = false, exhausted = false;
+let slides = 0, muted = !devicePreferences.get('sound'), fetching = false, exhausted = false;
 const base = "/reels";
 let feeded = new Set(boot.feed_accounts);
 const accountUpdates = new Map();
@@ -47,7 +51,7 @@ function syncAccountButtons() {
     button.innerHTML = '<span class="em">' + icon(saved ? 'check' : 'plus') + '</span><span>' + (saved ? 'in feed' : 'add') + '</span>';
     button.style.opacity = saved ? '.7' : '1';
     button.title = saved ? 'Remove account and stop its reels (R)' : 'Add this account to a feed';
-    button.onclick = saved ? () => rmAcc(p.owner, button) : () => addAcc(p.owner, button);
+    button.onclick = saved ? () => confirmRemoveCreator(p.owner, button) : () => addAcc(p.owner, button);
   });
 }
 accountsChanged = (usernames, saved) => {
@@ -71,7 +75,23 @@ try { sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blo
 // A dropped reel was queued for an earlier feed choice and removed from the page.
 function isHidden(p) { return p && (p._dropped || (p.feedback === 'dislike' && p.shortcode !== boot.post_code) || blockedAccounts.has(p.owner) || sessionBlocked.has(p.owner)); }
 function visibleIndices() { return posts.map((p,i) => isHidden(p) ? -1 : i).filter(i => i >= 0); }
-function actionStatus(message) { document.getElementById('action-status').textContent = message; }
+// Short notices hide by themselves. `stay` keeps one up until it is replaced
+// (loading, or waiting for a tap); `hideAfterMs` gives an Undo more time.
+const NOTICE_HIDE_MS = 4000;
+let actionStatusTimer = null;
+function actionStatus(message, {stay = false, hideAfterMs = NOTICE_HIDE_MS} = {}) {
+  const status = document.getElementById('action-status');
+  status.textContent = message;
+  clearTimeout(actionStatusTimer);
+  actionStatusTimer = null;
+  if (!message || stay) return;
+  const hide = () => {
+    // Keep it while the user is reaching for a button in it (e.g. Undo).
+    if (status.matches(':hover, :focus-within')) actionStatusTimer = setTimeout(hide, 1000);
+    else { actionStatusTimer = null; status.textContent = ''; }
+  };
+  actionStatusTimer = setTimeout(hide, hideAfterMs);
+}
 
 // Feed chips. A tap changes the selection at once; saving waits a moment so
 // several quick taps become one change. null means All.
@@ -284,7 +304,7 @@ async function performFeedDeletion(name) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Could not delete feed');
     try { await refreshFeedList(data); } catch (_) { /* Undo must remain available if refreshing fails. */ }
-    actionStatus('Deleted ' + name.replaceAll('_', ' '));
+    actionStatus('Deleted ' + name.replaceAll('_', ' '), {hideAfterMs:10000});
     const undo = document.createElement('button');
     undo.textContent = 'Undo'; undo.type = 'button';
     undo.onclick = async () => {
@@ -451,12 +471,14 @@ function slideHtml(p, i) {
       ${feeded.has(p.owner)
           ? `<div class="ico account-action" style="cursor:pointer;opacity:.7"
              title="Remove account and stop its reels (R)"
-             onclick="rmAcc('${esc(p.owner)}', this)">
+             onclick="confirmRemoveCreator('${esc(p.owner)}', this)">
              <span class="em">${icon('check')}</span><span>in feed</span></div>`
           : `<div class="ico account-action" style="cursor:pointer"
              title="add this account to your feed"
              onclick="addAcc('${esc(p.owner)}', this)">
              <span class="em">${icon('plus')}</span><span>add</span></div>`}
+      <button class="ico profile-action" type="button" title="View profile (P)" aria-label="View @${esc(p.owner)}'s profile"
+        onclick="openProfile(${i})"><span class="em">${icon('user')}</span><span>profile</span></button>
       <button class="ico reel-save" type="button" title="Save to Saved reels (S)"
         aria-label="Save this reel" aria-pressed="${Boolean(p.saved)}" onclick="toggleSavedReel(${i})">
         <span class="em">${icon('bookmark')}</span><span>${p.saved ? 'saved' : 'save'}</span></button>
@@ -548,7 +570,7 @@ function setVideo(p, i, play = false) {
     v.src = p.video;
     v.load();
   }
-  if (play && current === i && !p._paused) v.play().catch(()=>{});
+  if (play && current === i && !p._paused) playVideo(v);
 }
 async function prepare(i) {
   const p = posts[i];
@@ -741,14 +763,57 @@ function tap(e) {
   const v = e.target.closest('.slide')?.querySelector('video');
   if (v) togglePlayback();
 }
-function toggleMute() {
-  muted = !muted;
+// soundBlocked: the saved choice is sound on, but the browser refused to play
+// with sound before the user interacted with this page.
+let soundBlocked = false;
+function setMuted(value) {
+  muted = value;
   document.querySelectorAll('video').forEach(v => v.muted = muted);
   const button = document.getElementById('mute');
   button.innerHTML = icon(muted ? 'muted' : 'volume');
-  button.title = muted ? 'Unmute (M)' : 'Mute (M)';
+  button.title = boot.android ? 'Mute or unmute' : muted ? 'Unmute (M)' : 'Mute (M)';
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(muted));
+}
+function toggleMute() {
+  soundBlocked = false;
+  setMuted(!muted);
+  if (!devicePreferences.set('sound', !muted)) actionStatus('Sound changed for now · could not remember it');
+}
+function playVideo(video) {
+  video.play().catch(error => {
+    if (error?.name !== 'NotAllowedError' || video.muted) return;
+    // Browsers may block sound until the first tap or key press. Play muted now
+    // and turn sound back on at the first interaction.
+    soundBlocked = true;
+    setMuted(true);
+    actionStatus('Tap anywhere to turn sound on', {stay:true});
+    video.play().catch(() => {});
+  });
+}
+function restoreBlockedSound(event) {
+  if (!soundBlocked || (event.type === 'keydown' && event.key?.toLowerCase() === 'm')) return;
+  soundBlocked = false;
+  if (devicePreferences.get('sound')) { setMuted(false); actionStatus(''); }
+}
+document.addEventListener('pointerdown', restoreBlockedSound, true);
+document.addEventListener('keydown', restoreBlockedSound, true);
+// Tapping "in feed" removes and blocks a creator, so ask first. The R shortcut
+// stays immediate because a key press is deliberate.
+function confirmRemoveCreator(u, el) {
+  if (removingAccounts.has(u)) return;
+  const dialog = androidSheet('remove-creator-confirm', 'Remove @' + u + '?');
+  dialog.classList.add('confirm-sheet');
+  const message = document.createElement('p');
+  message.textContent = 'They will be removed from all your feeds and their reels will stop showing. You can add them again later.';
+  const actions = document.createElement('div'); actions.className = 'confirm-actions';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'confirm-remove';
+  remove.textContent = 'Remove and block';
+  cancel.onclick = () => dialog.close();
+  remove.onclick = () => { dialog.close(); rmAcc(u, el); };
+  actions.append(cancel, remove); dialog.append(message, actions);
+  dialog.showModal(); cancel.focus();
 }
 async function addAcc(u, el) {
   await chooseFeed(u);
@@ -872,6 +937,21 @@ window.addEventListener('pagehide', () => {
   // Keep a playing clip's lease until its final view request can arrive.
   releaseReservations(posts.filter((p, i) => i >= current && !p._dropped && !(p._watchedSeconds > 0)).map(p => p.reservation).filter(Boolean));
 });
+// A restored page missed imports made elsewhere (e.g. in Settings); re-read
+// which creators are in feeds so the add / in feed buttons are right.
+async function refreshFeedAccounts() {
+  const version = accountChangeVersion;
+  try {
+    const response = await fetch('/settings/data');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'HTTP ' + response.status);
+    if (version !== accountChangeVersion) return;  // a newer local change wins
+    feeded = new Set(Object.values(data.feeds || {}).flat());
+    syncAccountButtons();
+  } catch (error) {
+    console.warn('Could not refresh feed accounts', error);
+  }
+}
 function replaceExpiredQueue() {
   if (!(posts[current]?._watchedSeconds > 0)) current = -1;
   dropQueuedReels();
@@ -890,6 +970,9 @@ window.addEventListener('pageshow', event => {
       const saved = localStorage.getItem('ig-scroll-animation');
       if (['smooth', 'snappy'].includes(saved)) scrollAnimation = saved;
     } catch (_) {}
+    setMuted(!devicePreferences.get('sound'));
+    setAutoScroll(devicePreferences.get('autoScroll'));
+    refreshFeedAccounts();
     replaceExpiredQueue();
   }
 });
@@ -1058,13 +1141,17 @@ async function toggleSavedReel(i) {
   } catch (_) { actionStatus(message); }
   finally { p._saveBusy = false; }
 }
+function setAutoScroll(value) {
+  autoScroll = value;
+  document.querySelectorAll('#feed video').forEach(v => { v.loop = !autoScroll; });
+}
 function toggleAutoScroll() {
   autoScroll = !autoScroll;
-  document.getElementById('auto-scroll').setAttribute('aria-pressed', String(autoScroll));
+  if (!devicePreferences.set('autoScroll', autoScroll)) actionStatus('Auto-scroll changed for now · could not remember it');
   document.querySelectorAll('#feed video').forEach(v => { v.loop = !autoScroll; });
   // Returning to looping should resume an ended reel, unless explicitly paused.
   const video = document.querySelector('#s'+current+' video');
-  if (!autoScroll && video?.ended && !posts[current]?._paused) video.play().catch(()=>{});
+  if (!autoScroll && video?.ended && !posts[current]?._paused) playVideo(video);
   actionStatus('Auto-scroll ' + (autoScroll ? 'on' : 'off'));
 }
 function advanceAutoScroll() {
@@ -1085,7 +1172,7 @@ function togglePlayback() {
   if (!p || isHidden(p)) return;
   const video = document.getElementById('s'+current)?.querySelector('video');
   p._paused = video ? !video.paused : !p._paused;
-  if (video) p._paused ? video.pause() : video.play().catch(()=>{});
+  if (video) p._paused ? video.pause() : playVideo(video);
 }
 function showSlide(i) {
   if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse(false);
@@ -1247,7 +1334,7 @@ async function browseCreator(direction) {
     if (trail.busy || trail.timer) return;
     trail.busy = true;
     const request = trail.request = (trail.request || 0) + 1;
-    actionStatus('Loading more from @' + trail.owner + '…');
+    actionStatus('Loading more from @' + trail.owner + '…', {stay:true});
     try {
       const r = await fetch('/creator/' + encodeURIComponent(trail.owner) + '/more', {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -1277,12 +1364,16 @@ async function browseCreator(direction) {
   if (creatorTrail === trail) {
     const button = document.getElementById('creator-browse');
     button.hidden = false;
-    button.textContent = '@' + trail.owner + ' · ' + (trail.at + 1) + ' · Back to mix';
+    button.textContent = '@' + trail.owner + ' · ' + (trail.at + 1) + (boot.android ? ' · swipe ← for more · Back to mix' : ' · Back to mix');
   }
 }
-function openProfile() {
-  const owner = posts[current]?.owner;
-  if (owner) window.open('/u/' + encodeURIComponent(owner), '_blank', 'noopener');
+function openProfile(i = current) {
+  const owner = posts[i]?.owner;
+  if (!owner) return;
+  const url = '/u/' + encodeURIComponent(owner);
+  // The Android app has one WebView; open the profile in place so Back returns here.
+  if (boot.android) window.location.href = url;
+  else window.open(url, '_blank', 'noopener');
 }
 const heldKeys = new Set();
 function releaseReelKey(e) { heldKeys.delete(e.code || e.key.toLowerCase()); }
@@ -1301,7 +1392,7 @@ function handleReelKey(e) {
   // Space retains native activation for a focused button/link; navigation keys
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;
-  const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:openProfile, w:()=>toggleWhy(current),
+  const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:()=>openProfile(), w:()=>toggleWhy(current),
     s:()=>toggleSavedReel(current), d:downloadCurrent, t:toggleAutoScroll,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1),
@@ -1430,8 +1521,10 @@ feed.addEventListener('touchmove', e => {
   if (!t) { reelTouch = null; return; }
   reelTouch.dx = t.clientX - reelTouch.x;
   reelTouch.dy = t.clientY - reelTouch.y;
+  if (reelTouch.horizontal) return;
   if (!reelTouch.vertical && Math.abs(reelTouch.dx) > Math.abs(reelTouch.dy)) {
-    if (Math.abs(reelTouch.dx) > 10) reelTouch = null;
+    // A sideways swipe browses the current creator, like Left/Right on a keyboard.
+    if (Math.abs(reelTouch.dx) > 10) reelTouch.horizontal = true;
     return;
   }
   if (e.cancelable) {
@@ -1444,15 +1537,23 @@ feed.addEventListener('touchmove', e => {
 feed.addEventListener('touchend', e => {
   const gesture = reelTouch;
   reelTouch = null;
-  if (!gesture || e.touches.length || !gesture.vertical) return;
+  if (!gesture || e.touches.length || !(gesture.vertical || gesture.horizontal)) return;
   const t = [...e.changedTouches].find(t => t.identifier === gesture.id);
   if (!t) return;
+  if (gesture.horizontal) {
+    const sideways = t.clientX - gesture.x;
+    // Swipe left for the creator's next reel, right to go back.
+    if (Math.abs(sideways) >= 60) browseCreator(sideways < 0 ? 1 : -1);
+    return;
+  }
   const distance = gesture.y - t.clientY;
   if (Math.abs(distance) >= 48) goRel(Math.sign(distance));
 }, {passive:true});
 feed.addEventListener('touchcancel', () => { reelTouch = null; }, {passive:true});
 updateFeedStatus();
 if (boot.android && typeof setupAndroidUI === 'function') setupAndroidUI();
+setMuted(muted);
+setAutoScroll(autoScroll);
 more();
 
 function closeComments() {

@@ -3,26 +3,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Settings · ig</title><link rel="stylesheet" href="/static/settings.css"></head>
 <body>
-<header><a href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Settings</h1></header>
+<header class="page-header"><a class="back" href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Settings</h1></header>
 <main>
   <p id="settings-status" role="status" aria-live="polite"></p>
+
   <section aria-labelledby="playback-title">
-    <h2 id="playback-title">Playback</h2>
-    <div class="setting-row"><span>Reel scrolling</span><fieldset id="scroll-mode" disabled><legend class="sr-only">Reel scrolling</legend>
-      <label><input type="radio" name="scroll" value="smooth"><span title="Slide between reels">Smooth</span></label>
-      <label><input type="radio" name="scroll" value="snappy"><span title="Switch immediately">Snappy</span></label>
-    </fieldset></div>
+    <h2 id="playback-title" class="group-title">Playback</h2>
+    <div class="card">
+      <label class="row">
+        <span class="row-text">Sound<small>Play reels with sound on this device</small></span>
+        <input id="sound-on" class="switch" type="checkbox" role="switch">
+      </label>
+      <label class="row">
+        <span class="row-text">Auto-scroll<small>Move to the next reel when one ends</small></span>
+        <input id="auto-scroll-on" class="switch" type="checkbox" role="switch">
+      </label>
+      <div class="row">
+        <span class="row-text" id="scroll-mode-label">Reel transitions<small>How the feed moves between reels</small></span>
+        <fieldset id="scroll-mode" class="segmented" disabled aria-labelledby="scroll-mode-label">
+          <label><input type="radio" name="scroll" value="smooth"><span title="Slide between reels">Smooth</span></label>
+          <label><input type="radio" name="scroll" value="snappy"><span title="Switch immediately">Snappy</span></label>
+        </fieldset>
+      </div>
+    </div>
+    <p class="group-note">Sound and auto-scroll are saved in this browser. Transitions are saved to your profile.</p>
   </section>
-  <section aria-labelledby="transfer-title">
-    <h2 id="transfer-title">Import &amp; export</h2>
-    <button class="transfer-row" type="button" onclick="importFollowing()"><span>Import Instagram following<small>Choose your downloaded Instagram following list</small></span><span aria-hidden="true">›</span></button>
-    <a class="transfer-row" href="/feeds/export"><span>Export feeds<small>Save your feeds and permanent blocks to a file</small></span><span aria-hidden="true">↓</span></a>
-    <button class="transfer-row" type="button" onclick="importFeeds()"><span>Import feeds<small>Merge a file exported from ig</small></span><span aria-hidden="true">›</span></button>
-  </section>
+
   <section aria-labelledby="feeds-title">
-    <div class="section-heading"><h2 id="feeds-title">Your feeds</h2><button id="create-feed" type="button">{{icon:plus}}New feed</button></div>
-    <p id="feeds-total" class="muted"></p>
-    <div id="settings-feeds" aria-busy="true"><p class="muted">Loading feeds…</p></div>
+    <div class="group-heading">
+      <div><h2 id="feeds-title" class="group-title">Your feeds</h2><p id="feeds-total" class="muted"></p></div>
+      <button id="create-feed" class="primary" type="button">{{icon:plus}}New feed</button>
+    </div>
+    <div id="settings-feeds" class="card" aria-busy="true"><p class="muted empty">Loading feeds…</p></div>
+  </section>
+
+  <section aria-labelledby="transfer-title">
+    <h2 id="transfer-title" class="group-title">Import &amp; export</h2>
+    <div class="card">
+      <button class="row link-row" type="button" onclick="importFollowing()"><span class="row-text">Import Instagram following<small>Choose your downloaded Instagram following list</small></span><span class="chevron" aria-hidden="true">›</span></button>
+      <a class="row link-row" href="/feeds/export"><span class="row-text">Export feeds<small>Save your feeds and permanent blocks to a file</small></span><span class="chevron" aria-hidden="true">↓</span></a>
+      <button class="row link-row" type="button" onclick="importFeeds()"><span class="row-text">Import feeds<small>Merge a file exported from ig</small></span><span class="chevron" aria-hidden="true">›</span></button>
+    </div>
   </section>
 </main>
 <script id="boot" type="application/json">{{boot}}</script>

@@ -4,6 +4,21 @@ let chosenFeeds = null;
 let settingsData = {feeds:{},scroll_animation:boot.scroll_animation || 'snappy'};
 let loadVersion = 0, scrollVersion = 0, scrollSaving = false;
 const status = document.getElementById('settings-status');
+// The status line hides itself after a few seconds; one with an Undo button
+// stays longer, and nothing hides while the pointer or focus is on it.
+const STATUS_HIDE_MS = 5000, STATUS_UNDO_HIDE_MS = 10000;
+let statusTimer = null;
+function hideStatusLater() {
+  clearTimeout(statusTimer);
+  statusTimer = null;
+  if (!status.textContent) return;
+  const hide = () => {
+    if (status.matches(':hover, :focus-within')) statusTimer = setTimeout(hide, 1000);
+    else { statusTimer = null; status.replaceChildren(); }
+  };
+  statusTimer = setTimeout(hide, status.querySelector('button') ? STATUS_UNDO_HIDE_MS : STATUS_HIDE_MS);
+}
+new MutationObserver(hideStatusLater).observe(status, {childList:true, characterData:true, subtree:true});
 const container = document.getElementById('settings-feeds');
 const scrollMode = document.getElementById('scroll-mode');
 const displayName = name => name.replaceAll('_', ' ');
@@ -109,7 +124,7 @@ async function loadSettings(preferredFeed) {
     const total=new Set(Object.values(data.feeds).flat()).size;
     document.getElementById('feeds-total').textContent=`${names.length} feed${names.length===1?'':'s'} · ${total} account${total===1?'':'s'}`;
     container.replaceChildren();
-    if (!names.length) container.append(element('p','muted','No feeds yet. Create one or import a file below.'));
+    if (!names.length) container.append(element('p','muted empty','No feeds yet. Create one or import a file below.'));
     for (const name of names) container.append(renderFeed(name,data.feeds[name],open.has(name)));
   } catch (error) {if(version===loadVersion)status.textContent=error.message;}
   finally {if(version===loadVersion)container.setAttribute('aria-busy','false');}
@@ -129,12 +144,30 @@ scrollMode.onchange=async event=>{
     status.textContent=error.message;
   } finally {scrollSaving=false;scrollMode.disabled=false;}
 };
+// Sound and auto-scroll are per-device choices kept in localStorage; the reels
+// page reads them on load and through storage events.
+const deviceSwitches = {sound:document.getElementById('sound-on'), autoScroll:document.getElementById('auto-scroll-on')};
+const deviceMessages = {sound:['Reels will play with sound.','Reels will play muted.'],
+  autoScroll:['Auto-scroll turned on.','Auto-scroll turned off.']};
+for (const [name, input] of Object.entries(deviceSwitches)) {
+  input.checked = devicePreferences.get(name);
+  input.onchange = () => {
+    if (devicePreferences.set(name, input.checked)) status.textContent = deviceMessages[name][input.checked ? 0 : 1];
+    else { input.checked = !input.checked; status.textContent = 'Could not save this setting in this browser.'; }
+  };
+}
 document.getElementById('create-feed').onclick=()=>chooseFeed('',true);
 window.addEventListener('ig-feeds-changed',event=>loadSettings(event.detail?.name));
 window.addEventListener('storage',event=>{
+  const preference=devicePreferences.nameFor(event.key);
+  if(preference)deviceSwitches[preference].checked=event.newValue==='true';
   if(event.key==='ig-account-change')loadSettings();
   if(event.key==='ig-scroll-animation'&&['smooth','snappy'].includes(event.newValue)&&!scrollSaving){
     scrollVersion++;settingsData.scroll_animation=event.newValue;scrollMode.querySelector(`input[value="${event.newValue}"]`).checked=true;
   }
+});
+// Back navigation can restore this page from the browser cache; refresh device choices.
+window.addEventListener('pageshow',event=>{
+  if(event.persisted)for(const [name,input] of Object.entries(deviceSwitches))input.checked=devicePreferences.get(name);
 });
 loadSettings();

@@ -87,6 +87,7 @@ const KEYS = {
   End: {key: 'End', code: 'End', windowsVirtualKeyCode: 35},
   '+': {key: '+', code: 'Equal', windowsVirtualKeyCode: 187, text: '+'},
   a: {key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, text: 'a'},
+  m: {key: 'm', code: 'KeyM', windowsVirtualKeyCode: 77, text: 'm'},
   Tab: {key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9},
 };
 
@@ -496,21 +497,42 @@ const KEYS = {
       const reel=document.querySelector('.slide:not([hidden])').getBoundingClientRect();
       return {navTop:nav.top,navBottom:nav.bottom,reelHeight:reel.height,
         shortcuts:getComputedStyle(document.getElementById('shortcuts')).display,
-        more:getComputedStyle(document.querySelector('.android-reel-more')).display};
+        more:getComputedStyle(document.querySelector('.android-reel-more')).display,
+        rail:[...document.querySelector('.slide:not([hidden]) .bar').children].filter(el=>getComputedStyle(el).display!=='none').map(el=>el.className),
+        navItems:[...document.querySelectorAll('.android-nav > *')].map(el=>el.textContent.trim()),
+        autoScrollButton:!!document.getElementById('auto-scroll')};
     })()`);
     assert.equal(mobile.shortcuts,'none','Android has no keyboard-shortcut button');
     assert.equal(mobile.more,'flex','Android reel actions have a visible touch control');
+    assert.ok(mobile.rail.some(c=>c.includes('account-action')),'add creator sits in the reel rail');
+    assert.ok(mobile.rail.some(c=>c.includes('profile-action')),'view profile sits in the reel rail');
+    assert.deepEqual(mobile.navItems,['Watch','Saved','Settings'],'feeds are chosen from the top menu only');
+    assert.equal(mobile.autoScrollButton,false,'auto-scroll lives in Settings');
     assert.equal(mobile.navBottom,844,'bottom navigation fits the viewport');
     assert.equal(mobile.reelHeight,mobile.navTop,'video viewport ends above navigation');
     fs.writeFileSync('/tmp/ig-android-watch.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
-    await evaluate("document.querySelector('.android-nav button').click()");
+    // A sideways swipe browses the current creator (Left/Right on a keyboard).
+    const swipes = await evaluate(`(() => {
+      const calls=[], real=browseCreator; browseCreator=d=>calls.push(d);
+      const slide=document.getElementById('s'+current);
+      const touch=(x,y)=>new Touch({identifier:1,target:slide,clientX:x,clientY:y});
+      const swipe=(from,to)=>{
+        feed.dispatchEvent(new TouchEvent('touchstart',{touches:[touch(from,400)],changedTouches:[touch(from,400)],bubbles:true}));
+        feed.dispatchEvent(new TouchEvent('touchmove',{touches:[touch(to,405)],changedTouches:[touch(to,405)],bubbles:true,cancelable:true}));
+        feed.dispatchEvent(new TouchEvent('touchend',{touches:[],changedTouches:[touch(to,405)],bubbles:true}));
+      };
+      swipe(300,100); swipe(100,300); swipe(200,180);
+      browseCreator=real; return calls;
+    })()`);
+    assert.deepEqual(swipes,[1,-1],'swipe left shows more from the creator, right goes back, small moves do nothing');
+    await evaluate("openFeedMenu()");
     await sleep(100);
     const picker = await evaluate(`(() => {
       const p=document.querySelector('.feed-panel').getBoundingClientRect();
       return {open:document.getElementById('feed-menu').open,left:p.left,right:p.right,bottom:p.bottom,
         hints:getComputedStyle(document.querySelector('.feed-key-hints')).display};
     })()`);
-    assert.equal(picker.open,true,'bottom Feeds button opens the selector');
+    assert.equal(picker.open,true,'top feed menu opens the selector');
     assert.equal(picker.left,0); assert.equal(picker.right,390); assert.equal(picker.bottom,844);
     assert.equal(picker.hints,'none','Android feed sheet omits keyboard instructions');
     fs.writeFileSync('/tmp/ig-android-feeds.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
@@ -518,9 +540,34 @@ const KEYS = {
     assert.ok(await evaluate("document.querySelector('#android-reel-actions[open]') !== null"));
     const actions = await evaluate("Array.from(document.querySelectorAll('#android-reel-actions .sheet-actions button'),b=>b.textContent)");
     assert.ok(actions.includes('Remove and block this creator'));
-    assert.ok(actions.includes('Add creator to a feed'));
+    assert.ok(!actions.includes('Add creator to a feed') && !actions.includes('View profile'),'rail actions are not repeated in More');
+    assert.ok(actions.includes('More from this creator'));
     fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
-    await evaluate("document.getElementById('android-reel-actions').close(); openReelLink()");
+    // Removing a creator from the rail or the More menu asks first.
+    const removal = await evaluate(`(async () => {
+      const calls=[], real=rmAcc; rmAcc=(u)=>calls.push(u);
+      document.getElementById('android-reel-actions').close();
+      const owner=posts[current].owner; feeded.add(owner); syncAccountButtons();
+      const button=document.querySelector('#s'+current+' .account-action');
+      button.click();
+      const asked=!!document.querySelector('#remove-creator-confirm[open]');
+      const focused=document.activeElement.textContent;
+      document.querySelector('#remove-creator-confirm .confirm-actions button').click();
+      await new Promise(r=>setTimeout(r,50));
+      const afterCancel=[calls.length, !!document.getElementById('remove-creator-confirm')];
+      showReelActions(current);
+      [...document.querySelectorAll('#android-reel-actions .sheet-actions button')].find(b=>b.textContent==='Remove and block this creator').click();
+      await new Promise(r=>setTimeout(r,50));
+      document.querySelector('#remove-creator-confirm .confirm-remove').click();
+      rmAcc=real;
+      return {asked, focused, afterCancel, calls, owner, label:button.textContent.trim()};
+    })()`);
+    assert.equal(removal.label,'in feed');
+    assert.equal(removal.asked,true,'tapping "in feed" asks before removing');
+    assert.equal(removal.focused,'Cancel','Cancel is the safe default');
+    assert.deepEqual(removal.afterCancel,[0,false],'Cancel removes nothing');
+    assert.deepEqual(removal.calls,[removal.owner],'confirming from the More menu removes once');
+    await evaluate("openReelLink()");
     assert.ok(await evaluate("document.querySelector('#android-link-sheet[open]') !== null"));
     await evaluate("document.querySelector('#android-link-sheet input').value='https://example.com/reel/abcde'; document.querySelector('#android-link-sheet form').requestSubmit()");
     assert.ok(await evaluate("document.querySelector('#android-link-sheet .link-error').textContent.length>0"),'bad links show inline feedback');
@@ -695,6 +742,50 @@ const KEYS = {
     await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-scroll-animation',newValue:'snappy'})); goRel(1)`);
     assert.equal(await evaluate('scrollAnimation'),'snappy');
     await expectReel(motionIndices[3],'snappy preference switches immediately');
+    // Sound and auto-scroll survive leaving the page (e.g. for Settings) and coming back.
+    assert.equal(await evaluate('muted'),true,'reels start muted by default');
+    await key('m');
+    await evaluate('toggleAutoScroll()');
+    assert.equal(await evaluate(`localStorage.getItem('ig-sound-on')`),'true');
+    assert.equal(await evaluate(`localStorage.getItem('ig-auto-scroll')`),'true');
+    await send('Page.reload');
+    for (let tries = 0; !(await evaluate(`typeof current === 'number' && current === 0`)); tries++) {
+      assert.ok(tries < 50, 'reels page did not reload');
+      await sleep(100);
+    }
+    await sleep(300);
+    assert.equal(await evaluate('autoScroll'),true,'auto-scroll survives reload');
+    // Headless Chrome may block sound before a gesture; then the first tap restores it.
+    if (await evaluate('soundBlocked')) await send('Input.dispatchMouseEvent', {type:'mousePressed', x:5, y:400, button:'left', clickCount:1});
+    assert.equal(await evaluate('muted'),false,'sound survives reload');
+    assert.equal(await evaluate(`document.getElementById('mute').getAttribute('aria-pressed')`),'false');
+    // Browser blocks sound before a gesture: keep playing muted, then restore sound on the first tap.
+    assert.equal(await evaluate(`(async () => {
+      let attempts = 0;
+      const video = {muted:false, play() { attempts++; return attempts === 1 ? Promise.reject(new DOMException('blocked', 'NotAllowedError')) : Promise.resolve(); }};
+      playVideo(video); await new Promise(r => setTimeout(r, 20));
+      return JSON.stringify([attempts, muted, soundBlocked, document.getElementById('action-status').textContent]);
+    })()`), JSON.stringify([2, true, true, 'Tap anywhere to turn sound on']), 'blocked sound falls back to muted playback');
+    await send('Input.dispatchMouseEvent', {type:'mousePressed', x:5, y:400, button:'left', clickCount:1});
+    await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:5, y:400, button:'left', clickCount:1});
+    assert.equal(await evaluate('muted'),false,'first tap restores the saved sound choice');
+    assert.equal(await evaluate(`localStorage.getItem('ig-sound-on')`),'true','fallback does not overwrite the saved choice');
+    await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-sound-on',newValue:'false'}))`);
+    assert.equal(await evaluate('muted'),true,'Settings in another tab can mute reels');
+    // Notices hide by themselves unless they must stay (loading, waiting for a tap).
+    await evaluate(`actionStatus('Saved', {hideAfterMs:50})`);
+    await sleep(200);
+    assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'','short notice hides itself');
+    await evaluate(`actionStatus('Loading…', {stay:true})`);
+    await sleep(200);
+    assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'Loading…','staying notice remains');
+    await evaluate(`actionStatus('Deleted x', {hideAfterMs:50}); const b=document.createElement('button'); b.textContent='Undo';
+      document.getElementById('action-status').append(b); b.focus()`);
+    await sleep(200);
+    assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'Deleted xUndo','notice stays while its Undo has focus');
+    await evaluate(`document.activeElement.blur()`);
+    await sleep(1200);
+    assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'','then hides once focus leaves');
     console.log('Reel navigation, feed selection, creation, account entry, imports and shortcut layout passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
