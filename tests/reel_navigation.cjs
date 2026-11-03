@@ -15,8 +15,22 @@ async function launch() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'ig-reels-'));
   const browser = spawn(binary, ['--headless', '--no-sandbox', '--no-first-run', '--no-default-browser-check',
     '--remote-debugging-port=0', '--user-data-dir=' + profile, '--window-size=1000,800', 'about:blank'],
-    {stdio: ['ignore', 'ignore', 'pipe']});
-  const close = () => { browser.kill('SIGKILL'); fs.rmSync(profile, {recursive: true, force: true, maxRetries: 20, retryDelay: 50}); };
+    {stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32'});
+  const exited = new Promise(resolve => browser.once('close', resolve));
+  const close = async () => {
+    // CI's Chrome binary may be a launcher script. Stop its whole process
+    // group, otherwise orphaned Chrome children keep writing the profile.
+    if (browser.pid) {
+      try {
+        if (process.platform === 'win32') browser.kill('SIGKILL');
+        else process.kill(-browser.pid, 'SIGKILL');
+      } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      await Promise.race([exited, new Promise(resolve => {
+        const timer = setTimeout(resolve, 5000); timer.unref();
+      })]);
+    }
+    await fs.promises.rm(profile, {recursive: true, force: true, maxRetries: 20, retryDelay: 50});
+  };
   let socketUrl;
   try {
     socketUrl = await new Promise((resolve, reject) => {
@@ -31,7 +45,7 @@ async function launch() {
       browser.on('exit', code => reject(new Error('browser exited with ' + code + ': ' + output.slice(-500))));
     });
   } catch (error) {
-    close();
+    await close();
     console.error('Could not start the browser:', error.message);
     process.exit(77);
   }
@@ -57,7 +71,7 @@ async function launch() {
     if (result.exceptionDetails) throw new Error('page error: ' + JSON.stringify(result.exceptionDetails));
     return result.result.value;
   };
-  return {send, evaluate, close: () => { socket.close(); close(); }};
+  return {send, evaluate, close: async () => { socket.close(); await close(); }};
 }
 
 const KEYS = {
@@ -522,5 +536,5 @@ const KEYS = {
     assert.equal(landscape.bottom,390);
     assert.equal(landscape.feedWidth,844,'Android comments do not squeeze the reel into a desktop column');
     console.log('Reel navigation, feed selection, creation, account entry and shortcut layout passed');
-  } finally { browser.close(); }
+  } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
