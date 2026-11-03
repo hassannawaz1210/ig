@@ -10,6 +10,7 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.MotionEvent;
+import android.view.InputDevice;
 import android.webkit.WebView;
 import android.webkit.WebChromeClient;
 
@@ -152,23 +153,45 @@ public class StandaloneSmokeTest {
             evaluate(scenario, "(()=>{window.fixtureUpload='waiting';const input=document.createElement('input');"
                     + "input.id='fixture-file';input.type='file';input.accept='.json';"
                     + "input.style='position:fixed;left:10px;top:10px;width:200px;height:80px;z-index:2147483647;background:white';"
+                    + "input.onclick=()=>window.fixtureClicked=true;input.oncancel=()=>window.fixtureUpload='cancelled';"
                     + "input.onchange=async()=>{try{const file=input.files[0];"
                     + "if(!(await file.text()).includes('fixture_creator'))throw Error('File unreadable');"
                     + "const response=await fetch('/following/preview',{method:'POST',body:file});"
                     + "const data=await response.json();window.fixtureUpload=response.ok&&data.accounts.includes('fixture_creator')?'ok':JSON.stringify(data);"
                     + "}catch(error){window.fixtureUpload=String(error)}};document.body.append(input);return true})()");
+            CountDownLatch painted = new CountDownLatch(1);
+            scenario.onActivity(activity -> findWebView(activity.getWindow().getDecorView())
+                    .postVisualStateCallback(1, new WebView.VisualStateCallback() {
+                        @Override public void onComplete(long requestId) { painted.countDown(); }
+                    }));
+            assertTrue("File input was not painted", painted.await(10, TimeUnit.SECONDS));
+            float cssX = Float.parseFloat(evaluate(scenario,
+                    "(()=>{const r=document.getElementById('fixture-file').getBoundingClientRect();return r.x+r.width/2})()"));
+            float cssY = Float.parseFloat(evaluate(scenario,
+                    "(()=>{const r=document.getElementById('fixture-file').getBoundingClientRect();return r.y+r.height/2})()"));
+            float[] point = new float[2];
             scenario.onActivity(activity -> {
                 WebView web = findWebView(activity.getWindow().getDecorView());
-                float density = activity.getResources().getDisplayMetrics().density;
-                long now = SystemClock.uptimeMillis();
-                MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 50 * density, 40 * density, 0);
-                MotionEvent up = MotionEvent.obtain(now, now + 30, MotionEvent.ACTION_UP, 50 * density, 40 * density, 0);
-                web.dispatchTouchEvent(down);
-                web.dispatchTouchEvent(up);
-                down.recycle();
-                up.recycle();
+                int[] screen = new int[2];
+                web.getLocationOnScreen(screen);
+                point[0] = screen[0] + cssX * web.getScale();
+                point[1] = screen[1] + cssY * web.getScale();
             });
-            long deadline = SystemClock.elapsedRealtime() + 10000;
+            long now = SystemClock.uptimeMillis();
+            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, point[0], point[1], 0);
+            down.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            instrumentation.sendPointerSync(down);
+            SystemClock.sleep(50);
+            MotionEvent up = MotionEvent.obtain(now, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, point[0], point[1], 0);
+            up.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            instrumentation.sendPointerSync(up);
+            down.recycle();
+            up.recycle();
+            long pickerDeadline = SystemClock.elapsedRealtime() + 5000;
+            while (monitor.getHits() == 0 && SystemClock.elapsedRealtime() < pickerDeadline) SystemClock.sleep(100);
+            assertEquals("File input tap did not open picker; clicked=" + evaluate(scenario, "Boolean(window.fixtureClicked)"),
+                    1, monitor.getHits());
+            long deadline = SystemClock.elapsedRealtime() + 15000;
             String state;
             do {
                 state = evaluate(scenario, "window.fixtureUpload");
