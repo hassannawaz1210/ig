@@ -629,7 +629,8 @@ const KEYS = {
         input.files=files.files; input.dispatchEvent(new Event('change'));
       };
     })()`);
-    assert.equal(await evaluate("document.querySelector('.feed-tools a[href=\"/feeds/export\"]').textContent"),'Export feeds');
+    assert.equal(await evaluate("document.querySelector('#settings-link').getAttribute('href')"),'/settings');
+    assert.equal(await evaluate("document.querySelector('.feed-tools').textContent.trim()"),'Open reel link');
     for (const android of [false,true]) {
       await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
       await evaluate(`document.body.classList.toggle('android-app',${android}); importFeeds()`);
