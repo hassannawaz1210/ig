@@ -2,7 +2,10 @@ const boot = JSON.parse(document.getElementById('boot').textContent);
 if (boot.android) document.body.classList.add('android-app');
 let chosenFeeds = null;
 let settingsData = {feeds:{},scroll_animation:boot.scroll_animation || 'snappy'};
-let loadVersion = 0, scrollVersion = 0, scrollSaving = false;
+let loadVersion = 0, scrollVersion = 0, scrollSaving = false, autoScrollSaving = false;
+let scrollWrite = Promise.resolve();
+beforeLocalNavigation = async () => { await Promise.all([playbackWrite, scrollWrite]); };
+const autoScrollInput = document.getElementById('auto-scroll-on');
 const status = document.getElementById('settings-status');
 // The status line hides itself after a few seconds; one with an Undo button
 // stays longer, and nothing hides while the pointer or focus is on it.
@@ -107,13 +110,15 @@ function renderFeed(name, accounts, open) {
 }
 async function loadSettings(preferredFeed) {
   const version=++loadVersion;
-  const currentScrollVersion=scrollVersion;
+  const currentScrollVersion=scrollVersion, currentPlaybackVersion=playbackVersion;
   container.setAttribute('aria-busy','true');
   try {
-    const data=await settingsRequest('/settings/data');
+    const data=initialPlaybackPreferences(await settingsRequest('/settings/data'));
     if (version!==loadVersion) return;
     if (currentScrollVersion!==scrollVersion || scrollSaving) data.scroll_animation=settingsData.scroll_animation;
+    if (currentPlaybackVersion!==playbackVersion || autoScrollSaving) data.auto_scroll=settingsData.auto_scroll ?? data.auto_scroll;
     settingsData=data;
+    if (!autoScrollSaving) { autoScrollInput.checked=data.auto_scroll===true; autoScrollInput.disabled=false; }
     if (!scrollSaving) {
       const radio=scrollMode.querySelector(`input[value="${data.scroll_animation==='smooth'?'smooth':'snappy'}"]`);
       radio.checked=true; scrollMode.disabled=false;
@@ -135,7 +140,8 @@ scrollMode.onchange=async event=>{
   scrollVersion++;
   scrollSaving=true; scrollMode.disabled=true;
   try {
-    const data=await settingsRequest('/settings/scroll',{mode});
+    scrollWrite=settingsRequest('/settings/scroll',{mode});
+    const data=await scrollWrite;
     settingsData.scroll_animation=data.scroll_animation;
     try {localStorage.setItem('ig-scroll-animation',data.scroll_animation);} catch (_) {}
     status.textContent=data.scroll_animation==='smooth'?'Smooth scrolling enabled.':'Snappy scrolling enabled.';
@@ -144,30 +150,33 @@ scrollMode.onchange=async event=>{
     status.textContent=error.message;
   } finally {scrollSaving=false;scrollMode.disabled=false;}
 };
-// Sound and auto-scroll are per-device choices kept in localStorage; the reels
-// page reads them on load and through storage events.
-const deviceSwitches = {sound:document.getElementById('sound-on'), autoScroll:document.getElementById('auto-scroll-on')};
-const deviceMessages = {sound:['Reels will play with sound.','Reels will play muted.'],
-  autoScroll:['Auto-scroll turned on.','Auto-scroll turned off.']};
-for (const [name, input] of Object.entries(deviceSwitches)) {
-  input.checked = devicePreferences.get(name);
-  input.onchange = () => {
-    if (devicePreferences.set(name, input.checked)) status.textContent = deviceMessages[name][input.checked ? 0 : 1];
-    else { input.checked = !input.checked; status.textContent = 'Could not save this setting in this browser.'; }
-  };
-}
+autoScrollInput.onchange=async()=>{
+  const desired=autoScrollInput.checked;
+  autoScrollSaving=true; autoScrollInput.disabled=true;
+  try {
+    const data=await savePlaybackPreferences({auto_scroll:desired});
+    settingsData.auto_scroll=data.auto_scroll; autoScrollInput.checked=data.auto_scroll;
+    status.textContent=data.auto_scroll?'Auto-scroll turned on.':'Auto-scroll turned off.';
+  } catch (error) {autoScrollInput.checked=settingsData.auto_scroll===true;status.textContent=error.message;}
+  finally {autoScrollSaving=false;autoScrollInput.disabled=false;}
+};
+window.addEventListener('ig-playback-migrated',event=>{
+  if(!autoScrollSaving){settingsData.auto_scroll=event.detail.auto_scroll;autoScrollInput.checked=event.detail.auto_scroll;}
+});
 document.getElementById('create-feed').onclick=()=>chooseFeed('',true);
 window.addEventListener('ig-feeds-changed',event=>loadSettings(event.detail?.name));
 window.addEventListener('storage',event=>{
-  const preference=devicePreferences.nameFor(event.key);
-  if(preference)deviceSwitches[preference].checked=event.newValue==='true';
+  if(event.key==='ig-playback-change'&&event.newValue&&!autoScrollSaving){
+    try{const data=JSON.parse(event.newValue).changes;if(typeof data.auto_scroll==='boolean'){
+      settingsData.auto_scroll=data.auto_scroll;autoScrollInput.checked=data.auto_scroll;}}catch(_){}
+  }
   if(event.key==='ig-account-change')loadSettings();
   if(event.key==='ig-scroll-animation'&&['smooth','snappy'].includes(event.newValue)&&!scrollSaving){
     scrollVersion++;settingsData.scroll_animation=event.newValue;scrollMode.querySelector(`input[value="${event.newValue}"]`).checked=true;
   }
 });
-// Back navigation can restore this page from the browser cache; refresh device choices.
+// Back navigation can restore this page without fresh server data.
 window.addEventListener('pageshow',event=>{
-  if(event.persisted)for(const [name,input] of Object.entries(deviceSwitches))input.checked=devicePreferences.get(name);
+  if(event.persisted)playbackWrite.catch(()=>{}).then(()=>loadSettings());
 });
 loadSettings();

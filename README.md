@@ -64,6 +64,11 @@ Settings also lets each user choose **Smooth** reel transitions or **Snappy**
 instant switches. Smooth slides the next reel into view; Snappy preserves the
 existing behavior. The choice is saved in the local profile.
 
+Opening Settings, saved reels, or a profile keeps your player in place. Returning
+resumes the same reel at the same position, with your sound and pause state intact.
+The player remembers your sound choice, auto-scroll, and selected feeds in the
+local database, including after restarting the app.
+
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
 following** on desktop or Android. Select your Instagram export ZIP, `following.json`,
 or `following.html`, review the handles, and import into an existing or new feed.

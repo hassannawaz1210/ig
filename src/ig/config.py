@@ -220,6 +220,33 @@ def set_scroll_animation(mode: str) -> None:
                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (mode,))
 
 
+def _playback_preferences(db, *, include_missing=False) -> dict:
+    values = dict(db.execute("SELECT key, value FROM text_preferences WHERE key IN ('sound', 'auto_scroll')"))
+    result = {key: values.get(key) == 'true' for key in ('sound', 'auto_scroll')}
+    if include_missing:
+        result['playback_missing'] = [key for key in ('sound', 'auto_scroll') if key not in values]
+    return result
+
+
+def playback_preferences(*, include_missing=False) -> dict:
+    """Playback choices belong to the local profile, including across Android restarts."""
+    with database(readonly=True) as db:
+        return _playback_preferences(db, include_missing=include_missing)
+
+
+def set_playback_preferences(changes: dict, *, migrate=False) -> dict:
+    if (type(migrate) is not bool or not isinstance(changes, dict) or not changes or
+            set(changes) - {'sound', 'auto_scroll'} or
+            any(type(value) is not bool for value in changes.values())):
+        raise ValueError('Use sound and/or auto_scroll with true or false.')
+    with database() as db:
+        conflict = "DO NOTHING" if migrate else "DO UPDATE SET value = excluded.value"
+        db.executemany("INSERT INTO text_preferences(key, value) VALUES (?, ?) "
+                       "ON CONFLICT(key) " + conflict,
+                       [(key, json.dumps(value)) for key, value in changes.items()])
+        return _playback_preferences(db)
+
+
 def remove_feed_account(name: str, username: str) -> dict:
     """Remove one membership without blocking the creator or changing other feeds."""
     if not isinstance(name, str) or not FEED_RE.fullmatch(name):

@@ -45,6 +45,7 @@ class FakeReelsServer(BaseHTTPRequestHandler):
     batches = 0
     selected = None
     deleted = None
+    playback = {'sound': False, 'auto_scroll': False}
     feed_names = ['memes', 'saved', 'gym', 'programming', 'electronics', 'edits', 'gaming', 'islam']
 
     def log_message(self, *args):
@@ -58,6 +59,12 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/settings/data':
+            return self.reply(200, json.dumps({'feeds':{name:[] for name in self.feed_names},
+                'scroll_animation':'snappy', **self.playback}).encode(), 'application/json')
+        if self.path == '/settings':
+            return self.reply(200, views.render('settings.html', boot=views._page_data(
+                {'android':False, 'scroll_animation':'snappy'})).encode(), 'text/html; charset=utf-8')
         if self.path == '/preferences':
             selection = self.selected
             if selection is not None:
@@ -70,9 +77,9 @@ class FakeReelsServer(BaseHTTPRequestHandler):
             if found is None:
                 return self.reply(404, b'not found', 'text/plain')
             return self.reply(200, *found)
-        if self.path == '/reels':
+        if self.path in ('/reels', '/'):
             boot = views._page_data({'posts': fake_posts(12), 'feed_accounts': [], 'blocked': [],
-                                     'selected_feeds': None})
+                                     'selected_feeds': self.selected, **self.playback})
             choices = ''.join(f'<button type="button" class="feed-choice" data-feed="{name}" '
                               f'aria-pressed="false">{views.icon("check")}<span>{name}</span></button>'
                               for name in ['memes', 'saved', 'gym', 'programming', 'electronics', 'edits', 'gaming', 'islam'])
@@ -82,7 +89,11 @@ class FakeReelsServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
-        if self.path == '/reels/more':
+        if self.path == '/settings/playback':
+            self.playback.update({key:value for key,value in json.loads(body).items()
+                                  if key in ('sound','auto_scroll')})
+            data = self.playback
+        elif self.path == '/reels/more':
             FakeReelsServer.batches += 1
             data = {'posts': fake_posts(12, 12 * FakeReelsServer.batches), 'has_more': True}
         elif self.path == '/preferences':

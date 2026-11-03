@@ -1,20 +1,68 @@
-// Playback choices that belong to this device (sound, auto-scroll). They live in
-// localStorage so leaving the reels page (for Settings, a profile, etc.) and
-// coming back keeps them. Storage can be blocked, so every access is guarded and
-// falls back to the default.
-const devicePreferences = {
-  keys: {sound: 'ig-sound-on', autoScroll: 'ig-auto-scroll'},
-  get(name) {
-    try { return localStorage.getItem(this.keys[name]) === 'true'; }
-    catch (error) { console.warn('Could not read the ' + name + ' preference', error); return false; }
-  },
-  set(name, value) {
-    try { localStorage.setItem(this.keys[name], String(Boolean(value))); return true; }
-    catch (error) { console.warn('Could not save the ' + name + ' preference', error); return false; }
-  },
-  // Name of the preference stored under a localStorage key, for storage events.
-  nameFor(key) { return Object.keys(this.keys).find(name => this.keys[name] === key) || null; },
-};
+// SQLite owns playback preferences. Storage events only notify other open tabs.
+let playbackWrite = Promise.resolve();
+let playbackVersion = 0, playbackMigrationStarted = false;
+function savePlaybackPreferences(changes) {
+  const version = ++playbackVersion;
+  const request = playbackWrite.catch(() => {}).then(async () => {
+    const response = await fetch('/settings/playback', {method:'POST', keepalive:true,
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(changes)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not remember playback preferences');
+    const saved = {};
+    for (const key of ['sound','auto_scroll']) if (key in changes) saved[key] = data[key];
+    try { localStorage.setItem('ig-playback-change', JSON.stringify({changes:saved,at:Date.now()})); } catch (_) {}
+    if (changes.migrate && version === playbackVersion)
+      window.dispatchEvent(new CustomEvent('ig-playback-migrated',{detail:data}));
+    return data;
+  });
+  playbackWrite = request;
+  return request;
+}
+function initialPlaybackPreferences(data) {
+  const legacy = {};
+  for (const key of data.playback_missing || []) {
+    if (!['sound','auto_scroll'].includes(key)) continue;
+    try {
+      const value = localStorage.getItem(key === 'sound' ? 'ig-sound-on' : 'ig-auto-scroll');
+      if (value === 'true' || value === 'false') legacy[key] = value === 'true';
+    } catch (_) {}
+  }
+  if (Object.keys(legacy).length && !playbackMigrationStarted) {
+    playbackMigrationStarted = true;
+    savePlaybackPreferences({...legacy,migrate:true}).catch(error => console.warn('Could not migrate playback preferences',error));
+  }
+  return {...data,...legacy};
+}
+let beforeLocalNavigation = async () => { await playbackWrite; };
+window.flushLocalChanges = () => beforeLocalNavigation();
+let routeLocalPage = null;
+async function visitLocalPage(value) {
+  const destination = new URL(value, location.href);
+  await beforeLocalNavigation();
+  if (window.parent !== window) {
+    window.parent.postMessage({type:'ig-local-navigation',href:destination.href},location.origin);
+    return;
+  }
+  if (routeLocalPage?.(destination)) return;
+  location.href = destination.href;
+}
+let localNavigationPending = false;
+document.addEventListener('click', async event => {
+  const link = event.target.closest?.('a[href]');
+  if (!link || event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+      link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
+  const destination = new URL(link.href, location.href);
+  if (destination.origin !== location.origin ||
+      !(/^\/(?:settings|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return;
+  event.preventDefault();
+  if (localNavigationPending) return;
+  localNavigationPending = true;
+  try { await visitLocalPage(destination.href); }
+  catch (error) {
+    const target = document.getElementById('action-status') || document.getElementById('settings-status');
+    if (target) target.textContent = error.message + ' · try again before leaving';
+  } finally { localNavigationPending = false; }
+});
 let accountChanged = () => {};
 let accountsChanged = (usernames, saved) => { for (const username of usernames) accountChanged(username, saved); };
 function notifyAccountsChange(usernames, saved) {
@@ -336,7 +384,7 @@ function openReelLink() {
   if (value === null) return;
   const code = reelLinkCode(value);
   if (!code) { window.alert('Enter an Instagram reel/post link or shortcode'); return; }
-  window.location.href = '/reel/' + encodeURIComponent(code);
+  visitLocalPage('/reel/' + encodeURIComponent(code)).catch(error => window.alert(error.message));
 }
 
 function setupAndroidUI() {
@@ -390,7 +438,7 @@ function showAndroidLinkSheet() {
     event.preventDefault();
     const code = reelLinkCode(input.value);
     if (!code) { error.textContent = 'Use an Instagram reel link or shortcode.'; input.focus(); return; }
-    dialog.close(); window.location.href = '/reel/' + encodeURIComponent(code);
+    dialog.close(); visitLocalPage('/reel/' + encodeURIComponent(code)).catch(error => window.alert(error.message));
   };
   dialog.showModal(); input.focus();
 }

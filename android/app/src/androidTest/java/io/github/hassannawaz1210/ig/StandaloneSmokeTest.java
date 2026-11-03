@@ -72,7 +72,7 @@ public class StandaloneSmokeTest {
         String state = null;
         do {
             state = evaluate(scenario, "Boolean(document.body && document.body.classList.contains('android-app') "
-                    + "&& document.getElementById('feed') && typeof boot !== 'undefined' && boot.android)");
+                    + "&& document.getElementById('feed') && !document.getElementById('local-page') && typeof boot !== 'undefined' && boot.android)");
             if ("true".equals(state)) return;
             SystemClock.sleep(100);
         } while (SystemClock.elapsedRealtime() < deadline);
@@ -92,18 +92,45 @@ public class StandaloneSmokeTest {
         long deadline = SystemClock.elapsedRealtime() + 15000;
         String state;
         do {
-            state = evaluate(scenario, "Boolean(location.pathname==='/settings' "
-                    + "&& document.body.classList.contains('android-app') "
-                    + "&& document.querySelector('a[href=\"/feeds/export\"]') "
-                    + "&& document.querySelector('#scroll-mode input[value=\"smooth\"]') "
-                    + "&& document.querySelector('#scroll-mode input[value=\"snappy\"]') "
-                    + "&& document.querySelector('#scroll-mode input:checked') "
-                    + "&& document.getElementById('settings-feeds')?.getAttribute('aria-busy')==='false' "
-                    + "&& typeof importFollowing==='function' && typeof importFeeds==='function')");
+            state = evaluate(scenario, "(()=>{const w=document.querySelector('#local-page iframe')?.contentWindow||window;const d=w.document;"
+                    + "return Boolean(w.location.pathname==='/settings' && d.body?.classList.contains('android-app') "
+                    + "&& d.querySelector('a[href=\"/feeds/export\"]') "
+                    + "&& d.querySelector('#scroll-mode input[value=\"smooth\"]') "
+                    + "&& d.querySelector('#scroll-mode input[value=\"snappy\"]') "
+                    + "&& d.querySelector('#scroll-mode input:checked') && !d.getElementById('sound-on') "
+                    + "&& d.getElementById('auto-scroll-on') && !d.getElementById('auto-scroll-on').disabled "
+                    + "&& d.getElementById('settings-feeds')?.getAttribute('aria-busy')==='false' "
+                    + "&& typeof w.importFollowing==='function' && typeof w.importFeeds==='function')})()");
             if ("true".equals(state)) return;
             SystemClock.sleep(100);
         } while (SystemClock.elapsedRealtime() < deadline);
         fail("Settings and saved scrolling preference did not load in WebView: " + state);
+    }
+
+    private static void checkSettingsBack(ActivityScenario<MainActivity> scenario) throws Exception {
+        String initialSound = evaluate(scenario, "desiredSound");
+        evaluate(scenario, "window.playerStateMarker={};window.originalPlayerStateMarker=window.playerStateMarker;"
+                + "if(!desiredSound)document.getElementById('mute').click();document.getElementById('settings-link').click()");
+        awaitSettings(scenario);
+        assertEquals("true", evaluate(scenario, "Boolean(document.querySelector('#local-page iframe'))"));
+        evaluate(scenario, "(()=>{const d=document.querySelector('#local-page iframe').contentDocument;"
+                + "const dialog=d.createElement('dialog');dialog.id='native-back-test';d.body.append(dialog);dialog.showModal()})()");
+        scenario.onActivity(MainActivity::onBackPressed);
+        long deadline = SystemClock.elapsedRealtime() + 5000;
+        String closed;
+        do {
+            closed = evaluate(scenario, "Boolean(document.querySelector('#local-page iframe') && "
+                    + "!document.querySelector('#local-page iframe').contentDocument.getElementById('native-back-test')?.open)");
+            if ("true".equals(closed)) break;
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        assertEquals("Native Back did not close the child dialog first", "true", closed);
+        scenario.onActivity(MainActivity::onBackPressed);
+        awaitPlayer(scenario);
+        assertEquals("true", evaluate(scenario, "Boolean(window.playerStateMarker) && window.playerStateMarker===window.originalPlayerStateMarker && desiredSound===true"));
+        assertTrue("Sound choice was not saved", Python.getInstance().getModule("ig.config")
+                .callAttr("playback_preferences").callAttr("__getitem__", "sound").toBoolean());
+        if ("false".equals(initialSound)) evaluate(scenario, "document.getElementById('mute').click()");
     }
 
     private static void checkFilePickerCancellation(ActivityScenario<MainActivity> scenario) throws Exception {
@@ -305,16 +332,29 @@ public class StandaloneSmokeTest {
                     app.getFilesDir().getAbsolutePath(), app.getCacheDir().getAbsolutePath());
             String code;
             if ("seed".equals(mode)) {
-                code = "from ig.config import edit_feeds\n"
+                code = "import json, os\nfrom pathlib import Path\n"
+                        + "from ig.config import edit_feeds, playback_preferences, selected_feeds, set_playback_preferences, set_selected_feeds\n"
+                        + "backup = Path(os.environ['XDG_CACHE_HOME']) / 'android-ci-preferences.json'\n"
+                        + "backup.write_text(json.dumps({'playback': playback_preferences(), 'selected': selected_feeds()}))\n"
                         + "with edit_feeds() as feeds:\n"
                         + "    assert 'android_ci' not in feeds\n"
-                        + "    feeds['android_ci'] = ['ci_creator']\n";
+                        + "    feeds['android_ci'] = ['ci_creator']\n"
+                        + "set_playback_preferences({'sound': True, 'auto_scroll': True})\n"
+                        + "set_selected_feeds(['android_ci'])\n";
             } else {
                 assertEquals("Unknown persistence mode", "verify", mode);
-                code = "from ig.config import load_feeds, edit_feeds\n"
+                code = "import json, os\nfrom pathlib import Path\n"
+                        + "from ig.config import load_feeds, edit_feeds, playback_preferences, selected_feeds, set_playback_preferences, set_selected_feeds\n"
                         + "assert load_feeds().get('android_ci') == ['ci_creator'], 'Feed lost after process restart'\n"
+                        + "assert playback_preferences() == {'sound': True, 'auto_scroll': True}, 'Playback preferences lost after process restart'\n"
+                        + "assert selected_feeds() == ['android_ci'], 'Feed selection lost after process restart'\n"
+                        + "backup = Path(os.environ['XDG_CACHE_HOME']) / 'android-ci-preferences.json'\n"
+                        + "previous = json.loads(backup.read_text())\n"
                         + "with edit_feeds() as feeds:\n"
-                        + "    del feeds['android_ci']\n";
+                        + "    del feeds['android_ci']\n"
+                        + "set_playback_preferences(previous['playback'])\n"
+                        + "set_selected_feeds(previous['selected'])\n"
+                        + "backup.unlink()\n";
             }
             // Java has no Python caller frame for exec to inherit globals from.
             Python.getInstance().getModule("builtins").callAttr("exec", code,
@@ -331,6 +371,7 @@ public class StandaloneSmokeTest {
             assertTrue("Backend smoke checks were empty", report.getJSONArray("tests").length() >= 4);
             assertEquals("true", evaluate(scenario,
                     "getComputedStyle(document.getElementById('shortcuts')).display === 'none'"));
+            checkSettingsBack(scenario);
             evaluate(scenario, "window.location.href='/settings'");
             awaitSettings(scenario);
             checkFilePickerCancellation(scenario);

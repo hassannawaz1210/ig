@@ -1,15 +1,18 @@
 // Page data from the server: {feed_accounts, blocked, selected_feeds}. The page
 // arrives without reels and fetches its first batch from /reels/more.
 const boot = JSON.parse(document.getElementById('boot').textContent);
+const playbackBoot = initialPlaybackPreferences(boot);
+let desiredSound = playbackBoot.sound === true;
+let localPage = null;
+let localPageVersion = 0;
 let scrollAnimation = boot.scroll_animation === 'smooth' ? 'smooth' : 'snappy';
 let scrollTarget = null;
 window.addEventListener('storage', event => {
   if (event.key === 'ig-scroll-animation' && ['smooth', 'snappy'].includes(event.newValue))
     scrollAnimation = event.newValue;
-  // Settings open in another tab changed a device preference.
-  const preference = devicePreferences.nameFor(event.key);
-  if (preference === 'sound') { soundBlocked = false; setMuted(event.newValue !== 'true'); }
-  if (preference === 'autoScroll') setAutoScroll(event.newValue === 'true');
+  if (event.key === 'ig-playback-change' && event.newValue) {
+    try { applyPlaybackPreferences(JSON.parse(event.newValue).changes); } catch (_) {}
+  }
 });
 if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
@@ -21,7 +24,7 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric'}) : '';
 
 const posts = [];
-let autoScroll = devicePreferences.get('autoScroll');
+let autoScroll = playbackBoot.auto_scroll === true;
 let creatorTrail = null;
 let shownCodes = new Set();
 try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
@@ -37,7 +40,7 @@ function excludedReelCodes() {
 const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 let reservationTimer = null;
 const pendingReleases = new Set();
-let slides = 0, muted = !devicePreferences.get('sound'), fetching = false, exhausted = false;
+let slides = 0, muted = !desiredSound, fetching = false, exhausted = false;
 const base = "/reels";
 let feeded = new Set(boot.feed_accounts);
 const accountUpdates = new Map();
@@ -101,6 +104,7 @@ let selectedFeeds = boot.selected_feeds;            // last saved selection
 let chosenFeeds = copyFeeds(selectedFeeds);         // what the chips show
 let selectionTimer = null;
 let savingFeeds = false;
+let feedSavePromise = Promise.resolve(), feedSaveError = null;
 let switchingFeeds = false;  // between a saved change and the first batch for it
 let selectionVersion = 0;    // increases with every saved change
 let statusTimer = null;
@@ -211,11 +215,8 @@ renderFeedSelection();
 document.querySelectorAll('.feed-delete').forEach(button => {
   button.onclick = () => deleteFeed(button.dataset.feed);
 });
-async function refreshFeedList(detail) {
-  const response = await fetch('/preferences');
-  if (!response.ok) throw new Error('Could not refresh feeds');
-  const data = await response.json();
-  boot.feeds = data.feeds;
+function syncFeedList(names) {
+  boot.feeds = names;
   const container = document.getElementById('feed-choices');
   for (const button of container.querySelectorAll('.feed-choice[data-feed]')) {
     if (!boot.feeds.includes(button.dataset.feed)) (button.closest('.feed-row') || button).remove();
@@ -234,6 +235,12 @@ async function refreshFeedList(detail) {
     remove.onclick = () => deleteFeed(name);
     row.append(button, remove); container.append(row);
   }
+}
+async function refreshFeedList(detail) {
+  const response = await fetch('/preferences');
+  if (!response.ok) throw new Error('Could not refresh feeds');
+  const data = await response.json();
+  syncFeedList(data.feeds);
   if (detail.deleted || detail.restored) {
     clearTimeout(selectionTimer); selectionTimer = null;
     selectedFeeds = data.selected_feeds;
@@ -322,15 +329,18 @@ async function performFeedDeletion(name) {
   } catch (error) { actionStatus(error.message); }
   finally { deletingFeed = false; }
 }
-async function saveFeedSelection() {
-  selectionTimer = null;
+function saveFeedSelection() {
+  clearTimeout(selectionTimer); selectionTimer = null;
   // One save at a time; the running save checks for newer taps when it ends.
-  if (savingFeeds || sameFeeds(chosenFeeds, selectedFeeds)) return;
+  if (savingFeeds) return feedSavePromise;
+  if (sameFeeds(chosenFeeds, selectedFeeds)) return Promise.resolve();
   const wanted = copyFeeds(chosenFeeds);
+  feedSaveError = null;
+  feedSavePromise = (async () => {
   savingFeeds = true;
   renderFeedSelection();
   try {
-    const r = await fetch('/preferences', {method:'POST',
+    const r = await fetch('/preferences', {method:'POST', keepalive:true,
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({selected_feeds:wanted})});
     if (!r.ok) throw new Error(`Saving the feed choice failed (HTTP ${r.status}): ${await r.text().catch(() => '')}`);
@@ -340,6 +350,7 @@ async function saveFeedSelection() {
     preferenceStatus('');
     feedsChanged();
   } catch (error) {
+    feedSaveError = error;
     console.error('Could not change feeds', error);
     clearTimeout(selectionTimer);
     selectionTimer = null;
@@ -348,9 +359,17 @@ async function saveFeedSelection() {
   } finally {
     savingFeeds = false;
     renderFeedSelection();
-    if (selectionTimer === null && !sameFeeds(chosenFeeds, selectedFeeds)) saveFeedSelection();
+    if (selectionTimer === null && !sameFeeds(chosenFeeds, selectedFeeds)) await saveFeedSelection();
   }
+  })();
+  return feedSavePromise;
 }
+beforeLocalNavigation = async () => {
+  const pendingSelection = savingFeeds || selectionTimer !== null || !sameFeeds(chosenFeeds, selectedFeeds);
+  await saveFeedSelection();
+  if (pendingSelection && feedSaveError) throw new Error('Could not save your feed selection');
+  await playbackWrite;
+};
 // Keep the current reel and earlier ones, and replace what was queued after
 // it with a batch for the new selection. Nothing reloads.
 function feedsChanged() {
@@ -775,14 +794,31 @@ function setMuted(value) {
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(muted));
 }
+function applyPlaybackPreferences(data) {
+  if (typeof data?.sound === 'boolean') {
+    desiredSound = data.sound; soundBlocked = false; setMuted(!desiredSound);
+  }
+  if (typeof data?.auto_scroll === 'boolean') setAutoScroll(data.auto_scroll);
+}
+window.addEventListener('ig-playback-migrated', event => applyPlaybackPreferences(event.detail));
 function toggleMute() {
   soundBlocked = false;
-  setMuted(!muted);
-  if (!devicePreferences.set('sound', !muted)) actionStatus('Sound changed for now · could not remember it');
+  desiredSound = muted;
+  setMuted(!desiredSound);
+  savePlaybackPreferences({sound:desiredSound}).catch(() => actionStatus('Sound changed for now · could not remember it'));
+  const video = document.querySelector('#s'+current+' video');
+  if (video && !posts[current]?._paused) playVideo(video);
 }
 function playVideo(video) {
+  if (localPage) {
+    if (video === document.querySelector('#s'+current+' video') && !posts[current]?._paused) {
+      localPage.video = video; localPage.resume = true;
+    }
+    return;
+  }
   video.play().catch(error => {
-    if (error?.name !== 'NotAllowedError' || video.muted) return;
+    if (localPage) return;
+    if (error?.name !== 'NotAllowedError' || video.muted || !desiredSound) return;
     // Browsers may block sound until the first tap or key press. Play muted now
     // and turn sound back on at the first interaction.
     soundBlocked = true;
@@ -792,9 +828,13 @@ function playVideo(video) {
   });
 }
 function restoreBlockedSound(event) {
-  if (!soundBlocked || (event.type === 'keydown' && event.key?.toLowerCase() === 'm')) return;
+  if (!soundBlocked || event.target.closest?.('#mute') || (event.type === 'keydown' && event.key?.toLowerCase() === 'm')) return;
   soundBlocked = false;
-  if (devicePreferences.get('sound')) { setMuted(false); actionStatus(''); }
+  if (desiredSound) {
+    setMuted(false); actionStatus('');
+    const video = document.querySelector('#s'+current+' video');
+    if (video && !posts[current]?._paused) playVideo(video);
+  }
 }
 document.addEventListener('pointerdown', restoreBlockedSound, true);
 document.addEventListener('keydown', restoreBlockedSound, true);
@@ -940,14 +980,30 @@ window.addEventListener('pagehide', () => {
 // A restored page missed imports made elsewhere (e.g. in Settings); re-read
 // which creators are in feeds so the add / in feed buttons are right.
 async function refreshFeedAccounts() {
-  const version = accountChangeVersion;
+  const version = accountChangeVersion, playbackAtStart = playbackVersion;
   try {
+    await playbackWrite;
     const response = await fetch('/settings/data');
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'HTTP ' + response.status);
+    if (playbackAtStart === playbackVersion) {
+      applyPlaybackPreferences(data);
+      if (['smooth','snappy'].includes(data.scroll_animation)) scrollAnimation = data.scroll_animation;
+    }
     if (version !== accountChangeVersion) return;  // a newer local change wins
     feeded = new Set(Object.values(data.feeds || {}).flat());
     syncAccountButtons();
+    if (Array.isArray(data.blocked_accounts)) {
+      const changed = data.blocked_accounts.length !== blockedAccounts.size || data.blocked_accounts.some(name => !blockedAccounts.has(name));
+      blockedAccounts = new Set(data.blocked_accounts);
+      if (changed) hideFilteredReels();
+    }
+    syncFeedList(Object.keys(data.feeds || {}));
+    if ('selected_feeds' in data && !sameFeeds(data.selected_feeds, selectedFeeds)) {
+      selectedFeeds = copyFeeds(data.selected_feeds); chosenFeeds = copyFeeds(selectedFeeds);
+      feedsChanged();
+    }
+    renderFeedSelection();
   } catch (error) {
     console.warn('Could not refresh feed accounts', error);
   }
@@ -965,17 +1021,94 @@ function replaceExpiredQueue() {
 }
 window.addEventListener('pageshow', event => {
   if (event.persisted) {
-    // Back from Settings can restore this document without reading fresh boot data.
-    try {
-      const saved = localStorage.getItem('ig-scroll-animation');
-      if (['smooth', 'snappy'].includes(saved)) scrollAnimation = saved;
-    } catch (_) {}
-    setMuted(!devicePreferences.get('sound'));
-    setAutoScroll(devicePreferences.get('autoScroll'));
+    // A cached page must read the profile again, not stale origin storage.
     refreshFeedAccounts();
     replaceExpiredQueue();
   }
 });
+// Settings and other local pages sit over the mounted player. Returning never
+// reconstructs its queue, seeks its video, or closes its comments.
+function showLocalPage(destination, push = true) {
+  localPageVersion += 1;
+  if (!localPage) {
+    const video = document.querySelector('#s'+current+' video');
+    const layer = document.createElement('section'); layer.id = 'local-page';
+    const back = document.createElement('button'); back.id = 'local-page-back';
+    back.type = 'button'; back.textContent = '← Back to reels';
+    back.onclick = () => { if (!localPage?.closing) history.go(-(history.state?.igLocalDepth || 1)); };
+    const frame = document.createElement('iframe'); frame.title = 'ig';
+    localPage = {layer,frame,back,video,resume:!!posts[current] && !posts[current]._paused};
+    video?.pause();
+    layer.append(back,frame); document.body.append(layer);
+    for (const node of [feed,document.querySelector('.top'),document.querySelector('.android-nav')]) if (node) node.inert = true;
+    frame.src = destination.href;
+  } else if (localPage.href !== destination.href) {
+    localPage.frame.contentWindow.location.replace(destination.href);
+  }
+  localPage.href = destination.href;
+  localPage.closing = false;
+  localPage.back.hidden = destination.pathname === '/settings';
+  localPage.frame.title = destination.pathname === '/settings' ? 'Settings' : 'ig page';
+  if (push) history.pushState({igLocalPage:destination.href,igLocalDepth:(history.state?.igLocalDepth || 0)+1},'',destination.href);
+}
+async function closeLocalPage() {
+  if (!localPage) return;
+  const previous = localPage;
+  const version = ++localPageVersion;
+  previous.closing = true;
+  let saveError = null;
+  try { await previous.frame.contentWindow.flushLocalChanges?.(); }
+  catch (error) { saveError = error; }
+  // A newer navigation may have reopened or replaced the page while saving.
+  if (localPage !== previous || version !== localPageVersion) return;
+  localPage = null;
+  previous.layer.remove();
+  for (const node of [feed,document.querySelector('.top'),document.querySelector('.android-nav')]) if (node) node.inert = false;
+  if (saveError) actionStatus(saveError.message + ' · changes were not saved');
+  else await refreshFeedAccounts();
+  if (!localPage && previous.resume && previous.video?.isConnected &&
+      previous.video === document.querySelector('#s'+current+' video') && !posts[current]?._paused) playVideo(previous.video);
+}
+routeLocalPage = destination => {
+  if (['/','/reels'].includes(destination.pathname)) {
+    if (localPage?.closing) return true;
+    if (localPage) history.go(-(history.state?.igLocalDepth || 1));
+    else if (boot.post_code) return false;
+    return true;
+  }
+  if (destination.origin !== location.origin || !(/^\/(?:settings|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return false;
+  showLocalPage(destination); return true;
+};
+window.addEventListener('message', event => {
+  if (!localPage || event.source !== localPage.frame.contentWindow || event.origin !== location.origin ||
+      event.data?.type !== 'ig-local-navigation') return;
+  try {
+    const destination = new URL(event.data.href);
+    if (destination.origin === location.origin) routeLocalPage(destination);
+  } catch (_) {}
+});
+window.addEventListener('popstate', event => {
+  if (event.state?.igLocalPage) {
+    const destination = new URL(event.state.igLocalPage);
+    if (destination.origin === location.origin) showLocalPage(destination,false);
+  } else closeLocalPage();
+});
+window.handleLocalBack = () => {
+  if (!localPage) return false;
+  if (localPage.closing) return true;
+  const child = localPage.frame.contentWindow;
+  const dialog = child.document.querySelector('dialog[open]');
+  if (dialog) {dialog.close(); return true;}
+  const menu = child.document.querySelector('.feed-menu[open]');
+  if (menu) {menu.open = false; return true;}
+  const lightbox = child.document.querySelector('.lb:not([hidden])');
+  if (lightbox && typeof child.closeLb === 'function') {child.closeLb(); return true;}
+  Promise.resolve(child.flushLocalChanges?.()).then(() => history.back()).catch(error => {
+    const status = child.document.getElementById('settings-status');
+    if (status) status.textContent = error.message;
+  });
+  return true;
+};
 let hiddenSince = null;
 document.addEventListener('visibilitychange', () => {
   lastNavigation = null;
@@ -1147,7 +1280,7 @@ function setAutoScroll(value) {
 }
 function toggleAutoScroll() {
   autoScroll = !autoScroll;
-  if (!devicePreferences.set('autoScroll', autoScroll)) actionStatus('Auto-scroll changed for now · could not remember it');
+  savePlaybackPreferences({auto_scroll:autoScroll}).catch(() => actionStatus('Auto-scroll changed for now · could not remember it'));
   document.querySelectorAll('#feed video').forEach(v => { v.loop = !autoScroll; });
   // Returning to looping should resume an ended reel, unless explicitly paused.
   const video = document.querySelector('#s'+current+' video');
@@ -1155,7 +1288,7 @@ function toggleAutoScroll() {
   actionStatus('Auto-scroll ' + (autoScroll ? 'on' : 'off'));
 }
 function advanceAutoScroll() {
-  if (!autoScroll || document.hidden || posts[current]?._paused ||
+  if (localPage || !autoScroll || document.hidden || posts[current]?._paused ||
       !document.getElementById('comments-panel').hidden ||
       document.getElementById('feed-menu').open || document.getElementById('feed-picker') ||
       document.getElementById('shortcut-help') || document.querySelector('dialog[open]')) return;
@@ -1372,7 +1505,7 @@ function openProfile(i = current) {
   if (!owner) return;
   const url = '/u/' + encodeURIComponent(owner);
   // The Android app has one WebView; open the profile in place so Back returns here.
-  if (boot.android) window.location.href = url;
+  if (boot.android) visitLocalPage(url).catch(error => actionStatus(error.message));
   else window.open(url, '_blank', 'noopener');
 }
 const heldKeys = new Set();

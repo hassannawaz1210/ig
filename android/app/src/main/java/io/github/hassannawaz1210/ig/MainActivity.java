@@ -553,7 +553,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onBackPressed() {
         if (web == null) { super.onBackPressed(); return; }
-        web.evaluateJavascript("(()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true;}const c=document.getElementById('comments-panel');if(c&&!c.hidden){closeComments();return true;}const f=document.getElementById('feed-menu');if(f&&f.open){f.open=false;return true;}return false;})()", handled -> {
+        web.evaluateJavascript("(()=>{if(typeof handleLocalBack==='function'&&handleLocalBack())return true;const d=document.querySelector('dialog[open]');if(d){d.close();return true;}const c=document.getElementById('comments-panel');if(c&&!c.hidden){closeComments();return true;}const f=document.getElementById('feed-menu');if(f&&f.open){f.open=false;return true;}return false;})()", handled -> {
             if ("true".equals(handled)) return;
             if (web != null && web.canGoBack()) web.goBack();
             else MainActivity.super.onBackPressed();

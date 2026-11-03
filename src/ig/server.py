@@ -279,7 +279,10 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == '/settings':
                     return self._send(200, settings_html().encode(), 'text/html; charset=utf-8')
                 return self._send(200, json.dumps({'feeds': load_feeds(),
-                    'scroll_animation': config.scroll_animation()}).encode(), 'application/json')
+                    'selected_feeds': selected_feeds(),
+                    'blocked_accounts': sorted(blocked_accounts()),
+                    'scroll_animation': config.scroll_animation(),
+                    **config.playback_preferences(include_missing=True)}).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=True, context='Loading settings')
         if self.path == '/feeds/export':
@@ -491,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.access.sign_in(self)
         if not self._allowed():
             return
-        if self.path in ('/settings/scroll', '/feeds/accounts/remove'):
+        if self.path in ('/settings/scroll', '/settings/playback', '/feeds/accounts/remove'):
             try:
                 length = int(self.headers.get('Content-Length') or 0)
                 if not 0 < length <= 1024:
@@ -503,6 +506,9 @@ class Handler(BaseHTTPRequestHandler):
                     mode = body.get('mode')
                     config.set_scroll_animation(mode)
                     result = {'scroll_animation': mode}
+                elif self.path == '/settings/playback':
+                    migrate = body.pop('migrate', False)
+                    result = config.set_playback_preferences(body, migrate=migrate)
                 else:
                     result = config.remove_feed_account(body.get('name'), body.get('username'))
                 return self._send(200, json.dumps(result).encode(), 'application/json')

@@ -16,6 +16,7 @@ function createPage(respond, {chips = [], boot = {}} = {}) {
       textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null, ...boot}) : '', style: {}, dataset: {},
       getBoundingClientRect() {return {top:0,bottom:800,height:800};},
       scrollIntoView() {},
+      matches() {return false;},
       listeners: {}, addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); },
       setAttribute(name, value) { this[name] = value; },
       remove() { this.removed = true; },
@@ -60,7 +61,8 @@ const {ctx, element, calls, timers} = createPage(async url =>
   ({ok: true, json: async () => url.endsWith('/media') ? {video: 'https://example.test/video.mp4'} : response}));
 (async () => {
   // A following import updates the page once, even for thousands of accounts.
-  const bulk = createPage(async () => ({ok:true,json:async()=>({posts:[],has_more:false})}));
+  const bulk = createPage(async url => ({ok:true,json:async()=>url === '/settings/data' ?
+    {feeds:{},sound:true,auto_scroll:true,scroll_animation:'smooth'} : {posts:[],has_more:false}}));
   await new Promise(setImmediate);
   vm.runInContext(`
     let bulkRenders=0, bulkRefills=0;
@@ -73,10 +75,13 @@ const {ctx, element, calls, timers} = createPage(async url =>
   assert.equal(vm.runInContext('bulkRefills',bulk.ctx),1);
   assert.equal(vm.runInContext('new Set([...accountUpdates.values()].map(v=>v.version)).size',bulk.ctx),1);
   vm.runInContext(`
-    localStorage={getItem:()=> 'smooth'}; replaceExpiredQueue=()=>{};
+    localStorage={getItem:()=> 'snappy'}; replaceExpiredQueue=()=>{};
     window.listeners.pageshow.forEach(listener=>listener({persisted:true}));
   `,bulk.ctx);
+  await new Promise(setImmediate);
   assert.equal(vm.runInContext('scrollAnimation',bulk.ctx),'smooth','Back from Settings applies saved motion preference');
+  assert.equal(vm.runInContext('muted',bulk.ctx),false,'Back restores sound from SQLite, not stale browser data');
+  assert.equal(vm.runInContext('autoScroll',bulk.ctx),true);
   // R must also remove discovery creators; a later server block must override
   // an older local add, while in-flight responses cannot undo newer actions.
   let finishBatch;

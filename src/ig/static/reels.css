@@ -358,3 +358,9 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .confirm-actions .confirm-remove { background:#5c1f1b;border-color:#5c1f1b;color:#ffd6d2;font-weight:600; }
 .android-app .confirm-sheet { width:100%;border:0;border-radius:20px 20px 0 0; }
 .android-app .confirm-actions button { flex:1;min-height:48px; }
+
+/* Local pages keep the player mounted, including its queue and playback time. */
+#local-page {position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;background:#101010;}
+#local-page iframe {flex:1;min-height:0;width:100%;border:0;background:#101010;}
+#local-page-back {flex-shrink:0;min-height:48px;padding:12px 18px;border:0;border-bottom:1px solid #333;background:#101010;color:#eee;text-align:left;font:15px system-ui;cursor:pointer;}
+#local-page-back[hidden] {display:none;}

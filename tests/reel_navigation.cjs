@@ -745,9 +745,9 @@ const KEYS = {
     // Sound and auto-scroll survive leaving the page (e.g. for Settings) and coming back.
     assert.equal(await evaluate('muted'),true,'reels start muted by default');
     await key('m');
-    await evaluate('toggleAutoScroll()');
-    assert.equal(await evaluate(`localStorage.getItem('ig-sound-on')`),'true');
-    assert.equal(await evaluate(`localStorage.getItem('ig-auto-scroll')`),'true');
+    await evaluate('if (!autoScroll) toggleAutoScroll(); playbackWrite');
+    assert.deepEqual(await evaluate("fetch('/settings/data').then(r=>r.json()).then(d=>[d.sound,d.auto_scroll])"),[true,true]);
+    await evaluate('localStorage.clear()');
     await send('Page.reload');
     for (let tries = 0; !(await evaluate(`typeof current === 'number' && current === 0`)); tries++) {
       assert.ok(tries < 50, 'reels page did not reload');
@@ -769,9 +769,89 @@ const KEYS = {
     await send('Input.dispatchMouseEvent', {type:'mousePressed', x:5, y:400, button:'left', clickCount:1});
     await send('Input.dispatchMouseEvent', {type:'mouseReleased', x:5, y:400, button:'left', clickCount:1});
     assert.equal(await evaluate('muted'),false,'first tap restores the saved sound choice');
-    assert.equal(await evaluate(`localStorage.getItem('ig-sound-on')`),'true','fallback does not overwrite the saved choice');
-    await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-sound-on',newValue:'false'}))`);
+    assert.equal(await evaluate("fetch('/settings/data').then(r=>r.json()).then(d=>d.sound)"),true,'fallback does not overwrite the saved choice');
+    await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-playback-change',newValue:JSON.stringify({changes:{sound:false}})}))`);
     assert.equal(await evaluate('muted'),true,'Settings in another tab can mute reels');
+    // Immediately leaving after toggles and a debounced feed selection flushes
+    // every preference before the next document reads SQLite-backed boot data.
+    await evaluate(`toggleMute(); chosenFeeds=['memes']; renderFeedSelection();
+      selectionTimer=setTimeout(saveFeedSelection,350); document.querySelector('a[href="/settings"]').click()`);
+    for(let i=0;!(await evaluate("location.pathname==='/settings' && !!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#auto-scroll-on:not(:disabled)')"));i++){
+      assert.ok(i<80,'Settings did not load');await sleep(50);
+    }
+    assert.equal(await evaluate("!!document.querySelector('#local-page iframe').contentDocument.getElementById('sound-on')"),false,'Settings has no separate sound toggle');
+    assert.equal(await evaluate("document.querySelector('#local-page iframe').contentDocument.getElementById('auto-scroll-on').checked"),true);
+    assert.deepEqual(await evaluate("fetch('/preferences').then(r=>r.json()).then(d=>d.selected_feeds)"),['memes'],'selection saved before Settings navigation');
+    await evaluate("document.querySelector('#local-page iframe').contentDocument.querySelector('a[aria-label=\"Back to reels\"]').click()");
+    for(let i=0;!(await evaluate("!document.getElementById('local-page') && typeof current==='number' && current===0"));i++){
+      assert.ok(i<80,'Reels did not return');await sleep(50);
+    }
+    assert.equal(await evaluate('desiredSound'),true,'sound choice survives Settings round trip');
+    assert.equal(await evaluate('muted'),false,'Settings does not reset effective sound on return');
+    assert.equal(await evaluate('autoScroll'),true,'auto-scroll survives Settings round trip');
+    assert.deepEqual(await evaluate('selectedFeeds'),['memes'],'feed selection survives Settings round trip');
+    // Mount a real playable clip, then leave and return without replacing its
+    // element, its playback position, its queue, or the comments drawer.
+    await evaluate(`(async()=>{
+      const canvas=document.createElement('canvas'); canvas.width=90;canvas.height=160;
+      const context=canvas.getContext('2d'),stream=canvas.captureStream(10),chunks=[];
+      const recorder=new MediaRecorder(stream,{mimeType:'video/webm'});
+      recorder.ondataavailable=e=>chunks.push(e.data);
+      const stopped=new Promise(resolve=>recorder.onstop=resolve); recorder.start();
+      let frame=0;const timer=setInterval(()=>{context.fillStyle=frame++%2?'red':'blue';context.fillRect(0,0,90,160)},80);
+      await new Promise(resolve=>setTimeout(resolve,1200));recorder.stop();await stopped;
+      clearInterval(timer);stream.getTracks().forEach(track=>track.stop());
+      const post=posts[current];post.video=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));post._rich=true;post._paused=false;
+      setVideo(post,current,true);const video=document.querySelector('#s'+current+' video');
+      if(video.readyState<1)await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
+      video.loop=true;video.currentTime=.25;await video.play();
+      post._comments=[];post._commentCursor=null;post.comment_count=0;toggleComments(current);
+      window.navigationSnapshot={video,index:current,code:post.shortcode,posts:[...posts],time:video.currentTime,
+        comments:document.getElementById('comments-panel').hidden};
+      document.querySelector('a[href="/settings"]').click();
+    })()`);
+    for(let i=0;!(await evaluate("!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#auto-scroll-on:not(:disabled)')"));i++){
+      assert.ok(i<80,'Settings frame did not load');await sleep(50);
+    }
+    assert.equal(await evaluate('navigationSnapshot.video.paused'),true,'Settings pauses the underlying video');
+    await evaluate('setTimeout(()=>setVideo(posts[current],current,true),20)');
+    await sleep(80);
+    assert.equal(await evaluate('navigationSnapshot.video.paused'),true,'a delayed media response cannot play under Settings');
+    assert.equal(await evaluate('current===navigationSnapshot.index'),true);
+    await evaluate("window.postMessage({type:'ig-local-navigation',href:location.origin+'/'},location.origin)");await sleep(50);
+    assert.equal(await evaluate("!!document.getElementById('local-page')"),true,'untrusted message source cannot close the page');
+    await evaluate("document.querySelector('#local-page iframe').contentDocument.querySelector('a[aria-label=\"Back to reels\"]').click()");
+    for(let i=0;await evaluate("!!document.getElementById('local-page') || navigationSnapshot.video.paused");i++){
+      assert.ok(i<80,'Player did not resume');await sleep(50);
+    }
+    assert.equal(await evaluate("document.querySelector('#s'+current+' video')===navigationSnapshot.video"),true,'same video element survives Settings');
+    assert.equal(await evaluate('current===navigationSnapshot.index && posts[current].shortcode===navigationSnapshot.code'),true,'same reel survives Settings');
+    assert.equal(await evaluate('navigationSnapshot.posts.every((post,index)=>posts[index]===post)'),true,'loaded queue is preserved');
+    assert.equal(await evaluate("document.getElementById('comments-panel').hidden===navigationSnapshot.comments"),true,'comments stay open');
+    assert.ok(await evaluate('Math.abs(navigationSnapshot.video.currentTime-navigationSnapshot.time)<.3'),'video resumes at the same position');
+    assert.equal(await evaluate('navigationSnapshot.video.muted'),false,'actual playback resumes unmuted');
+    await evaluate(`posts[current]._paused=true;navigationSnapshot.video.pause();document.querySelector('a[href="/settings"]').click()`);
+    for(let i=0;!(await evaluate("!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#auto-scroll-on:not(:disabled)')"));i++){
+      assert.ok(i<80);await sleep(50);
+    }
+    await evaluate(`(() => {
+      const child=document.querySelector('#local-page iframe').contentWindow;
+      const original=child.fetch.bind(child);
+      child.fetch=(url,options)=>url==='/settings/playback'?
+        new Promise((resolve,reject)=>child.setTimeout(()=>original(url,options).then(resolve,reject),300)):original(url,options);
+      child.document.getElementById('auto-scroll-on').click();
+      history.back();
+    })()`);
+    await sleep(80);
+    assert.equal(await evaluate("!!document.getElementById('local-page')"),true,'browser Back waits for pending Settings writes');
+    for(let i=0;await evaluate("!!document.getElementById('local-page')");i++){assert.ok(i<80);await sleep(50);}
+    await sleep(100);
+    assert.equal(await evaluate('navigationSnapshot.video.paused && posts[current]._paused'),true,'Back preserves an explicit pause');
+    assert.equal(await evaluate('autoScroll'),false,'immediate browser Back preserves the new auto-scroll choice');
+    assert.equal(await evaluate("fetch('/settings/data').then(r=>r.json()).then(d=>d.auto_scroll)"),false);
+    await evaluate("fetch('/settings/playback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_scroll:true})})");
+    await evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))");
+    for(let i=0;!(await evaluate('autoScroll'));i++){assert.ok(i<40,'cached page did not read playback preferences');await sleep(50);}
     // Notices hide by themselves unless they must stay (loading, waiting for a tap).
     await evaluate(`actionStatus('Saved', {hideAfterMs:50})`);
     await sleep(200);
