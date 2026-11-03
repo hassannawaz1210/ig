@@ -92,7 +92,9 @@ public class StandaloneSmokeTest {
                         + "with edit_feeds() as feeds:\n"
                         + "    del feeds['android_ci']\n";
             }
-            Python.getInstance().getModule("builtins").callAttr("exec", code);
+            // Java has no Python caller frame for exec to inherit globals from.
+            Python.getInstance().getModule("builtins").callAttr("exec", code,
+                    Python.getInstance().getModule("builtins").callAttr("dict"));
             return;
         }
 
