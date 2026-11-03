@@ -1103,14 +1103,15 @@ function showSlide(i) {
     // across browsers/WebView. Slide one viewport ourselves, then restore snap.
     const from = feed.scrollTop;
     const to = from + slideOffset(i);
-    const pending = {index:i, started:performance.now(), frame:0};
+    const pending = {index:i, started:performance.now(), frame:0, position:from};
     scrollTarget = pending;
     feed.style.scrollSnapType = 'none';
     const frame = now => {
       if (scrollTarget !== pending) return;
       const progress = Math.min(1, Math.max(0, (now - pending.started) / 280));
       const eased = 1 - Math.pow(1 - progress, 3);
-      feed.scrollTop = from + (to - from) * eased;
+      pending.position = from + (to - from) * eased;
+      feed.scrollTop = pending.position;
       if (progress < 1 && !isHidden(posts[i])) pending.frame = requestAnimationFrame(frame);
       else {
         if (!isHidden(posts[i])) target.scrollIntoView({behavior:'instant', block:'start'});
@@ -1356,6 +1357,7 @@ function slideOffset(i) {
   return document.getElementById('s'+i).getBoundingClientRect().top - feed.getBoundingClientRect().top;
 }
 function limitScrollBurst() {
+  if (scrollTarget) return true;
   if (scrollBurst && performance.now() - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
   if (!scrollBurst) return false;
   // Went past the neighbouring reel: put it back in view.
@@ -1373,14 +1375,38 @@ function watchScrollBurst() {
 function noteScroll() {
   const now = performance.now(), top = feed.scrollTop, moved = top - lastScrollTop;
   lastScrollTop = top;
-  if (scrollTarget) return;
+  if (scrollTarget) {
+    // An extension may keep issuing scrollBy steps after its key was consumed.
+    // Keep those steps from moving or snapping past our animated target.
+    if (Math.abs(top - scrollTarget.position) > 1) {
+      if (scrollBurst?.external) scrollBurst.last = now;
+      feed.scrollTop = scrollTarget.position;
+    }
+    return;
+  }
   if (scrollBurst && now - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
+  if (scrollBurst?.external) {
+    if (Math.abs(slideOffset(scrollBurst.to)) > 1) {
+      scrollBurst.last = now;
+      document.getElementById('s'+scrollBurst.to)?.scrollIntoView({behavior:'instant'});
+    }
+    return;
+  }
   if (!scrollBurst) {
     if (current < 0 || isHidden(posts[current]) || !document.getElementById('s'+current)) return;
     // Our own scrollIntoView, or a layout change that kept the reel in place.
     if (Math.abs(slideOffset(current)) < 1 || !moved) return;
     const step = Math.sign(moved);
     const indices = visibleIndices();
+    if (scrollAnimation === 'smooth') {
+      const to = indices[indices.indexOf(current) + step] ?? current;
+      const origin = top + slideOffset(current);
+      feed.style.scrollSnapType = 'none';
+      feed.scrollTop = origin;
+      showSlide(to);
+      scrollBurst = {to, step, last:now, external:true};
+      return;
+    }
     scrollBurst = {to: indices[indices.indexOf(current) + step] ?? current, step};
   }
   scrollBurst.last = now;

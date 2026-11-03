@@ -11,6 +11,11 @@ collect_logs() {
 }
 trap collect_logs EXIT
 adb logcat -c
+# The emulator's launcher can ANR under CI load and cover ig with a system
+# dialog, stealing test taps. App crashes still fail instrumentation normally.
+adb shell settings put global hide_error_dialogs 1
+adb shell am force-stop com.google.android.apps.nexuslauncher
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
 adb shell getprop ro.product.cpu.abilist | tee build/smoke/device-abis.txt
 adb shell getprop ro.dalvik.vm.native.bridge | tee build/smoke/native-bridge.txt
 # Google APIs system images support ARM apps through native translation. Do

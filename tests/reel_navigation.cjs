@@ -675,6 +675,23 @@ const KEYS = {
     await sleep(1200);
     assert.equal(await shown(),motionIndices[2],'held key does not skip multiple reels in smooth mode');
     assert.equal(await evaluate('current'),motionIndices[2]);
+    // Vimium can consume J/K before the page receives any key event. Its
+    // scrollBy steps must use the same smooth transition as native shortcuts.
+    for (const [direction,target] of [[1,motionIndices[3]],[-1,motionIndices[2]]]) {
+      const from=await evaluate('feed.scrollTop');
+      const extension=extensionScroll(direction);
+      await sleep(80);
+      const progress=await evaluate(`({top:feed.scrollTop,height:feed.clientHeight,snap:feed.style.scrollSnapType})`);
+      const moved=Math.abs(progress.top-from);
+      assert.ok(moved>2 && moved<progress.height-2,
+        'extension '+(direction>0?'J':'K')+' visibly slides in smooth mode: '+JSON.stringify({from,...progress}));
+      assert.equal(progress.snap,'none','extension steps cannot trigger native instant snap');
+      await extension;
+      await sleep(700);
+      assert.equal(await shown(),target,'one extension burst moves exactly one reel in smooth mode');
+      assert.equal(await evaluate('current'),target);
+      assert.equal(await evaluate('feed.style.scrollSnapType'),'','extension transition restores snapping');
+    }
     await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-scroll-animation',newValue:'snappy'})); goRel(1)`);
     assert.equal(await evaluate('scrollAnimation'),'snappy');
     await expectReel(motionIndices[3],'snappy preference switches immediately');
