@@ -473,6 +473,44 @@ const KEYS = {
       await evaluate("document.getElementById('shortcut-help').close()");
       await sleep(100);
     }
+    // The Android shell uses the same player with its own touch controls.
+    await send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await evaluate("document.body.classList.add('android-app'); setupAndroidUI(); boot.feeds=['islam']; feeded.add('creator2'); showSlide(visibleIndices()[0]); document.querySelectorAll('.spin').forEach(el=>el.hidden=true); updateFeedStatus();");
+    await sleep(200);
+    const mobile = await evaluate(`(() => {
+      const nav=document.querySelector('.android-nav').getBoundingClientRect();
+      const reel=document.querySelector('.slide:not([hidden])').getBoundingClientRect();
+      return {navTop:nav.top,navBottom:nav.bottom,reelHeight:reel.height,
+        shortcuts:getComputedStyle(document.getElementById('shortcuts')).display,
+        more:getComputedStyle(document.querySelector('.android-reel-more')).display};
+    })()`);
+    assert.equal(mobile.shortcuts,'none','Android has no keyboard-shortcut button');
+    assert.equal(mobile.more,'flex','Android reel actions have a visible touch control');
+    assert.equal(mobile.navBottom,844,'bottom navigation fits the viewport');
+    assert.equal(mobile.reelHeight,mobile.navTop,'video viewport ends above navigation');
+    fs.writeFileSync('/tmp/ig-android-watch.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await evaluate("document.querySelector('.android-nav button').click()");
+    await sleep(100);
+    const picker = await evaluate(`(() => {
+      const p=document.querySelector('.feed-panel').getBoundingClientRect();
+      return {open:document.getElementById('feed-menu').open,left:p.left,right:p.right,bottom:p.bottom,
+        hints:getComputedStyle(document.querySelector('.feed-key-hints')).display};
+    })()`);
+    assert.equal(picker.open,true,'bottom Feeds button opens the selector');
+    assert.equal(picker.left,0); assert.equal(picker.right,390); assert.equal(picker.bottom,844);
+    assert.equal(picker.hints,'none','Android feed sheet omits keyboard instructions');
+    fs.writeFileSync('/tmp/ig-android-feeds.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await evaluate("closeFeedMenu(); showReelActions(current)");
+    assert.ok(await evaluate("document.querySelector('#android-reel-actions[open]') !== null"));
+    const actions = await evaluate("Array.from(document.querySelectorAll('#android-reel-actions .sheet-actions button'),b=>b.textContent)");
+    assert.ok(actions.includes('Remove and block this creator'));
+    assert.ok(actions.includes('Add creator to a feed'));
+    fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await evaluate("document.getElementById('android-reel-actions').close(); openReelLink()");
+    assert.ok(await evaluate("document.querySelector('#android-link-sheet[open]') !== null"));
+    await evaluate("document.querySelector('#android-link-sheet input').value='https://example.com/reel/abcde'; document.querySelector('#android-link-sheet form').requestSubmit()");
+    assert.ok(await evaluate("document.querySelector('#android-link-sheet .link-error').textContent.length>0"),'bad links show inline feedback');
+    await evaluate("document.getElementById('android-link-sheet').close()");
     console.log('Reel navigation, feed selection, creation, account entry and shortcut layout passed');
   } finally { browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

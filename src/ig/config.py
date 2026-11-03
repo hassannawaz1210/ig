@@ -10,6 +10,9 @@ CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ig"
 
 SERVER_JSON = CACHE / "server.json"
 
+# The embedded Android runtime sets this before importing ig.
+ANDROID = os.environ.get("IG_ANDROID") == "1"
+
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ig"
 

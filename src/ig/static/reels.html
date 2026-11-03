@@ -6,8 +6,9 @@
 <div class="top">
   <details class="feed-menu" id="feed-menu">
     <summary aria-label="Choose feeds" aria-keyshortcuts="," title="Choose feeds (,)"><span id="feed-selection-label">All feeds</span><svg class="feed-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <button class="android-only android-sheet-backdrop" type="button" aria-label="Close feeds" onclick="closeFeedMenu()"></button>
     <div class="feed-panel">
-      <div class="feed-panel-heading">Feeds <kbd>esc</kbd></div>
+      <div class="feed-panel-heading">Feeds <kbd>esc</kbd><button class="android-only android-sheet-close" type="button" aria-label="Close feeds" onclick="closeFeedMenu()">{{icon:close}}</button></div>
       <div class="feed-choices" id="feed-choices" role="group" aria-label="Choose feeds" aria-busy="false">
         <button type="button" class="feed-choice" data-all="true" aria-pressed="false">{{icon:check}}<span>All feeds</span></button>
         {{feed_choices}}
@@ -30,6 +31,12 @@
   <button id="auto-scroll" type="button" onclick="toggleAutoScroll()" title="Auto-scroll (T)" aria-label="Auto-scroll (T)" aria-pressed="false"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 5 6 6 6-6M6 13l6 6 6-6"/></svg></button>
   <button id="mute" onclick="toggleMute()" title="Unmute (M)" aria-label="Unmute (M)" aria-pressed="true">{{icon:muted}}</button></div>
 <div id="feed"></div>
+<nav class="android-only android-nav" aria-label="Navigation">
+  <a href="/" aria-label="Watch reels" aria-current="page"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m10 8 6 4-6 4Z"/></svg><span>Watch</span></a>
+  <button type="button" onclick="event.stopPropagation(); openFeedMenu()">{{icon:folder}}<span>Feeds</span></button>
+  <a href="/saved-reels">{{icon:bookmark}}<span>Saved</span></a>
+  <button type="button" onclick="chooseFeed()">{{icon:plus}}<span>Add</span></button>
+</nav>
 <button id="comments-backdrop" onpointerup="closeComments()" type="button" aria-label="Close comments" onclick="closeComments()" tabindex="-1"></button>
 <aside id="comments-panel" aria-label="Reel comments" hidden>
   <div class="comments-heading"><span class="sheet-handle" aria-hidden="true"></span><b>Comments</b><button type="button" onclick="closeComments()" aria-label="Close comments">✕</button></div>

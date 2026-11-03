@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from curl_cffi import requests as cr
+from . import config
 from .reels import media_info
 from .media import fetch_video
 from .recognition_cache import cached_song, cache_song
@@ -46,6 +47,8 @@ def track_result(payload):
 
 
 def recognize_song(code):
+    if config.ANDROID:
+        return {'status': 'unavailable'}
     cached = cached_song(code)
     if cached is not None:
         return cached

@@ -249,3 +249,99 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 
 #creator-browse { border:1px solid #444;background:#17171d;color:#ddd;border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer; }
 #creator-browse[hidden] { display:none; }
+
+/* The standalone Android app uses touch navigation and bottom sheets. */
+.android-only, .android-reel-more { display:none; }
+.android-app { --android-nav-height:calc(62px + env(safe-area-inset-bottom)); }
+.android-app .top { padding:calc(8px + env(safe-area-inset-top)) 14px 8px;gap:8px; }
+.android-app #shortcuts, .android-app #auto-scroll, .android-app .feed-key-hints,
+.android-app .feed-panel kbd, .android-app .info .date { display:none; }
+.android-app .feed-menu summary { min-height:28px;padding:8px 0;background:none;border:0;font-size:16px; }
+.android-app .feed-menu { max-width:calc(100vw - 104px); }
+.android-app #mute { width:44px;height:44px;background:#0006; }
+.android-app .android-nav { position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;
+  height:var(--android-nav-height);box-sizing:border-box;padding:4px 12px calc(4px + env(safe-area-inset-bottom));
+  background:#101010;border-top:1px solid #ffffff12; }
+.android-nav > a,.android-nav > button { flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4px;min-width:0;min-height:48px;border:0;background:none;text-decoration:none;color:#aaa;font:11px system-ui; }
+.android-nav > [aria-current],.android-nav > button:active { color:#fff; }
+.android-nav .icon { width:23px;height:23px; }
+.android-app #feed,.android-app .slide { height:calc(100dvh - var(--android-nav-height)); }
+.android-app .slide::after { content:"";position:absolute;inset:55% 0 0;background:linear-gradient(transparent,#0009);pointer-events:none; }
+.android-app .info { left:16px;bottom:20px;width:calc(100% - 92px);max-width:calc(100% - 92px);z-index:3; }
+.android-app .info .user { font-size:15px; }
+.android-app .cap { font-size:13px;line-height:1.5; }
+.android-app .bar { right:8px;bottom:26px;gap:12px;font-size:11px;z-index:3; }
+.android-app .bar .ico { min-width:48px;min-height:48px;justify-content:center;gap:4px; }
+.android-app .bar .em .icon { width:28px;height:28px; }
+.android-app .bar > .ico:nth-child(2), .android-app .bar > .why-button,
+.android-app .bar > .account-action, .android-app .bar > .download,
+.android-app .bar > a { display:none; }
+.android-app .bar .reel-save > span:last-child { display:none; }
+.android-app .android-reel-more { display:flex;font-size:28px;line-height:1; }
+.android-app #creator-browse { position:fixed;top:calc(66px + env(safe-area-inset-top));left:14px;max-width:calc(100vw - 28px);min-height:40px; }
+.android-app #action-status:not(:empty),.android-app #preference-status:not(:empty) {
+  bottom:calc(var(--android-nav-height) + 12px);font-size:13px;z-index:11; }
+.android-app .top:has(.feed-menu[open]) { z-index:10; }
+.android-app .feed-menu[open] .android-sheet-backdrop { display:block;position:fixed;inset:0;z-index:1;background:#0008;border:0; }
+.android-app .feed-panel { position:fixed;top:auto;bottom:0;left:0;right:0;width:100%;max-width:none;
+  max-height:82dvh;box-sizing:border-box;padding:10px 16px calc(18px + env(safe-area-inset-bottom));
+  border:0;border-radius:20px 20px 0 0;z-index:2;background:#1c1c1c;overscroll-behavior:contain; }
+.android-app .feed-panel-heading { min-height:44px;padding:0 0 10px;color:#fff;font-size:17px;font-weight:600; }
+.android-app .android-sheet-close { display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;background:none;color:#bbb; }
+.android-app .feed-panel .feed-choice { min-height:48px;padding:12px 8px;font-size:16px;box-sizing:border-box; }
+.android-app .feed-panel .feed-choice[aria-pressed="true"] { padding:12px 8px; }
+.android-app .feed-panel .feed-choice .icon { width:20px;height:20px;min-width:20px; }
+.android-app .feed-row { border-bottom:1px solid #ffffff0c; }
+.android-app .feed-delete { width:48px;height:48px;display:grid;place-items:center; }
+.android-app .feed-delete .icon { width:18px;height:18px; }
+.android-app .feed-tools { border-top:1px solid #ffffff15;margin-top:12px;padding-top:8px; }
+.android-app .feed-tools button,.android-app .feed-tools a { display:flex;align-items:center;min-height:48px;
+  box-sizing:border-box;padding:10px 8px;font-size:15px;text-decoration:none;color:#ddd; }
+.android-app .feed-panel-footer { display:none; }
+.android-app #feed-delete-confirm { padding:12px 8px; }
+.android-app #feed-delete-confirm p { font-size:15px; }
+.android-app #feed-delete-confirm button { min-height:44px;font-size:14px;padding:10px 16px; }
+.android-app #feed-picker,.android-app .android-action-sheet { margin:auto 0 0;width:100%;max-width:none;
+  max-height:85dvh;overflow-y:auto;box-sizing:border-box;border:0;border-radius:20px 20px 0 0;
+  padding:20px 20px calc(20px + env(safe-area-inset-bottom));background:#1c1c1c;color:#eee;font:15px/1.5 system-ui; }
+.android-app #feed-picker h2,.android-action-sheet h2 { font-size:18px;margin:0 0 16px;font-weight:600; }
+.android-app #feed-picker input,.android-app #feed-picker select,.android-app #feed-picker textarea,
+.android-action-sheet input { min-height:48px;padding:12px;font-size:16px; }
+.android-app #feed-picker button { min-height:48px;padding:10px 18px;font-size:15px; }
+.android-action-sheet::backdrop { background:#0008; }
+.android-action-sheet .sheet-heading { display:flex;justify-content:space-between;align-items:center;gap:12px; }
+.android-action-sheet .sheet-heading h2 { margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.android-action-sheet .sheet-heading button { flex-shrink:0;display:grid;place-items:center;width:44px;height:44px;border:0;background:none;color:#bbb; }
+.android-action-sheet .sheet-actions { margin-top:10px; }
+.android-action-sheet .sheet-actions button { display:flex;align-items:center;gap:14px;width:100%;min-height:50px;padding:10px 0;
+  border:0;border-bottom:1px solid #ffffff0c;background:none;color:#eee;text-align:left;font:inherit; }
+.android-action-sheet .sheet-actions .icon { width:22px;height:22px;color:#aaa; }
+.android-action-sheet input { width:100%;box-sizing:border-box;margin-top:16px;border:1px solid #555;background:#111;color:#eee;border-radius:6px; }
+.android-action-sheet .link-error { color:#ffb9b9;font-size:13px;margin:8px 0; }
+.android-action-sheet .link-error:empty { display:none; }
+.android-action-sheet .link-submit { display:block;min-height:48px;width:100%;margin-top:16px;background:#eee;color:#111;border:0;border-radius:6px;font:inherit; }
+.android-app #comments-panel { z-index:12;top:auto;left:0;right:0;bottom:0;width:100%;height:76dvh;
+  max-height:calc(100dvh - env(safe-area-inset-top) - 24px);border:0;border-radius:20px 20px 0 0;
+  background:#202020;transform:translateY(var(--sheet-drag, 0px)); }
+.android-app #comments-panel[hidden] { transform:translateY(100%); }
+.android-app .comments-heading { position:relative;justify-content:center;align-items:center;flex-shrink:0;
+  padding:30px 52px 16px;touch-action:none;user-select:none; }
+.android-app .sheet-handle { display:block;position:absolute;top:10px;left:calc(50% - 18px);width:36px;height:4px;background:#666;border-radius:2px; }
+.android-app .comments-heading button { position:absolute;right:12px;top:20px;width:36px;height:36px; }
+.android-app:has(#comments-panel:not([hidden])) #feed { width:100%; }
+.android-app:has(#comments-panel:not([hidden])) .top { right:0; }
+.android-app:has(#comments-panel:not([hidden])) .info { width:calc(100% - 92px);max-width:calc(100% - 92px); }
+.android-app:has(#comments-panel:not([hidden])) .feed-status { left:50%; }
+.android-app:has(#comments-panel:not([hidden])) #comments-backdrop { display:block;position:fixed;inset:0;background:#0006;border:0; }
+.android-app button:focus-visible,.android-app a:focus-visible { outline:2px solid #ddd;outline-offset:2px; }
+.android-app #comments-backdrop { z-index:11; }
+.android-app #comments-body { padding-bottom:calc(18px + env(safe-area-inset-bottom)); }
+.android-app #feed-retry,.android-app #feed-create,.android-app #feed-add { min-height:48px;padding:12px 20px; }
+@media (orientation:landscape) and (max-height:520px) {
+  .android-app { --android-nav-height:48px; }
+  .android-app .android-nav { padding:0 12px; }
+  .android-app .android-nav > a,.android-app .android-nav > button { flex-direction:row;gap:8px; }
+  .android-app .bar { bottom:10px;gap:0; }
+  .android-app .bar .ico { min-height:40px; }
+}

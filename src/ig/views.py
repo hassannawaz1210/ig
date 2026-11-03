@@ -9,6 +9,7 @@ from html import escape
 from pathlib import Path
 
 from .icons import icon, icons_js
+from . import config
 from .config import blocked_accounts, load_feeds, selected_feeds
 from .feeds import feed_accounts
 
@@ -77,6 +78,8 @@ def reels_html(code: str | None = None) -> str:
         for name in load_feeds())
     return render("reels.html", feed_choices=choices, boot=_page_data({
         "post_code": code,
+        "android": config.ANDROID,
+        "song_recognition": not config.ANDROID,
         "feeds": list(load_feeds()),
         "feed_accounts": sorted(feed_accounts()),
         "blocked": sorted(blocked_accounts()),

@@ -118,6 +118,8 @@ def assemble(code: str, mpd: str) -> Path | None:
     Failures are expected occasionally: manifests rotate, URLs expire, and the
     caller falls back to the progressive rendition. One assembly runs per reel
     even when several tabs request the same video at once."""
+    if config.ANDROID:
+        return None  # Android prototype uses the progressive stream.
     if cached(code) is not None:
         return cached(code)
     chosen = plan(mpd)

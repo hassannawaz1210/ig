@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'io.github.hassannawaz1210.ig'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'io.github.hassannawaz1210.ig'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-preview'
+        ndk { abiFilters 'arm64-v8a' }
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = '3.13'
+        pip {
+            install 'curl-cffi==0.17.0'
+            install 'segno==1.6.6'
+        }
+        // The shared templates and scripts are read via pathlib by ig.views.
+        extractPackages 'ig'
+    }
+    sourceSets {
+        main {
+            srcDir '../../src'
+        }
+    }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}

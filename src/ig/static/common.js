@@ -158,18 +158,101 @@ async function chooseFeed(username = '', createNew = false) {
   return result;
 }
 
+function reelLinkCode(value) {
+  let code = value.trim();
+  if (/^[A-Za-z0-9_-]{5,30}$/.test(code)) return code;
+  try {
+    const url = new URL(code);
+    if (!['http:', 'https:'].includes(url.protocol) ||
+        !['instagram.com','www.instagram.com','m.instagram.com'].includes(url.host) || url.username || url.password) return null;
+    return url.pathname.match(/^\/(?:reel|reels|p)\/([A-Za-z0-9_-]{5,30})\/?$/)?.[1] || null;
+  } catch (_) { return null; }
+}
 function openReelLink() {
+  if (document.body.classList.contains('android-app')) return showAndroidLinkSheet();
   const value = window.prompt('Instagram reel link or shortcode');
   if (value === null) return;
-  let code = value.trim();
-  if (!/^[A-Za-z0-9_-]{5,30}$/.test(code)) {
-    try {
-      const url = new URL(code);
-      if (!['http:', 'https:'].includes(url.protocol) ||
-          !['instagram.com','www.instagram.com','m.instagram.com'].includes(url.host) || url.username || url.password) throw Error();
-      code = url.pathname.match(/^\/(?:reel|reels|p)\/([A-Za-z0-9_-]{5,30})\/?$/)?.[1];
-      if (!code) throw Error();
-    } catch (_) { window.alert('Enter an Instagram reel/post link or shortcode'); return; }
-  }
+  const code = reelLinkCode(value);
+  if (!code) { window.alert('Enter an Instagram reel/post link or shortcode'); return; }
   window.location.href = '/reel/' + encodeURIComponent(code);
+}
+
+function setupAndroidUI() {
+  const menu = document.getElementById('feed-menu');
+  menu.querySelector('summary').setAttribute('aria-label', 'Choose feeds');
+  menu.querySelector('summary').removeAttribute('aria-keyshortcuts');
+  menu.querySelector('summary').title = 'Choose feeds';
+  document.getElementById('feed-create').textContent = 'Create feed';
+  document.getElementById('feed-add').textContent = 'Add accounts';
+  document.getElementById('mute').title = 'Mute or unmute';
+  document.getElementById('mute').setAttribute('aria-label', 'Mute or unmute');
+  document.querySelectorAll('a[target="_blank"]').forEach(link => link.removeAttribute('target'));
+}
+
+function androidSheet(id, title) {
+  document.getElementById(id)?.close();
+  const dialog = document.createElement('dialog');
+  dialog.id = id;
+  dialog.className = 'android-action-sheet';
+  dialog.setAttribute('aria-labelledby', id + '-title');
+  const heading = document.createElement('div');
+  heading.className = 'sheet-heading';
+  const text = document.createElement('h2');
+  text.id = id + '-title';
+  text.textContent = title;
+  const close = document.createElement('button');
+  close.type = 'button'; close.setAttribute('aria-label', 'Close'); close.innerHTML = icon('close');
+  close.onclick = () => dialog.close();
+  heading.append(text, close); dialog.append(heading);
+  dialog.addEventListener('close', () => dialog.remove(), {once:true});
+  dialog.addEventListener('click', event => {
+    const bounds = dialog.getBoundingClientRect();
+    if (event.target === dialog && (event.clientY < bounds.top || event.clientY > bounds.bottom ||
+        event.clientX < bounds.left || event.clientX > bounds.right)) dialog.close();
+  });
+  document.body.append(dialog);
+  return dialog;
+}
+function showAndroidLinkSheet() {
+  document.getElementById('feed-menu').open = false;
+  const dialog = androidSheet('android-link-sheet', 'Open reel');
+  const form = document.createElement('form');
+  const input = document.createElement('input');
+  input.type = 'text'; input.inputMode = 'url'; input.autocomplete = 'off';
+  input.autocapitalize = 'none'; input.spellcheck = false;
+  input.placeholder = 'Paste Instagram link'; input.setAttribute('aria-label', 'Instagram reel link or shortcode');
+  const error = document.createElement('p'); error.className = 'link-error'; error.setAttribute('role', 'status');
+  const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'link-submit'; submit.textContent = 'Open';
+  form.append(input, error, submit); dialog.append(form);
+  form.onsubmit = event => {
+    event.preventDefault();
+    const code = reelLinkCode(input.value);
+    if (!code) { error.textContent = 'Use an Instagram reel link or shortcode.'; input.focus(); return; }
+    dialog.close(); window.location.href = '/reel/' + encodeURIComponent(code);
+  };
+  dialog.showModal(); input.focus();
+}
+function showReelActions(index = current) {
+  const post = posts[index];
+  if (!post || isHidden(post)) return;
+  const dialog = androidSheet('android-reel-actions', '@' + post.owner);
+  const actions = document.createElement('div'); actions.className = 'sheet-actions';
+  function action(label, symbol, callback) {
+    const button = document.createElement('button'); button.type = 'button';
+    button.innerHTML = icon(symbol);
+    const text = document.createElement('span'); text.textContent = label;
+    button.append(text);
+    button.onclick = () => { dialog.close(); callback(); };
+    actions.append(button);
+  }
+  action('Not interested', 'less', () => rateReel(index, 'dislike'));
+  action('Add creator to a feed', 'plus', () => chooseFeed(post.owner));
+  action('More from this creator', 'user', () => { if (current !== index) showSlide(index); browseCreator(1); });
+  action('View profile', 'external', () => { window.location.href = '/u/' + encodeURIComponent(post.owner); });
+  if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));
+  action('Download video', 'download', () => downloadReel(index, document.getElementById('s'+index)?.querySelector('.download')));
+  action(autoScroll ? 'Turn off auto-scroll' : 'Auto-scroll after each reel', 'check', () => toggleAutoScroll());
+  action('Block for this session', 'less', () => { if (current !== index) showSlide(index); blockCurrent(true); });
+  action('Remove and block this creator', 'trash', () => rmAcc(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
+  dialog.append(actions); dialog.showModal();
 }

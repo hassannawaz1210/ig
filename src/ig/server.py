@@ -348,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
         manifest = data.pop('video_dash_manifest', None)
-        if manifest and dash.plan(manifest):
+        if not config.ANDROID and manifest and dash.plan(manifest):
             # Play the locally assembled best-quality stream instead of the
             # 720p progressive rendition; the browser resolves this relative
             # URL against the page. The progressive URL stays the fallback.

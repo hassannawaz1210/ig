@@ -1,6 +1,7 @@
 // Page data from the server: {feed_accounts, blocked, selected_feeds}. The page
 // arrives without reels and fetches its first batch from /reels/more.
 const boot = JSON.parse(document.getElementById('boot').textContent);
+if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
 const countEl = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -439,6 +440,7 @@ function slideHtml(p, i) {
       <button class="ico download" type="button" title="Download video" aria-label="Download video"
         onclick="downloadReel(${i}, this)">
         <span class="em">${icon('download')}</span><span>download</span></button>
+      <button class="ico android-reel-more" type="button" aria-label="More reel actions" onclick="showReelActions(${i})"><span class="em">…</span></button>
       <a class="ico" href="${p.url}" target="_blank" rel="noopener">
         <span class="em">${icon('external')}</span><span>open</span></a>
     </div>
@@ -924,6 +926,7 @@ function renderSong(i, result) {
     : result.status === 'queued' ? 'Waiting to identify song…' : 'Song recognition unavailable';
 }
 function queueSong(i) {
+  if (boot.song_recognition === false) return;
   const p = posts[i];
   if (!p || current !== i || isHidden(p)) return;
   if (p._song) { renderSong(i, p._song); return; }
@@ -1033,7 +1036,7 @@ function advanceAutoScroll() {
   if (!autoScroll || document.hidden || posts[current]?._paused ||
       !document.getElementById('comments-panel').hidden ||
       document.getElementById('feed-menu').open || document.getElementById('feed-picker') ||
-      document.getElementById('shortcut-help')) return;
+      document.getElementById('shortcut-help') || document.querySelector('dialog[open]')) return;
   const video = document.querySelector('#s'+current+' video');
   if (!video?.ended || video.error) return;
   // At the queue's end, keep waiting for refill instead of replaying or skipping.
@@ -1358,6 +1361,7 @@ feed.addEventListener('touchend', e => {
 }, {passive:true});
 feed.addEventListener('touchcancel', () => { reelTouch = null; }, {passive:true});
 updateFeedStatus();
+if (boot.android && typeof setupAndroidUI === 'function') setupAndroidUI();
 more();
 
 function closeComments() {
