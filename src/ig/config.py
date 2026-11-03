@@ -206,6 +206,38 @@ def set_selected_feeds(names: list[str] | None) -> None:
         db.execute("UPDATE text_preferences SET value = ? WHERE key = 'selected_feeds'", (json.dumps(selection),))
 
 
+def scroll_animation() -> str:
+    with database(readonly=True) as db:
+        row = db.execute("SELECT value FROM text_preferences WHERE key = 'scroll_animation'").fetchone()
+        return row[0] if row and row[0] in ('smooth', 'snappy') else 'snappy'
+
+
+def set_scroll_animation(mode: str) -> None:
+    if not isinstance(mode, str) or mode not in ('smooth', 'snappy'):
+        raise ValueError('Choose smooth or snappy scrolling.')
+    with database() as db:
+        db.execute("INSERT INTO text_preferences(key, value) VALUES ('scroll_animation', ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (mode,))
+
+
+def remove_feed_account(name: str, username: str) -> dict:
+    """Remove one membership without blocking the creator or changing other feeds."""
+    if not isinstance(name, str) or not FEED_RE.fullmatch(name):
+        raise ValueError('Invalid feed.')
+    if not isinstance(username, str) or not USER_RE.fullmatch(username):
+        raise ValueError('Invalid Instagram handle.')
+    username = username.lower()
+    with database() as db:
+        if db.execute('SELECT 1 FROM feeds WHERE name = ?', (name,)).fetchone() is None:
+            raise KeyError(name)
+        removed = db.execute('DELETE FROM feed_accounts WHERE feed = ? AND username = ?',
+                             (name, username)).rowcount > 0
+        accounts = [row[0] for row in db.execute(
+            'SELECT username FROM feed_accounts WHERE feed = ? ORDER BY position', (name,))]
+    return {'name': name, 'username': username, 'removed': removed,
+            'accounts': accounts, 'count': len(accounts)}
+
+
 def prefer_memes() -> bool:
     with database(readonly=True) as db:
         return bool(db.execute("SELECT value FROM settings WHERE key = 'prefer_memes'").fetchone()[0])

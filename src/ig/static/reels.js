@@ -1,6 +1,12 @@
 // Page data from the server: {feed_accounts, blocked, selected_feeds}. The page
 // arrives without reels and fetches its first batch from /reels/more.
 const boot = JSON.parse(document.getElementById('boot').textContent);
+let scrollAnimation = boot.scroll_animation === 'smooth' ? 'smooth' : 'snappy';
+let scrollTarget = null;
+window.addEventListener('storage', event => {
+  if (event.key === 'ig-scroll-animation' && ['smooth', 'snappy'].includes(event.newValue))
+    scrollAnimation = event.newValue;
+});
 if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
 const countEl = document.getElementById('count');
@@ -616,6 +622,7 @@ async function activate(i) {
 let current = -1;
 const io = new IntersectionObserver(es => {
   noteScroll(); // may put back a reel the burst went past; the check below then skips it
+  if (scrollTarget) return; // Intermediate animation frames must not select another reel.
   for (const e of es) if (e.isIntersecting && e.intersectionRatio > 0.6) {
     // Observer entries describe a past frame. Ignore entries for slides that
     // have already left the viewport after a keyboard jump or layout change.
@@ -1078,9 +1085,22 @@ function showSlide(i) {
   if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
   if (current !== i) recordQuickSkip(current);
+  const animate = current >= 0 && current !== i && scrollAnimation === 'smooth' &&
+    !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
   current = i;
   scrollBurst = null; // a deliberate move ends any scroll burst; see noteScroll
-  document.getElementById('s'+i)?.scrollIntoView({behavior:'instant'});
+  const target = document.getElementById('s'+i);
+  scrollTarget = animate && target ? {index:i} : null;
+  target?.scrollIntoView({behavior:scrollTarget ? 'smooth' : 'instant', block:'start'});
+  if (scrollTarget) {
+    const pending = scrollTarget;
+    // Recover if resizing, hiding a reel, or a browser gesture interrupts a slide.
+    setTimeout(() => {
+      if (scrollTarget !== pending) return;
+      scrollTarget = null;
+      if (current === i && !isHidden(posts[i])) target.scrollIntoView({behavior:'instant', block:'start'});
+    }, 1200);
+  }
   activate(i);
 }
 function hideFilteredReels() {
@@ -1330,6 +1350,10 @@ function watchScrollBurst() {
 function noteScroll() {
   const now = performance.now(), top = feed.scrollTop, moved = top - lastScrollTop;
   lastScrollTop = top;
+  if (scrollTarget) {
+    if (Math.abs(slideOffset(scrollTarget.index)) < 1) scrollTarget = null;
+    return;
+  }
   if (scrollBurst && now - scrollBurst.last > SCROLL_BURST_GAP_MS) scrollBurst = null;
   if (!scrollBurst) {
     if (current < 0 || isHidden(posts[current]) || !document.getElementById('s'+current)) return;

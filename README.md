@@ -55,8 +55,17 @@ Start with **Create feed** and add some Instagram handles or profile links.
 Name your feeds however you like, then use the feed selector to watch one or
 mix a few together. New installations start empty.
 
-Already follow accounts on Instagram? Choose **Import following** in the feed
-menu on desktop or Android. Select your Instagram export ZIP, `following.json`,
+Open **Settings** from the desktop player or Android's bottom navigation to
+manage all your feeds and accounts. Expand a feed to search its accounts, add
+more, or remove an account from that feed. Feed deletion asks for confirmation
+and offers Undo.
+
+Settings also lets each user choose **Smooth** reel transitions or **Snappy**
+instant switches. Snappy preserves the existing behavior; Smooth respects the
+device's reduced-motion setting. The choice is saved in the local profile.
+
+Already follow accounts on Instagram? Choose **Settings → Import Instagram
+following** on desktop or Android. Select your Instagram export ZIP, `following.json`,
 or `following.html`, review the handles, and import into an existing or new feed.
 Duplicates are skipped, blocked accounts stay blocked, and existing feeds are
 preserved. This is a one-time import, not automatic synchronization.
@@ -68,8 +77,8 @@ up to 25 MB; for a larger archive, extract just the following file first.
 The export is processed locally and only account handles are saved. Private
 accounts still cannot be viewed without logging in, which ig does not support.
 
-To move your setup to another device, choose **Export feeds** in the feed menu.
-Then choose **Import feeds** in ig on the other device and select that JSON file.
+To move your setup to another device, choose **Settings → Export feeds**.
+Then choose **Settings → Import feeds** on the other device and select that JSON file.
 Review it and press **Merge feeds**: matching feed names are combined, duplicate
 accounts are skipped, and permanent blocklists are combined. Your existing feeds
 and current feed selection stay intact. This file contains feeds and permanent

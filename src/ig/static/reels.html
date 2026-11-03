@@ -15,6 +15,7 @@
       </div>
       <div class="feed-key-hints"><span><kbd>↑ ↓</kbd> move</span><span><kbd>Space</kbd> mix</span><span><kbd>Enter</kbd> only</span></div>
       <div class="feed-tools">
+        <a href="/settings">Settings · manage feeds</a>
         <button type="button" onclick="openReelLink()">Open reel link</button>
         <a href="/">Back to mixed feed</a>
         <button type="button" onclick="document.getElementById('feed-menu').open=false; chooseFeed('', true)">Create feed <kbd>+</kbd></button>
@@ -28,6 +29,7 @@
   </details>
   <span class="feed-busy" id="feed-busy" hidden><span class="spinner" aria-hidden="true"></span><span class="visually-hidden">Switching feeds…</span></span>
   <span id="preference-status" role="status" aria-live="polite"></span>
+  <a id="settings-link" href="/settings" title="Settings" aria-label="Settings">{{icon:settings}}<span>Settings</span></a>
   <button id="shortcuts" type="button" onclick="showShortcuts()" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">{{icon:keyboard}}</button>
   <button id="creator-browse" type="button" hidden onclick="leaveCreatorBrowse()" title="Return to mixed feed"></button>
   <span id="action-status" role="status" aria-live="polite"></span>
@@ -38,7 +40,7 @@
   <a href="/" aria-label="Watch reels" aria-current="page"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m10 8 6 4-6 4Z"/></svg><span>Watch</span></a>
   <button type="button" onclick="event.stopPropagation(); openFeedMenu()">{{icon:folder}}<span>Feeds</span></button>
   <a href="/saved-reels">{{icon:bookmark}}<span>Saved</span></a>
-  <button type="button" onclick="chooseFeed()">{{icon:plus}}<span>Add</span></button>
+  <a href="/settings">{{icon:settings}}<span>Settings</span></a>
 </nav>
 <button id="comments-backdrop" onpointerup="closeComments()" type="button" aria-label="Close comments" onclick="closeComments()" tabindex="-1"></button>
 <aside id="comments-panel" aria-label="Reel comments" hidden>

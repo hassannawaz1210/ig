@@ -23,7 +23,7 @@ from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
 from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
-from .views import viewer_html, reels_html, static_file
+from .views import viewer_html, reels_html, settings_html, static_file
 
 log = logging.getLogger(__name__)
 
@@ -274,6 +274,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b"ok", "text/plain")
         if not self._allowed():
             return
+        if self.path in ('/settings', '/settings/data'):
+            try:
+                if self.path == '/settings':
+                    return self._send(200, settings_html().encode(), 'text/html; charset=utf-8')
+                return self._send(200, json.dumps({'feeds': load_feeds(),
+                    'scroll_animation': config.scroll_animation()}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context='Loading settings')
         if self.path == '/feeds/export':
             try:
                 filename = 'ig-feeds-' + time.strftime('%Y-%m-%d') + '.json'
@@ -483,6 +491,27 @@ class Handler(BaseHTTPRequestHandler):
             return self.access.sign_in(self)
         if not self._allowed():
             return
+        if self.path in ('/settings/scroll', '/feeds/accounts/remove'):
+            try:
+                length = int(self.headers.get('Content-Length') or 0)
+                if not 0 < length <= 1024:
+                    raise ValueError('Invalid request size.')
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    raise ValueError('Invalid request.')
+                if self.path == '/settings/scroll':
+                    mode = body.get('mode')
+                    config.set_scroll_animation(mode)
+                    result = {'scroll_animation': mode}
+                else:
+                    result = config.remove_feed_account(body.get('name'), body.get('username'))
+                return self._send(200, json.dumps(result).encode(), 'application/json')
+            except KeyError:
+                return self._send(404, b'{"error":"Feed not found"}', 'application/json')
+            except (ValueError, TypeError) as error:
+                return self._send(400, json.dumps({'error': str(error)}).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=True, context='Saving settings')
         if self.path in ('/feeds/import/preview', '/feeds/import'):
             return self._import_feeds()
         if self.path in ('/following/preview', '/following/import'):

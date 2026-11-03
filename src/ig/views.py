@@ -80,8 +80,16 @@ def reels_html(code: str | None = None) -> str:
         "post_code": code,
         "android": config.ANDROID,
         "song_recognition": not config.ANDROID,
+        "scroll_animation": config.scroll_animation(),
         "feeds": list(load_feeds()),
         "feed_accounts": sorted(feed_accounts()),
         "blocked": sorted(blocked_accounts()),
         "selected_feeds": selected_feeds(),
+    }))
+
+
+def settings_html() -> str:
+    return render('settings.html', boot=_page_data({
+        'android': config.ANDROID,
+        'scroll_animation': config.scroll_animation(),
     }))

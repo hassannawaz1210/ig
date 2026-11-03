@@ -1,0 +1,61 @@
+:root {color-scheme:dark;font:15px/1.5 system-ui,sans-serif;background:#101010;color:#eee;}
+* {box-sizing:border-box;}
+body {margin:0;padding:env(safe-area-inset-top) 20px env(safe-area-inset-bottom);}
+header,main {max-width:720px;margin:auto;}
+header {display:flex;align-items:center;gap:12px;padding:24px 0 14px;}
+header a {display:grid;place-items:center;width:44px;height:44px;color:inherit;border-radius:6px;}
+header svg {width:24px;height:24px;}
+h1 {font-size:23px;font-weight:600;margin:0;}
+h2 {font-size:16px;font-weight:600;margin:0;}
+a {color:inherit;text-decoration:none;}
+button,input {font:inherit;}
+button {color:inherit;background:none;border:1px solid #444;border-radius:6px;min-height:42px;padding:8px 12px;cursor:pointer;}
+button:hover,a:hover {background:#ffffff09;}
+button:disabled {opacity:.5;cursor:wait;}
+button svg {width:18px;height:18px;}
+:focus-visible {outline:2px solid #ddd;outline-offset:3px;}
+section {border-top:1px solid #303030;padding:24px 0;}
+section:last-child {margin-bottom:32px;}
+.section-heading,.setting-row {display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.section-heading {margin-bottom:14px;}
+.section-heading button {display:flex;align-items:center;gap:6px;}
+.setting-row {margin-top:16px;}
+fieldset {margin:0;padding:3px;display:flex;border:1px solid #444;border-radius:8px;}
+fieldset label {position:relative;cursor:pointer;}
+fieldset input {position:absolute;opacity:0;}
+fieldset span {display:block;padding:8px 13px;border-radius:5px;color:#aaa;}
+fieldset input:checked + span {background:#eee;color:#111;}
+fieldset input:focus-visible + span {outline:2px solid #ddd;outline-offset:3px;}
+fieldset:disabled {opacity:.5;}
+#settings-status {margin:0 0 16px;overflow-wrap:anywhere;}
+#settings-status:empty {display:none;}
+.muted,small {color:#999;}
+.feed-setting {border-top:1px solid #292929;}
+.feed-setting:last-child {border-bottom:1px solid #292929;}
+.feed-setting summary {display:flex;align-items:center;gap:12px;min-height:56px;cursor:pointer;list-style:none;}
+.feed-setting summary::-webkit-details-marker {display:none;}
+.feed-setting summary::before {content:'›';font-size:22px;width:14px;transform-origin:center;transition:transform .12s;}
+.feed-setting[open] summary::before {transform:rotate(90deg);}
+.feed-setting summary .feed-name {flex:1;overflow-wrap:anywhere;font-weight:500;}
+.feed-setting summary .feed-count {color:#999;font-size:13px;}
+.feed-body {padding:0 0 20px 26px;}
+.feed-tools {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.feed-tools .delete-feed {color:#ffaaa3;border-color:transparent;}
+.account-search {width:100%;color:#eee;background:#161616;border:1px solid #444;border-radius:6px;padding:10px 12px;min-height:44px;margin-bottom:8px;}
+.account-list {margin:0;padding:0;list-style:none;max-height:380px;overflow-y:auto;overscroll-behavior:contain;}
+.account-row {display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;border-bottom:1px solid #252525;min-height:48px;}
+.account-row>a {padding:12px 0;overflow-wrap:anywhere;min-width:0;flex:1;}
+.remove-account {display:grid;place-items:center;min-width:44px;border:0;color:#999;}
+.confirmation {display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;width:100%;}
+.confirmation p {flex-basis:100%;margin:0;overflow-wrap:anywhere;}
+.confirmation .confirm-remove {color:#ffaaa3;}
+.load-accounts {margin-top:12px;width:100%;}
+.transfer-row {width:100%;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:17px 0;border:0;border-bottom:1px solid #292929;border-radius:0;text-align:left;}
+.transfer-row small {display:block;margin-top:3px;font-size:12px;}
+.sr-only {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
+.android-app #feed-picker {margin:auto 0 0;width:100%;max-width:none;max-height:85dvh;overflow-y:auto;border:0;border-radius:20px 20px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));background:#1c1c1c;font:15px/1.5 system-ui;}
+.android-app #feed-picker h2 {font-size:18px;margin-bottom:16px;}
+.android-app #feed-picker input,.android-app #feed-picker select,.android-app #feed-picker textarea {min-height:48px;padding:12px;font-size:16px;}
+.android-app #feed-picker button {min-height:48px;font-size:15px;}
+@media(max-width:500px) {body {padding-left:16px;padding-right:16px;}header {padding-top:12px;}.feed-body {padding-left:0;}fieldset span {padding:9px 11px;}.account-list {max-height:48dvh;}}
+@media(prefers-reduced-motion:reduce) {.feed-setting summary::before {transition:none;}}

@@ -76,6 +76,33 @@ public class StandaloneSmokeTest {
         fail("Packaged player never loaded in WebView; last readiness result: " + state);
     }
 
+    private static IntentFilter documentIntent(String action) throws IntentFilter.MalformedMimeTypeException {
+        IntentFilter filter = new IntentFilter(action);
+        // A filter without a MIME type does not match OPEN/CREATE_DOCUMENT,
+        // both of which carry a type, and would launch the real picker in CI.
+        filter.addDataType("*/*");
+        filter.addCategory(Intent.CATEGORY_OPENABLE);
+        return filter;
+    }
+
+    private static void awaitSettings(ActivityScenario<MainActivity> scenario) throws Exception {
+        long deadline = SystemClock.elapsedRealtime() + 15000;
+        String state;
+        do {
+            state = evaluate(scenario, "Boolean(location.pathname==='/settings' "
+                    + "&& document.body.classList.contains('android-app') "
+                    + "&& document.querySelector('a[href=\"/feeds/export\"]') "
+                    + "&& document.querySelector('#scroll-mode input[value=\"smooth\"]') "
+                    + "&& document.querySelector('#scroll-mode input[value=\"snappy\"]') "
+                    + "&& document.querySelector('#scroll-mode input:checked') "
+                    + "&& document.getElementById('settings-feeds')?.getAttribute('aria-busy')==='false' "
+                    + "&& typeof importFollowing==='function' && typeof importFeeds==='function')");
+            if ("true".equals(state)) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.elapsedRealtime() < deadline);
+        fail("Settings and saved scrolling preference did not load in WebView: " + state);
+    }
+
     private static void checkFilePickerCancellation(ActivityScenario<MainActivity> scenario) throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         // Intercept the actual platform intent so no document picker UI or
@@ -83,7 +110,7 @@ public class StandaloneSmokeTest {
         // so another selection can be opened immediately.
         for (Intent result : new Intent[] {null, new Intent().setData(Uri.parse("file:///data/private.json"))}) {
             Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(
-                    new IntentFilter(Intent.ACTION_OPEN_DOCUMENT),
+                    documentIntent(Intent.ACTION_OPEN_DOCUMENT),
                     new Instrumentation.ActivityResult(result == null ? Activity.RESULT_CANCELED : Activity.RESULT_OK, result), true);
             CountDownLatch completed = new CountDownLatch(1);
             AtomicReference<Uri[]> selected = new AtomicReference<>();
@@ -119,7 +146,7 @@ public class StandaloneSmokeTest {
         Intent result = new Intent().setData(FollowingFixtureProvider.FILE)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(
-                new IntentFilter(Intent.ACTION_OPEN_DOCUMENT),
+                documentIntent(Intent.ACTION_OPEN_DOCUMENT),
                 new Instrumentation.ActivityResult(Activity.RESULT_OK, result), true);
         try {
             evaluate(scenario, "(()=>{window.fixtureUpload='waiting';const input=document.createElement('input');"
@@ -158,14 +185,15 @@ public class StandaloneSmokeTest {
 
     private static void checkBackupDownload(ActivityScenario<MainActivity> scenario) throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        String originalPath = evaluate(scenario, "location.pathname");
         instrumentation.getContext().getContentResolver().call(FollowingFixtureProvider.FILE, "grant", null, null);
         Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(
-                new IntentFilter(Intent.ACTION_CREATE_DOCUMENT),
+                documentIntent(Intent.ACTION_CREATE_DOCUMENT),
                 new Instrumentation.ActivityResult(Activity.RESULT_OK,
                         new Intent().setData(FollowingFixtureProvider.BACKUP)
                                 .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)), true);
         try {
-            evaluate(scenario, "window.location.href='/feeds/export'");
+            evaluate(scenario, "document.querySelector('a[href=\"/feeds/export\"]').click()");
             long deadline = SystemClock.elapsedRealtime() + 15000;
             String backup;
             do {
@@ -177,7 +205,7 @@ public class StandaloneSmokeTest {
             assertNotNull("Authenticated feed backup was not saved to selected document", backup);
             assertTrue("Feed backup did not contain feeds", new JSONObject(backup).has("feeds"));
             assertEquals("Save document picker was not opened", 1, monitor.getHits());
-            awaitPlayer(scenario);
+            assertEquals("Export navigated away from Settings", originalPath, evaluate(scenario, "location.pathname"));
         } finally {
             instrumentation.removeMonitor(monitor);
         }
@@ -221,9 +249,13 @@ public class StandaloneSmokeTest {
             assertTrue("Backend smoke checks were empty", report.getJSONArray("tests").length() >= 4);
             assertEquals("true", evaluate(scenario,
                     "getComputedStyle(document.getElementById('shortcuts')).display === 'none'"));
+            evaluate(scenario, "window.location.href='/settings'");
+            awaitSettings(scenario);
             checkFilePickerCancellation(scenario);
             checkFileUpload(scenario);
             checkBackupDownload(scenario);
+            evaluate(scenario, "window.location.href='/'");
+            awaitPlayer(scenario);
             scenario.recreate();
             awaitPlayer(scenario);
         }

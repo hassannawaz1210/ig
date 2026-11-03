@@ -658,6 +658,21 @@ const KEYS = {
       assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').hidden"),true);
       await evaluate("document.querySelector('#feed-picker button[type=button]').click()"); await sleep(50);
     }
+    const motionIndices = await evaluate(`(() => {
+      const indices=visibleIndices(); showSlide(indices[0]); scrollAnimation='smooth';
+      goRel(1); return indices.slice(0,4);
+    })()`);
+    await sleep(100);
+    assert.equal(await evaluate('current'),motionIndices[1],'smooth intermediate frames keep the selected reel');
+    await sleep(1000);
+    assert.equal(await shown(),motionIndices[1],'smooth navigation lands on exactly one reel');
+    await key('j',{repeats:4});
+    await sleep(1200);
+    assert.equal(await shown(),motionIndices[2],'held key does not skip multiple reels in smooth mode');
+    assert.equal(await evaluate('current'),motionIndices[2]);
+    await evaluate(`window.dispatchEvent(new StorageEvent('storage',{key:'ig-scroll-animation',newValue:'snappy'})); goRel(1)`);
+    assert.equal(await evaluate('scrollAnimation'),'snappy');
+    await expectReel(motionIndices[3],'snappy preference switches immediately');
     console.log('Reel navigation, feed selection, creation, account entry, imports and shortcut layout passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

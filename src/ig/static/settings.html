@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Settings · ig</title><link rel="stylesheet" href="/static/settings.css"></head>
+<body>
+<header><a href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Settings</h1></header>
+<main>
+  <p id="settings-status" role="status" aria-live="polite"></p>
+  <section aria-labelledby="playback-title">
+    <h2 id="playback-title">Playback</h2>
+    <div class="setting-row"><span>Reel scrolling</span><fieldset id="scroll-mode" disabled><legend class="sr-only">Reel scrolling</legend>
+      <label><input type="radio" name="scroll" value="smooth"><span title="Slide between reels">Smooth</span></label>
+      <label><input type="radio" name="scroll" value="snappy"><span title="Switch immediately">Snappy</span></label>
+    </fieldset></div>
+  </section>
+  <section aria-labelledby="transfer-title">
+    <h2 id="transfer-title">Import &amp; export</h2>
+    <button class="transfer-row" type="button" onclick="importFollowing()"><span>Import Instagram following<small>Choose your downloaded Instagram following list</small></span><span aria-hidden="true">›</span></button>
+    <a class="transfer-row" href="/feeds/export"><span>Export feeds<small>Save your feeds and permanent blocks to a file</small></span><span aria-hidden="true">↓</span></a>
+    <button class="transfer-row" type="button" onclick="importFeeds()"><span>Import feeds<small>Merge a file exported from ig</small></span><span aria-hidden="true">›</span></button>
+  </section>
+  <section aria-labelledby="feeds-title">
+    <div class="section-heading"><h2 id="feeds-title">Your feeds</h2><button id="create-feed" type="button">{{icon:plus}}New feed</button></div>
+    <p id="feeds-total" class="muted"></p>
+    <div id="settings-feeds" aria-busy="true"><p class="muted">Loading feeds…</p></div>
+  </section>
+</main>
+<script id="boot" type="application/json">{{boot}}</script>
+<script src="/static/icons.js"></script><script src="/static/common.js"></script><script src="/static/settings.js"></script>
+</body></html>
