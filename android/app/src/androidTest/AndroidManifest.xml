@@ -6,8 +6,18 @@
             android:name="io.github.hassannawaz1210.ig.FollowingFixtureProvider"
             android:authorities="io.github.hassannawaz1210.ig.test.following"
             android:exported="true"
-            android:readPermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
-            android:writePermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
-            android:grantUriPermissions="true" />
+            android:grantUriPermissions="true">
+            <!-- Keep the control call reachable so it can issue grants, while
+                 actual document reads/writes require the selected URI grant. -->
+            <path-permission android:path="/following.json"
+                android:readPermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
+                android:writePermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES" />
+            <path-permission android:path="/ig-feeds.json"
+                android:readPermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
+                android:writePermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES" />
+            <path-permission android:path="/private.json"
+                android:readPermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES"
+                android:writePermission="io.github.hassannawaz1210.ig.test.FIXTURE_FILES" />
+        </provider>
     </application>
 </manifest>
