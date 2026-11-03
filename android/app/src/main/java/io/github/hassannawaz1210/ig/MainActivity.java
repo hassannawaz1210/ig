@@ -5,12 +5,17 @@ import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.verify.domain.DomainVerificationManager;
+import android.content.pm.verify.domain.DomainVerificationUserState;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Message;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -56,6 +61,8 @@ public final class MainActivity extends Activity {
     private static final int SAVE_FEEDS_FILE = 42;
     private static final int MAX_BACKUP_BYTES = 5 * 1024 * 1024;
     private static final Pattern POST_PATH = Pattern.compile("^/(?:reel|reels|p)/([A-Za-z0-9_-]{5,30})/?$");
+    private static final Pattern INSTAGRAM_HOST = Pattern.compile("^(?:www\\.|m\\.)?instagram\\.com$", Pattern.CASE_INSENSITIVE);
+    private static final String LINK_PROMPT_SHOWN = "linkHandlingPromptShown";
     private static final Pattern SHARED_LINK = Pattern.compile("https?://(?:www\\.|m\\.)?instagram\\.com/(?:reel|reels|p)/[A-Za-z0-9_-]{5,30}/?(?:\\?[^\\s]*)?", Pattern.CASE_INSENSITIVE);
     private WebView web;
     private LinearLayout root;
@@ -93,8 +100,9 @@ public final class MainActivity extends Activity {
             String saved = savedInstanceState.getString("path", "/");
             if (saved.startsWith("/") && !saved.startsWith("//")) pendingPath = saved;
         }
-        acceptSharedLink(getIntent());
+        boolean openedFromLink = acceptInstagramLink(getIntent());
         startBackend();
+        if (savedInstanceState == null && !openedFromLink) offerLinkHandling();
     }
 
     private void startBackend() {
@@ -416,6 +424,87 @@ public final class MainActivity extends Activity {
         });
     }
 
+    /** A shared (Share → ig) or tapped Instagram link becomes the page to open. */
+    private boolean acceptInstagramLink(Intent intent) {
+        if (intent == null) return false;
+        if (Intent.ACTION_VIEW.equals(intent.getAction())) return acceptTappedLink(intent.getData());
+        return acceptSharedLink(intent);
+    }
+
+    private boolean acceptTappedLink(Uri uri) {
+        if (uri == null) return false;
+        String host = uri.getHost() == null ? "" : uri.getHost();
+        Matcher post = POST_PATH.matcher(uri.getPath() == null ? "" : uri.getPath());
+        if (INSTAGRAM_HOST.matcher(host).matches() && post.matches()) {
+            pendingPath = "/reel/" + post.group(1);
+            return true;
+        }
+        // Matched our link filter but isn't a single reel/post (e.g. /reels/audio/…):
+        // hand it to the web browser rather than dropping it.
+        openInBrowser(uri);
+        return false;
+    }
+
+    private void openInBrowser(Uri uri) {
+        Intent view = new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE);
+        // The selector forces a browser, so the link cannot loop back to ig.
+        view.setSelector(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER));
+        try { startActivity(view); }
+        catch (ActivityNotFoundException error) {
+            android.util.Log.w("ig", "No browser for " + uri, error);
+            Toast.makeText(this, "ig can only open Instagram reels and posts", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Android 12+ sends Instagram links to Instagram's verified app (or the browser)
+     * until the user chooses ig under Open by default. Offer that once.
+     */
+    private void offerLinkHandling() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;  // older versions ask per link
+        SharedPreferences preferences = getSharedPreferences("ig", MODE_PRIVATE);
+        if (preferences.getBoolean(LINK_PROMPT_SHOWN, false) || handlesInstagramLinks()) return;
+        preferences.edit().putBoolean(LINK_PROMPT_SHOWN, true).apply();
+        new AlertDialog.Builder(this)
+                .setTitle("Open Instagram links in ig?")
+                .setMessage("To play reel links you tap in other apps here, open ig's \"Open by default\" settings, "
+                        + "tap \"Add link\" and select instagram.com. If the Instagram app is installed, turn off "
+                        + "\"Open supported links\" for it first.")
+                .setPositiveButton("Open settings", (dialog, which) -> openLinkSettings())
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.S)
+    private boolean handlesInstagramLinks() {
+        try {
+            DomainVerificationManager manager = getSystemService(DomainVerificationManager.class);
+            if (manager == null) return false;
+            DomainVerificationUserState state = manager.getDomainVerificationUserState(getPackageName());
+            if (state == null || !state.isLinkHandlingAllowed()) return false;
+            for (java.util.Map.Entry<String, Integer> host : state.getHostToStateMap().entrySet())
+                if (INSTAGRAM_HOST.matcher(host.getKey()).matches()
+                        && host.getValue() != DomainVerificationUserState.DOMAIN_STATE_NONE) return true;
+            return false;
+        } catch (PackageManager.NameNotFoundException | RuntimeException error) {
+            android.util.Log.w("ig", "Could not read link handling state", error);
+            return false;
+        }
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.S)
+    private void openLinkSettings() {
+        Uri app = Uri.parse("package:" + getPackageName());
+        try { startActivity(new Intent(Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS, app)); }
+        catch (ActivityNotFoundException error) {
+            // Some phones lack the direct screen; app details still leads to it.
+            try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, app)); }
+            catch (ActivityNotFoundException fallback) {
+                Toast.makeText(this, "Open Settings → Apps → ig → Open by default", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
     private boolean acceptSharedLink(Intent intent) {
         if (!Intent.ACTION_SEND.equals(intent.getAction()) || !"text/plain".equals(intent.getType())) return false;
         String text = intent.getStringExtra(Intent.EXTRA_TEXT);
@@ -432,7 +521,7 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (acceptSharedLink(intent) && web != null && origin != null) web.loadUrl(origin + pendingPath);
+        if (acceptInstagramLink(intent) && web != null && origin != null) web.loadUrl(origin + pendingPath);
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {

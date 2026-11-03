@@ -23,6 +23,7 @@ import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 
 import org.json.JSONObject;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -249,6 +250,46 @@ public class StandaloneSmokeTest {
             assertEquals("Export navigated away from Settings", originalPath, evaluate(scenario, "location.pathname"));
         } finally {
             instrumentation.removeMonitor(monitor);
+        }
+    }
+
+    /** The one-time "Open Instagram links in ig?" dialog would cover the player and take test taps. */
+    @Before
+    public void skipLinkHandlingPrompt() {
+        InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getSharedPreferences("ig", Context.MODE_PRIVATE).edit()
+                .putBoolean("linkHandlingPromptShown", true).commit();
+    }
+
+    private static boolean appHandles(String url) {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addCategory(Intent.CATEGORY_BROWSABLE).setPackage(context.getPackageName());
+        return !context.getPackageManager().queryIntentActivities(view, 0).isEmpty();
+    }
+
+    @Test
+    public void instagramReelLinksCanOpenInApp() {
+        for (String url : new String[] {"https://www.instagram.com/reel/ABCDE123/",
+                "https://instagram.com/p/ABCDE123/?igsh=x", "http://m.instagram.com/reels/ABCDE123"})
+            assertTrue("ig offers to open " + url, appHandles(url));
+        for (String url : new String[] {"https://www.instagram.com/someone/",
+                "https://www.instagram.com/stories/someone/1/", "https://example.com/reel/ABCDE123/"})
+            assertFalse("ig leaves " + url + " to other apps", appHandles(url));
+    }
+
+    @Test
+    public void tappedReelLinkOpensInPlayer() throws Exception {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        Intent tap = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/reel/ABCDE123/?igsh=x"))
+                .setClass(context, MainActivity.class);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(tap)) {
+            String path = null;
+            for (int i = 0; i < 600 && !"\"/reel/ABCDE123\"".equals(path); i++) {
+                SystemClock.sleep(100);
+                path = evaluate(scenario, "location.pathname");
+            }
+            assertEquals("\"/reel/ABCDE123\"", path);
         }
     }
 

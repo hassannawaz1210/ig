@@ -22,6 +22,22 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <!-- Tapped Instagram reel/post links. Instagram's own app is verified for
+                 this domain, so Android only sends links here once the user picks ig
+                 under Open by default (see MainActivity.offerLinkHandling). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="instagram.com" />
+                <data android:host="www.instagram.com" />
+                <data android:host="m.instagram.com" />
+                <data android:pathPrefix="/reel/" />
+                <data android:pathPrefix="/reels/" />
+                <data android:pathPrefix="/p/" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
