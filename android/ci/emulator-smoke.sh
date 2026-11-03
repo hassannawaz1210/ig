@@ -18,6 +18,11 @@ adb shell getprop ro.dalvik.vm.native.bridge | tee build/smoke/native-bridge.txt
 grep -q 'arm64-v8a' build/smoke/device-abis.txt
 gradle --no-daemon --stacktrace connectedDebugAndroidTest
 
+# Gradle removes test packages after connected tests. Install both APKs again
+# for the independent process-restart checks below.
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
 # Separate instrumentation invocations give Python a genuinely fresh process.
 # No Instagram calls are required for these local-storage checks.
 run_persistence_check() {

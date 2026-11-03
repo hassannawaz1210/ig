@@ -37,6 +37,10 @@ The `android` source set includes `../../src`, so changes to the shared app do
 not need copying. Chaquopy extracts the `ig` package and its HTML/CSS/JS assets.
 No desktop databases, feeds, virtual environment, or caches enter the APK.
 
+CI restores a private preview signing key so successive published APKs can be
+installed as updates while keeping feeds. Local builds use your own Android debug
+key. Keep using the same signing key when building updates.
+
 ## Runtime
 
 The shell starts Python on a background thread, starts one authenticated

@@ -47,6 +47,15 @@ jobs:
           path: android/wheels/*.whl
           if-no-files-found: error
           retention-days: 14
+      - name: Restore preview signing key
+        env:
+          ANDROID_PREVIEW_KEYSTORE: ${{ secrets.ANDROID_PREVIEW_KEYSTORE }}
+        shell: bash
+        run: |
+          test -n "$ANDROID_PREVIEW_KEYSTORE" || { echo 'Missing Android preview signing key'; exit 1; }
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ANDROID_PREVIEW_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
       - name: Build standalone APK and instrumentation tests
         working-directory: android
         run: gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest
