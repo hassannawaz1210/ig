@@ -99,7 +99,8 @@ public class StandaloneSmokeTest {
                     + "&& d.querySelector('#scroll-mode input[value=\"snappy\"]') "
                     + "&& d.querySelector('#scroll-mode input:checked') && !d.getElementById('sound-on') "
                     + "&& d.getElementById('auto-scroll-on') && !d.getElementById('auto-scroll-on').disabled "
-                    + "&& d.getElementById('settings-feeds')?.getAttribute('aria-busy')==='false' "
+                    + "&& /feeds? \u00b7 /.test(d.getElementById('feeds-total')?.textContent || '') "
+                    + "&& d.querySelector('a[href=\"/settings/feeds\"]') "
                     + "&& typeof w.importFollowing==='function' && typeof w.importFeeds==='function')})()");
             if ("true".equals(state)) return;
             SystemClock.sleep(100);
