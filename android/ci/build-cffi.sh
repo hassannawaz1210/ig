@@ -22,6 +22,7 @@ git -C "$build_root/chaquopy" checkout -q --detach FETCH_HEAD
 cp "$recipe/meta.yaml" "$build_root/chaquopy/server/pypi/packages/cffi/meta.yaml"
 python3.13 -m venv "$build_root/tools"
 "$build_root/tools/bin/python" -m pip install -r "$build_root/chaquopy/server/pypi/requirements.txt"
+export PATH="$build_root/tools/bin:$PATH"
 cd "$build_root/chaquopy"
 bash target/download-target.sh "maven/com/chaquo/python/target/$target_version"
 mkdir -p server/pypi/dist/chaquopy-libffi
