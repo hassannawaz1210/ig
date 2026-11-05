@@ -484,6 +484,8 @@ function slideHtml(p, i) {
       <button class="ico" type="button" title="Not interested in this reel (N)" aria-label="Not interested"
         onclick="rateReel(${i}, 'dislike')"><span class="em">${icon('less')}</span><span>less</span></button>
       <button class="ico" type="button" title="Comments (C)" aria-label="Show comments" onclick="toggleComments(${i})"><span class="em">${icon('comment')}</span><span id="cm${i}">${fmt(p.comment_count)}</span></button>
+      <button class="ico reel-share" type="button" title="Share reel" aria-label="Share reel" onclick="shareReel(${i})">
+        <span class="em">${icon('share')}</span><span>share</span></button>
       ${p.reason ? `<button class="ico why-button" type="button" title="Why am I seeing this? (W)"
         aria-label="Why am I seeing this?" aria-expanded="false" aria-controls="why${i}" onclick="toggleWhy(${i})">
         <span class="em">${icon('info')}</span><span>why</span></button>` : ''}
@@ -1215,6 +1217,41 @@ async function recognizeSong(i) {
     p._recognizing = false;
     queueSong(current);
   }
+}
+let sharingReel = false;
+async function shareReel(i) {
+  const code = posts[i]?.shortcode;
+  if (sharingReel || !/^[A-Za-z0-9_-]{5,30}$/.test(code || '')) return;
+  // Share a public, clean Instagram URL, never this device's local server URL.
+  const url = 'https://www.instagram.com/reel/' + code + '/';
+  if (boot.android) {
+    window.location.href = '/share/' + code;
+    return;
+  }
+  sharingReel = true;
+  try {
+    if (navigator.share) {
+      try { await navigator.share({url}); return; }
+      catch (error) { if (error.name === 'AbortError') return; }
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+    } catch (_) {
+      // HTTP phone access may not expose the Clipboard API.
+      const previous = document.activeElement;
+      const input = document.createElement('textarea');
+      input.value = url; input.readOnly = true;
+      input.style.cssText = 'position:fixed;top:0;left:-9999px';
+      document.body.append(input);
+      try {
+        input.select();
+        if (!document.execCommand('copy')) throw new Error('Could not copy reel link');
+      } finally { input.remove(); previous?.focus({preventScroll:true}); }
+    }
+    actionStatus('Reel link copied');
+  } catch (error) { actionStatus(error.message || 'Could not share reel'); }
+  finally { sharingReel = false; }
 }
 async function downloadReel(i, button) {
   const post = posts[i];

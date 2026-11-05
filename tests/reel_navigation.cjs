@@ -101,6 +101,20 @@ const KEYS = {
       assert.ok(tries < 50, 'reels page did not load');
       await sleep(100);
     }
+    const shareUrls = await evaluate(`posts.slice(0,2).map(p=>'https://www.instagram.com/reel/'+p.shortcode+'/')`);
+    await evaluate(`window.shareCalls=[]; window.copyCalls=[];
+      Object.defineProperty(navigator,'share',{configurable:true,writable:true,value:async data=>shareCalls.push(data)});
+      Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>copyCalls.push(text)}});
+      document.querySelector('#s0 .reel-share').click()`);
+    await sleep(50);
+    assert.deepEqual(await evaluate('shareCalls'),[{url:shareUrls[0]}]);
+    await evaluate(`navigator.share=async()=>{throw new DOMException('Cancelled','AbortError')}; shareReel(0)`);
+    assert.deepEqual(await evaluate('copyCalls'),[],'cancel does not copy');
+    await evaluate(`navigator.share=undefined; shareReel(1)`);
+    assert.deepEqual(await evaluate('copyCalls'),[shareUrls[1]]);
+    assert.equal(await evaluate('current'),0,'sharing does not switch reels');
+    assert.equal(await evaluate('location.href'),url,'sharing does not navigate away');
+    await evaluate(`delete navigator.share; delete navigator.clipboard`);
     // The reel whose top edge is at the top of the feed, as the user sees it.
     const shown = () => evaluate(`(() => {
       const top = feed.getBoundingClientRect().top;

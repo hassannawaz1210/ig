@@ -108,6 +108,30 @@ public class StandaloneSmokeTest {
         fail("Settings and saved scrolling preference did not load in WebView: " + state);
     }
 
+    private static void checkReelSharing(ActivityScenario<MainActivity> scenario) throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        AtomicReference<Intent> shared = new AtomicReference<>();
+        CountDownLatch opened = new CountDownLatch(1);
+        Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {
+            @Override public Instrumentation.ActivityResult onStartActivity(Intent intent) {
+                if (!Intent.ACTION_CHOOSER.equals(intent.getAction())) return null;
+                shared.set(intent.getParcelableExtra(Intent.EXTRA_INTENT));
+                opened.countDown();
+                return new Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null);
+            }
+        };
+        instrumentation.addMonitor(monitor);
+        try {
+            evaluate(scenario, "window.beforeShareUrl=location.href;window.beforeShareFeed=document.getElementById('feed');"
+                    + "posts.push({shortcode:'DSmBF6-k8rM'});shareReel(posts.length-1);posts.pop()");
+            assertTrue("Share chooser did not open", opened.await(5, TimeUnit.SECONDS));
+            assertEquals(Intent.ACTION_SEND, shared.get().getAction());
+            assertEquals("text/plain", shared.get().getType());
+            assertEquals("https://www.instagram.com/reel/DSmBF6-k8rM/", shared.get().getStringExtra(Intent.EXTRA_TEXT));
+            assertEquals("true", evaluate(scenario, "location.href===beforeShareUrl && document.getElementById('feed')===beforeShareFeed"));
+        } finally { instrumentation.removeMonitor(monitor); }
+    }
+
     private static void checkSettingsBack(ActivityScenario<MainActivity> scenario) throws Exception {
         String initialSound = evaluate(scenario, "desiredSound");
         evaluate(scenario, "window.playerStateMarker={};window.originalPlayerStateMarker=window.playerStateMarker;"
@@ -373,6 +397,7 @@ public class StandaloneSmokeTest {
             assertEquals("true", evaluate(scenario,
                     "getComputedStyle(document.getElementById('shortcuts')).display === 'none'"));
             checkSettingsBack(scenario);
+            checkReelSharing(scenario);
             evaluate(scenario, "window.location.href='/settings'");
             awaitSettings(scenario);
             checkFilePickerCancellation(scenario);

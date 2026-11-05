@@ -324,6 +324,16 @@ public final class MainActivity extends Activity {
 
     private boolean routeNavigation(Uri uri) {
         if (isLocal(uri)) {
+            if (uri.getPath() != null && uri.getPath().matches("/share/[A-Za-z0-9_-]{5,30}")) {
+                String code = uri.getLastPathSegment();
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(Intent.EXTRA_TEXT, "https://www.instagram.com/reel/" + code + "/");
+                try { startActivity(Intent.createChooser(share, "Share reel")); }
+                catch (ActivityNotFoundException | SecurityException error) {
+                    Toast.makeText(this, "Could not open sharing", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            }
             if ("/feeds/export".equals(uri.getPath())) {
                 chooseBackupDestination();
                 return true;

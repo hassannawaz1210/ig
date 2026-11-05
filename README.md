@@ -69,6 +69,10 @@ resumes the same reel at the same position, with your sound and pause state inta
 The player remembers your sound choice, auto-scroll, and selected feeds in the
 local database, including after restarting the app.
 
+Use the paper-plane **Share** button beside a reel to share its Instagram link.
+Android opens the system share sheet; browsers use their share menu or copy the
+link to your clipboard.
+
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
 following** on desktop or Android. Select your Instagram export ZIP, `following.json`,
 or `following.html`, review the handles, and import into an existing or new feed.
