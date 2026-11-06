@@ -78,7 +78,8 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     private boolean choosingBackup;
     private Uri pendingBackupDestination;
     private AppUpdater updater;
-    private LinearLayout updateBanner;
+    // Latest update notice as JSON for the page; re-sent after each page load.
+    private String updateNotice = "null";
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -111,6 +112,17 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         if (savedInstanceState == null && !openedFromLink) offerLinkHandling();
     }
 
+    /** Shown under Settings → About. */
+    private String appVersionName() {
+        try { String name = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; return name == null ? "" : name; }
+        catch (Exception error) { android.util.Log.w("ig", "Could not read app version", error); return ""; }
+    }
+
+    private String appVersionCode() {
+        try { return String.valueOf(UpdatePackage.code(getPackageManager().getPackageInfo(getPackageName(), 0))); }
+        catch (Exception error) { android.util.Log.w("ig", "Could not read app build number", error); return ""; }
+    }
+
     private void startBackend() {
         if (starting) return;
         starting = true;
@@ -121,7 +133,8 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
                     if (!Python.isStarted()) Python.start(new AndroidPlatform(getApplicationContext()));
                 }
                 String result = Python.getInstance().getModule("ig_android")
-                        .callAttr("start", getFilesDir().getAbsolutePath(), getCacheDir().getAbsolutePath()).toString();
+                        .callAttr("start", getFilesDir().getAbsolutePath(), getCacheDir().getAbsolutePath(),
+                                appVersionName(), appVersionCode()).toString();
                 JSONObject data = new JSONObject(result);
                 Uri address = Uri.parse(data.getString("url"));
                 if (!"http".equals(address.getScheme()) || !"127.0.0.1".equals(address.getHost()) || address.getPort() < 1)
@@ -210,6 +223,10 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 return routeNavigation(request.getUrl());
             }
+            @Override public void onPageFinished(WebView view, String url) {
+                // A new page has no update card yet; show the current notice again.
+                if (url != null && isLocal(Uri.parse(url))) sendUpdateNotice();
+            }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame() && isLocal(request.getUrl()))
                     showFailure("The local player stopped responding. Tap Try again to reopen it.");
@@ -284,9 +301,6 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         });
         web.setDownloadListener((url, userAgent, disposition, mimeType, length) -> saveDownload(Uri.parse(url)));
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
-        if (updateBanner != null && updateBanner.getParent() != null)
-            ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
-        updateBanner = null;
         updater.render();
         if (paused) web.onPause();
     }
@@ -339,9 +353,15 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
 
     private boolean routeNavigation(Uri uri) {
         if (isLocal(uri)) {
-            if ("/app/update/check".equals(uri.getPath()) && uri.getQuery() == null && uri.getFragment() == null) {
-                updater.check(true);
-                return true;
+            if (uri.getPath() != null && uri.getPath().startsWith("/app/update/")
+                    && uri.getQuery() == null && uri.getFragment() == null) {
+                // Buttons in the page's update card; the page itself never loads these.
+                switch (uri.getPath()) {
+                    case "/app/update/check": updater.check(true); return true;
+                    case "/app/update/action": updater.action(); return true;
+                    case "/app/update/dismiss": updater.dismiss(); return true;
+                    default: return true;
+                }
             }
             if (uri.getPath() != null && uri.getPath().matches("/share/[A-Za-z0-9_-]{5,30}")) {
                 String code = uri.getLastPathSegment();
@@ -583,64 +603,42 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         updater.check(false);
     }
 
+    private static final Pattern PERCENT = Pattern.compile("(\\d{1,3})%");
+
+    /** The page draws the update card (common.js); this only describes it. */
     @Override public void onUpdateStatus(String message, String action, boolean canDismiss) {
-        if (isFinishing() || isDestroyed() || web == null) return;
+        if (isFinishing() || isDestroyed()) return;
         if (message.isEmpty()) {
-            if (updateBanner != null) ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
-            updateBanner = null;
-            return;
+            updateNotice = "null";
+        } else {
+            try {
+                JSONObject notice = new JSONObject().put("message", message).put("action", action)
+                        .put("dismissible", canDismiss);
+                Matcher percent = PERCENT.matcher(message);
+                if (percent.find()) notice.put("progress", Math.min(100, Integer.parseInt(percent.group(1))));
+                updateNotice = notice.toString();
+            } catch (org.json.JSONException error) {
+                android.util.Log.e("ig", "Could not describe update status", error);
+                return;
+            }
         }
-        if (updateBanner != null) ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
-        float density = getResources().getDisplayMetrics().density;
-        int padding = Math.round(12 * density);
-        int touchSize = Math.round(48 * density);
-        updateBanner = new LinearLayout(this);
-        updateBanner.setTag("app-update-banner");
-        updateBanner.setOrientation(LinearLayout.VERTICAL);
-        updateBanner.setBackgroundColor(Color.rgb(30, 30, 32));
-        updateBanner.setPadding(padding, Math.round(4 * density), padding, Math.round(4 * density));
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(touchSize);
-        TextView label = new TextView(this);
-        label.setTag("app-update-message");
-        label.setTextColor(Color.WHITE);
-        label.setTextSize(14);
-        label.setText(message);
-        label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView close = new TextView(this);
-        close.setTag("app-update-dismiss");
-        close.setText("×");
-        close.setTextColor(Color.WHITE);
-        close.setTextSize(24);
-        close.setGravity(Gravity.CENTER);
-        close.setContentDescription("Dismiss update notice");
-        close.setBackgroundColor(Color.TRANSPARENT);
-        close.setFocusable(true);
-        close.setOnClickListener(view -> updater.dismiss());
-        close.setVisibility(canDismiss ? View.VISIBLE : View.GONE);
-        row.addView(close, new LinearLayout.LayoutParams(touchSize, touchSize));
-        updateBanner.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        if (!action.isEmpty()) {
-            LinearLayout actions = new LinearLayout(this);
-            actions.setGravity(Gravity.END);
-            Button button = new Button(this);
-            button.setAllCaps(false);
-            button.setText(action);
-            button.setOnClickListener(view -> updater.action());
-            actions.addView(button);
-            updateBanner.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-        }
-        android.widget.FrameLayout host = findViewById(android.R.id.content);
-        android.widget.FrameLayout.LayoutParams placement = new android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        placement.setMargins(root.getPaddingLeft() + padding, 0, root.getPaddingRight() + padding,
-                root.getPaddingBottom() + padding);
-        host.addView(updateBanner, placement);
+        sendUpdateNotice();
+    }
+
+    private void sendUpdateNotice() {
+        if (web != null) web.evaluateJavascript("window.igShowAppUpdate&&igShowAppUpdate(" + updateNotice + ")", null);
     }
 
     @Override public void onUpdateInfo(String message) {
-        if (!isFinishing() && !isDestroyed()) Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        if (isFinishing() || isDestroyed()) return;
+        if (web == null) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); return; }
+        try {
+            String notice = new JSONObject().put("message", message).put("action", "").put("dismissible", false)
+                    .put("done", true).toString();
+            web.evaluateJavascript("window.igShowAppUpdate&&igShowAppUpdate(" + notice + ")", null);
+        } catch (org.json.JSONException error) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override public void onUpdateInstall(File apk) {

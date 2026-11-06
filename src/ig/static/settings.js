@@ -1,8 +1,31 @@
 const boot = JSON.parse(document.getElementById('boot').textContent);
 if (boot.android) document.body.classList.add('android-app');
-const appUpdates = document.getElementById('app-updates');
-if (appUpdates) appUpdates.hidden = !boot.android;
-let settingsData = {feeds:{},scroll_animation:boot.scroll_animation || 'snappy'};
+// About: version, source link and (in the Android app) the update check.
+document.getElementById('app-version').textContent = (boot.version || 'unknown') + (boot.build ? ` (build ${boot.build})` : '');
+const repositoryLink = document.getElementById('repository-link');
+repositoryLink.hidden = !boot.repository;
+if (boot.repository) {
+  repositoryLink.href = boot.repository;
+  document.getElementById('repository-name').textContent = boot.repository.replace(/^https:\/\//, '');
+}
+const checkUpdates = document.getElementById('check-updates');
+checkUpdates.hidden = !boot.android;
+// The app's update card lives in the top page (common.js); mirror its state here.
+function showUpdateState(notice) {
+  const state = document.getElementById('update-state'), indicator = document.getElementById('update-indicator');
+  state.hidden = !notice?.message;
+  state.textContent = notice?.message || '';
+  const busy = !!notice && !notice.action && /…$/.test(notice.message);
+  indicator.className = 'update-indicator' + (busy ? ' busy' : '');
+  indicator.textContent = busy ? '' : '›';
+}
+{
+  try {
+    showUpdateState(window.top.igAppUpdateNotice);
+    window.top.addEventListener('ig-app-update', event => showUpdateState(event.detail));
+  } catch (error) { console.warn('Update status is unavailable here', error); }
+}
+let settingsData = {feeds:{},scroll_animation:boot.scroll_animation || 'smooth'};
 let loadVersion = 0, scrollVersion = 0, scrollSaving = false, autoScrollSaving = false;
 let scrollWrite = Promise.resolve();
 // Failed changes already restore the previous control value. Wait for writes,
@@ -23,7 +46,7 @@ async function loadSettings() {
     settingsData=data;
     if (!autoScrollSaving) { autoScrollInput.checked=data.auto_scroll===true; autoScrollInput.disabled=false; }
     if (!scrollSaving) {
-      const radio=scrollMode.querySelector(`input[value="${data.scroll_animation==='smooth'?'smooth':'snappy'}"]`);
+      const radio=scrollMode.querySelector(`input[value="${data.scroll_animation==='snappy'?'snappy':'smooth'}"]`);
       radio.checked=true; scrollMode.disabled=false;
     }
     const names=Object.keys(data.feeds);
@@ -43,7 +66,7 @@ scrollMode.onchange=async event=>{
     try {localStorage.setItem('ig-scroll-animation',data.scroll_animation);} catch (_) {}
     status.textContent=data.scroll_animation==='smooth'?'Smooth scrolling enabled.':'Snappy scrolling enabled.';
   } catch (error) {
-    scrollMode.querySelector(`input[value="${previous==='smooth'?'smooth':'snappy'}"]`).checked=true;
+    scrollMode.querySelector(`input[value="${previous==='snappy'?'snappy':'smooth'}"]`).checked=true;
     status.textContent=error.message;
   } finally {scrollSaving=false;scrollMode.disabled=false;}
 };

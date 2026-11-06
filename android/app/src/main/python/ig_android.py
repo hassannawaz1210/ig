@@ -38,7 +38,7 @@ class AppAccess:
         handler._send(403, b'Use the Android app', 'text/plain')
 
 
-def start(files_dir, cache_dir):
+def start(files_dir, cache_dir, version_name='', version_code=''):
     """Called on a background thread; safe to repeat after Activity recreation."""
     global _server, _connection
     with _lock:
@@ -49,6 +49,9 @@ def start(files_dir, cache_dir):
         os.environ['XDG_CONFIG_HOME'] = str(files_dir)
         os.environ['XDG_CACHE_HOME'] = str(cache_dir)
         os.environ['IG_ANDROID'] = '1'
+        # Shown under Settings → About.
+        os.environ['IG_APP_VERSION'] = str(version_name or '')
+        os.environ['IG_APP_BUILD'] = str(version_code or '')
         from ig import config, logs
         from ig.server import make_server
         config.load_feeds()  # Run transactional migrations before showing the UI.

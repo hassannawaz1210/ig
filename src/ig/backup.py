@@ -120,7 +120,7 @@ def export():
         if selection is not None:
             selection = [name for name in selection if name in feeds]
         settings = {**config._playback_preferences(db),
-                    'scroll_animation': preferences.get('scroll_animation', 'snappy'),
+                    'scroll_animation': preferences.get('scroll_animation', 'smooth'),
                     'selected_feeds': selection}
         saved = [dict(zip(SAVED_FIELDS, row)) for row in db.execute(
             'SELECT code, owner, caption, taken_at, like_count, comment_count, saved_at '

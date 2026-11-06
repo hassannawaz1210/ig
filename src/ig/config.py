@@ -209,7 +209,24 @@ def set_selected_feeds(names: list[str] | None) -> None:
 def scroll_animation() -> str:
     with database(readonly=True) as db:
         row = db.execute("SELECT value FROM text_preferences WHERE key = 'scroll_animation'").fetchone()
-        return row[0] if row and row[0] in ('smooth', 'snappy') else 'snappy'
+        return row[0] if row and row[0] in ('smooth', 'snappy') else 'smooth'
+
+
+REPOSITORY_URL = 'https://github.com/hassannawaz1210/ig'
+
+
+def app_version() -> dict:
+    """Version shown under Settings → About: the Android app's own version when
+    running there, otherwise the installed Python package version."""
+    version = os.environ.get('IG_APP_VERSION', '')
+    build = os.environ.get('IG_APP_BUILD', '')
+    if not version:
+        try:
+            from importlib.metadata import version as package_version
+            version = package_version('ig-browser')
+        except Exception:  # running from a source checkout without installing
+            version = 'development'
+    return {'version': version, 'build': build}
 
 
 def set_scroll_animation(mode: str) -> None:

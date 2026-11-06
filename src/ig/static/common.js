@@ -522,3 +522,102 @@ function autoHideStatus(status, {hideMs = 5000, undoHideMs = 10000} = {}) {
   new MutationObserver(later).observe(status, {childList:true, characterData:true, subtree:true});
   return {pending: () => timer !== null};
 }
+
+// ---- Android app update card ----
+// MainActivity calls igShowAppUpdate(notice) in the top page with
+// {message, action, dismissible, progress?, done?}, or null to hide it.
+// Buttons are links the app intercepts (/app/update/action, /app/update/dismiss).
+if (typeof window !== 'undefined' && window.top === window) {
+  const UPDATE_DONE_HIDE_MS = 4000;
+  let updateCard = null, updateHideTimer = null;
+  const updateIcons = {
+    working: '<span class="ig-update-spinner"></span>',
+    done: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+    available: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>',
+    failed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5m0 3.2v.3"/></svg>',
+  };
+  function updateKind(notice) {
+    if (notice.done) return 'done';
+    if (notice.action === 'Retry') return 'failed';
+    if (notice.action === 'Update' || notice.action === 'Install') return 'available';
+    if (typeof notice.progress === 'number' || /…$/.test(notice.message)) return 'working';
+    return 'done';
+  }
+  function updateStyles() {
+    if (document.getElementById('ig-update-styles')) return;
+    const style = document.createElement('style'); style.id = 'ig-update-styles';
+    style.textContent = `
+      #ig-update-card{position:fixed;z-index:1000;left:12px;right:12px;margin:0 auto;max-width:440px;box-sizing:border-box;
+        bottom:calc(12px + env(safe-area-inset-bottom) + var(--android-nav-height,0px));
+        display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;padding:14px 14px 14px 16px;
+        border:1px solid #333;border-radius:16px;background:#1c1c1f;color:#eee;font:15px/1.4 system-ui,sans-serif;
+        box-shadow:0 10px 30px #0009;animation:ig-update-in .18s ease-out}
+      #ig-update-card .ig-update-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#2a2a2e;color:#ddd}
+      #ig-update-card .ig-update-icon svg{width:19px;height:19px}
+      #ig-update-card[data-kind=done] .ig-update-icon{background:#173a22;color:#5fd17f}
+      #ig-update-card[data-kind=available] .ig-update-icon{background:#1d2a44;color:#8db4ff}
+      #ig-update-card[data-kind=failed] .ig-update-icon{background:#3d1c1a;color:#ff8f86}
+      #ig-update-card .ig-update-text{min-width:0;overflow-wrap:anywhere;font-weight:550}
+      #ig-update-card .ig-update-percent{color:#999;font-weight:400;font-variant-numeric:tabular-nums}
+      body:has(#ig-update-card) main{padding-bottom:120px}
+      #ig-update-card .ig-update-bar{grid-column:1/-1;height:4px;border-radius:2px;background:#2e2e33;overflow:hidden}
+      #ig-update-card .ig-update-bar span{display:block;height:100%;background:#8db4ff;transition:width .2s}
+      #ig-update-card .ig-update-actions{display:flex;align-items:center;gap:4px}
+      #ig-update-card a{display:grid;place-items:center;min-height:40px;border-radius:10px;color:inherit;text-decoration:none;font-weight:600}
+      #ig-update-card .ig-update-primary{padding:0 16px;background:#eee;color:#111}
+      #ig-update-card .ig-update-close{width:40px;color:#999;font-size:22px;font-weight:400}
+      .ig-update-spinner{width:16px;height:16px;border:2px solid #555;border-top-color:#eee;border-radius:50%;animation:ig-update-spin .8s linear infinite}
+      @keyframes ig-update-spin{to{transform:rotate(360deg)}}
+      @keyframes ig-update-in{from{opacity:0;transform:translateY(8px)}}
+      @media(prefers-reduced-motion:reduce){#ig-update-card{animation:none}.ig-update-spinner{animation-duration:2s}}`;
+    document.head.append(style);
+  }
+  function hideUpdateCard() {
+    clearTimeout(updateHideTimer); updateHideTimer = null;
+    updateCard?.remove(); updateCard = null;
+  }
+  window.igAppUpdateNotice = null;
+  window.igShowAppUpdate = notice => {
+    window.igAppUpdateNotice = notice || null;
+    window.dispatchEvent(new CustomEvent('ig-app-update', {detail: window.igAppUpdateNotice}));
+    if (!notice?.message) { hideUpdateCard(); return; }
+    updateStyles();
+    if (!updateCard) {
+      updateCard = document.createElement('div'); updateCard.id = 'ig-update-card';
+      updateCard.setAttribute('role', 'status'); updateCard.setAttribute('aria-live', 'polite');
+      document.body.append(updateCard);
+    }
+    const kind = updateKind(notice);
+    updateCard.dataset.kind = kind;
+    const icon = document.createElement('span'); icon.className = 'ig-update-icon'; icon.innerHTML = updateIcons[kind];
+    const text = document.createElement('span'); text.className = 'ig-update-text';
+    // The bar shows progress; keep the title short and the number beside it.
+    text.textContent = typeof notice.progress === 'number' ? notice.message.replace(/\s*\d{1,3}%$/, '') : notice.message;
+    if (typeof notice.progress === 'number') {
+      const percent = document.createElement('span'); percent.className = 'ig-update-percent';
+      percent.textContent = ` ${Math.round(notice.progress)}%`; text.append(percent);
+    }
+    const actions = document.createElement('span'); actions.className = 'ig-update-actions';
+    if (notice.action) {
+      const primary = document.createElement('a'); primary.className = 'ig-update-primary';
+      primary.href = '/app/update/action'; primary.target = '_top'; primary.textContent = notice.action;
+      actions.append(primary);
+    }
+    if (notice.dismissible || notice.done) {
+      const close = document.createElement('a'); close.className = 'ig-update-close';
+      close.textContent = '×'; close.setAttribute('aria-label', 'Dismiss');
+      if (notice.done) { close.href = '#'; close.onclick = event => { event.preventDefault(); window.igShowAppUpdate(null); }; }
+      else { close.href = '/app/update/dismiss'; close.target = '_top'; }
+      actions.append(close);
+    }
+    updateCard.replaceChildren(icon, text, actions);
+    if (typeof notice.progress === 'number') {
+      const bar = document.createElement('span'); bar.className = 'ig-update-bar';
+      const fill = document.createElement('span'); fill.style.width = Math.max(0, Math.min(100, notice.progress)) + '%';
+      bar.append(fill); updateCard.append(bar);
+    }
+    clearTimeout(updateHideTimer);
+    // The app hides "up to date" itself; one-off results (e.g. installed) hide here.
+    updateHideTimer = notice.done ? setTimeout(() => window.igShowAppUpdate(null), UPDATE_DONE_HIDE_MS) : null;
+  };
+}

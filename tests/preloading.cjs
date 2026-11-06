@@ -13,7 +13,7 @@ function createPage(respond, {chips = [], boot = {}} = {}) {
     if (id === 'feed-picker' || id === 'shortcut-help') return null;
     if (!elements.has(id)) elements.set(id, {
       id,
-      textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null, ...boot}) : '', style: {}, dataset: {},
+      textContent: id === 'boot' ? JSON.stringify({feed_accounts: [], blocked: [], selected_feeds: null, scroll_animation: 'snappy', ...boot}) : '', style: {}, dataset: {},
       getBoundingClientRect() {return {top:0,bottom:800,height:800};},
       scrollIntoView() {},
       matches() {return false;},

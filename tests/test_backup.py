@@ -36,7 +36,7 @@ class BackupTests(ProjectTests):
         document = json.loads(response[1])
         self.assertEqual(document, payload({'edits': ['one', 'two'], 'empty': []}, ['blocked'],
             version=2, saved_reels=[], settings={'sound':False, 'auto_scroll':False,
-                'scroll_animation':'snappy', 'selected_feeds':['edits']}))
+                'scroll_animation':'smooth', 'selected_feeds':['edits']}))
         self.assertEqual(backup.parse(response[1]), document)
 
     def test_preview_does_not_write_and_counts_memberships(self):

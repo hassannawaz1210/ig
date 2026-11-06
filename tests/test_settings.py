@@ -27,19 +27,19 @@ class SettingsTests(ProjectTests):
         config.save_feeds({'keep': ['old']})
         config.set_selected_feeds(['keep'])
         config.set_blocked('blocked', True)
-        self.assertEqual(config.scroll_animation(), 'snappy')
-        response = self.request('/settings/scroll', {'mode': 'smooth'})
+        self.assertEqual(config.scroll_animation(), 'smooth', 'smooth transitions are the default')
+        response = self.request('/settings/scroll', {'mode': 'snappy'})
         self.assertEqual(response[0], 200)
-        self.assertEqual(json.loads(response[1]), {'scroll_animation': 'smooth'})
-        self.assertEqual(config.scroll_animation(), 'smooth')
+        self.assertEqual(json.loads(response[1]), {'scroll_animation': 'snappy'})
+        self.assertEqual(config.scroll_animation(), 'snappy')
         data = json.loads(self.request('/settings/data')[1])
-        self.assertEqual(data, {'feeds': {'keep': ['old']}, 'scroll_animation': 'smooth',
+        self.assertEqual(data, {'feeds': {'keep': ['old']}, 'scroll_animation': 'snappy',
                                 'selected_feeds': ['keep'], 'blocked_accounts': ['blocked'],
                                 'sound': False, 'auto_scroll': False,
                                 'playback_missing': ['sound', 'auto_scroll']})
         self.assertEqual(config.selected_feeds(), ['keep'])
         self.assertEqual(config.blocked_accounts(), {'blocked'})
-        self.assertIn('"scroll_animation": "smooth"', views.reels_html())
+        self.assertIn('"scroll_animation": "snappy"', views.reels_html())
 
     def test_playback_preferences_partial_updates_and_profile_preservation(self):
         config.save_feeds({'keep': ['old']})
@@ -128,6 +128,12 @@ print(json.dumps({'playback': config.playback_preferences(),
         self.assertIsNone(third['selected_feeds'])
         self.assertEqual(third['blocked_accounts'], ['z_blocked'])
 
+    def test_app_version_falls_back_to_the_package_outside_android(self):
+        with patch.dict('os.environ', {'IG_APP_VERSION': '', 'IG_APP_BUILD': ''}):
+            info = config.app_version()
+        self.assertEqual(info['build'], '')
+        self.assertTrue(info['version'], 'desktop shows the installed package version')
+
     def test_invalid_scroll_preference_does_not_write(self):
         config.set_scroll_animation('snappy')
         for mode in [None, 'fast', True, [], 1]:
@@ -160,7 +166,10 @@ print(json.dumps({'playback': config.playback_preferences(),
 
     def test_settings_boot_has_android_flag_and_auth_applies(self):
         with patch.object(views, '_template', return_value='{{boot}}'), patch.object(config, 'ANDROID', True):
-            self.assertEqual(json.loads(views.settings_html()), {'android': True, 'scroll_animation': 'snappy'})
+            with patch.dict('os.environ', {'IG_APP_VERSION': '1.2.3', 'IG_APP_BUILD': '45'}):
+                self.assertEqual(json.loads(views.settings_html()), {
+                    'android': True, 'scroll_animation': 'smooth', 'version': '1.2.3', 'build': '45',
+                    'repository': 'https://github.com/hassannawaz1210/ig'})
             self.assertEqual(json.loads(views.feeds_html()), {'android': True})
             boot = json.loads(views.viewer_html('@someone', 'posts', [], username='someone'))
             self.assertTrue(boot['android'], 'profile page gets the phone layout in the app')

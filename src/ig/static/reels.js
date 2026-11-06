@@ -5,7 +5,7 @@ const playbackBoot = initialPlaybackPreferences(boot);
 let desiredSound = playbackBoot.sound === true;
 let localPage = null;
 let localPageVersion = 0;
-let scrollAnimation = boot.scroll_animation === 'smooth' ? 'smooth' : 'snappy';
+let scrollAnimation = boot.scroll_animation === 'snappy' ? 'snappy' : 'smooth';
 let scrollTarget = null;
 window.addEventListener('storage', event => {
   if (event.key === 'ig-scroll-animation' && ['smooth', 'snappy'].includes(event.newValue))

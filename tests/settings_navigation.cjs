@@ -80,29 +80,29 @@ async function launch() {
     };
     await send('Page.enable'); await send('Page.navigate',{url});
     await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
-    assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'snappy');
+    assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'smooth');
     assert.equal(await evaluate("document.getElementById('feeds-total').textContent"),'3 feeds · 162 accounts');
     await evaluate(`(() => {
       const original=window.fetch;
       window.fetch=(url,options)=>url==='/settings/scroll'?
         new Promise((resolve,reject)=>window.releaseScrollWrite=()=>original(url,options).then(resolve,reject)):original(url,options);
-      document.querySelector('input[value=smooth]').click();
+      document.querySelector('input[value=snappy]').click();
       window.scrollFlushDone=false;
       window.flushLocalChanges().then(()=>window.scrollFlushDone=true);
       window.fetch=original;
     })()`);
     await sleep(80);
     assert.equal(await evaluate('scrollFlushDone'),false,'navigation waits for the pending transition preference');
-    assert.equal(await evaluate("fetch('/settings/data').then(r=>r.json()).then(d=>d.scroll_animation)"),'snappy');
+    assert.equal(await evaluate("fetch('/settings/data').then(r=>r.json()).then(d=>d.scroll_animation)"),'smooth');
     await evaluate('releaseScrollWrite()');
-    await waitFor("document.getElementById('settings-status').textContent==='Smooth scrolling enabled.'");
+    await waitFor("document.getElementById('settings-status').textContent==='Snappy scrolling enabled.'");
     await waitFor('scrollFlushDone');
     assert.ok(await evaluate('statusHider.pending()'),'status message is scheduled to hide');
     await sleep(5300);
     assert.equal(await evaluate("document.getElementById('settings-status').textContent"),'','status hides after a few seconds');
     assert.equal(await evaluate("getComputedStyle(document.getElementById('settings-status')).display"),'none','empty status takes no space');
     await send('Page.reload'); await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
-    assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'smooth','scroll preference survives reload');
+    assert.equal(await evaluate("document.querySelector('#scroll-mode input:checked').value"),'snappy','scroll preference survives reload');
     assert.equal(await evaluate("document.getElementById('sound-on')"),null,'sound stays on the existing reel control');
     await evaluate("localStorage.setItem('ig-auto-scroll','true')");
     await send('Page.reload'); await waitFor("document.getElementById('feeds-total')?.textContent==='3 feeds · 162 accounts'");
@@ -120,8 +120,34 @@ async function launch() {
     await waitFor("document.getElementById('settings-status').textContent==='Could not save playback preferences'");
     assert.equal(await evaluate("document.getElementById('auto-scroll-on').checked"),true,'failed server save reverts switch');
     await evaluate('window.fetch=originalFetch');
-    await evaluate("document.querySelector('input[value=snappy]').click()");
-    await waitFor("document.getElementById('settings-status').textContent==='Snappy scrolling enabled.'");
+    await evaluate("document.querySelector('input[value=smooth]').click()");
+    await waitFor("document.getElementById('settings-status').textContent==='Smooth scrolling enabled.'");
+    // About comes last, with the version and the GitHub repository.
+    assert.equal(await evaluate("[...document.querySelectorAll('main > section')].at(-1).querySelector('h2').textContent"),'About');
+    assert.ok(await evaluate("document.getElementById('app-version').textContent.length>0"),'version is shown');
+    assert.equal(await evaluate("document.getElementById('repository-link').href"),'https://github.com/hassannawaz1210/ig');
+    assert.equal(await evaluate("document.getElementById('check-updates').hidden"),true,'update checks are for the Android app');
+    assert.equal(await evaluate("document.body.textContent.includes('Updates come directly from GitHub')"),false);
+    // The app's update card: each state, the progress bar, and the Settings row mirroring it.
+    const card=async notice=>evaluate(`(() => { igShowAppUpdate(${JSON.stringify(notice)}); const c=document.getElementById('ig-update-card');
+      return c && {kind:c.dataset.kind, text:c.querySelector('.ig-update-text').textContent,
+        primary:c.querySelector('.ig-update-primary')?.getAttribute('href') || null, primaryText:c.querySelector('.ig-update-primary')?.textContent || null,
+        close:!!c.querySelector('.ig-update-close'), bar:c.querySelector('.ig-update-bar span')?.style.width || null,
+        row:document.getElementById('update-state').textContent}; })()`);
+    assert.deepEqual(await card({message:'Checking for updates…',action:'',dismissible:true}),
+      {kind:'working',text:'Checking for updates…',primary:null,primaryText:null,close:true,bar:null,row:'Checking for updates…'});
+    assert.deepEqual(await card({message:'ig 0.6.0 is available',action:'Update',dismissible:true}),
+      {kind:'available',text:'ig 0.6.0 is available',primary:'/app/update/action',primaryText:'Update',close:true,bar:null,row:'ig 0.6.0 is available'});
+    assert.deepEqual(await card({message:'Downloading update… 42%',action:'Cancel',dismissible:false,progress:42}),
+      {kind:'working',text:'Downloading update… 42%',primary:'/app/update/action',primaryText:'Cancel',close:false,bar:'42%',row:'Downloading update… 42%'});
+    assert.equal((await card({message:'Couldn’t check for updates',action:'Retry',dismissible:true})).kind,'failed');
+    assert.equal((await card({message:'ig is up to date',action:'',dismissible:false})).kind,'done');
+    assert.ok(await evaluate("(() => { const c=document.getElementById('ig-update-card').getBoundingClientRect(); return c.bottom<=innerHeight && c.left>=0 && c.right<=innerWidth; })()"),'card stays on screen');
+    assert.equal(await card(null),null,'empty notice hides the card');
+    assert.equal(await evaluate("document.getElementById('update-state').hidden"),true);
+    await card({message:'Update installed',action:'',dismissible:false,done:true});
+    await sleep(4300);
+    assert.equal(await evaluate("document.getElementById('ig-update-card')"),null,'one-off result hides itself');
     // Settings only links to the feed list; feeds are managed on their own page.
     assert.equal(await evaluate("document.querySelectorAll('.feed-setting').length"),0,'Settings does not list every feed');
     assert.equal(await evaluate("document.querySelector('a[href=\"/feeds/export\"]').textContent.includes('Export backup')"),true);

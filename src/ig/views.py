@@ -98,6 +98,8 @@ def settings_html() -> str:
     return render('settings.html', boot=_page_data({
         'android': config.ANDROID,
         'scroll_animation': config.scroll_animation(),
+        **config.app_version(),
+        'repository': config.REPOSITORY_URL,
     }))
 
 

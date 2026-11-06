@@ -185,28 +185,30 @@ public class StandaloneSmokeTest {
                     + "window.updateBeforeUrl=location.href;window.updateBeforeViewport=innerHeight;window.updateBeforeFrameUrl=updateBeforeFrame.contentWindow.location.href;"
                     + "updateBeforeFrame.contentDocument.querySelector('a[href=\"/app/update/check\"]').click()");
             assertTrue("Settings iframe did not invoke native updater", checked.await(10, TimeUnit.SECONDS));
-            AtomicReference<String> text = new AtomicReference<>();
+            // The page draws the result as a card in the top document (common.js).
+            String text = null;
             long deadline = SystemClock.elapsedRealtime() + 10000;
             do {
-                scenario.onActivity(activity -> {
-                    android.widget.TextView label = activity.getWindow().getDecorView().findViewWithTag("app-update-message");
-                    text.set(label == null ? null : label.getText().toString());
-                });
-                if ("ig is up to date".equals(text.get())) break;
+                text = evaluate(scenario, "document.querySelector('#ig-update-card .ig-update-text')?.textContent||''");
+                if ("\"ig is up to date\"".equals(text)) break;
                 SystemClock.sleep(100);
             } while (SystemClock.elapsedRealtime() < deadline);
-            assertEquals("Check success was not visible", "ig is up to date", text.get());
+            assertEquals("Check success was not visible", "\"ig is up to date\"", text);
+            assertEquals("Update card did not mark success", "\"done\"",
+                    evaluate(scenario, "document.getElementById('ig-update-card').dataset.kind"));
             assertEquals("Update notice resized the player", "true", evaluate(scenario, "innerHeight===updateBeforeViewport"));
-            checkCompactUpdateNotice(scenario);
-            AtomicReference<Boolean> visible = new AtomicReference<>(true);
+            assertEquals("Update card is off screen", "true", evaluate(scenario,
+                    "(()=>{const r=document.getElementById('ig-update-card').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth})()"));
+            assertEquals("Settings row did not show the result", "\"ig is up to date\"", evaluate(scenario,
+                    "updateBeforeFrame.contentDocument.getElementById('update-state').textContent"));
+            String gone = null;
             long expires = SystemClock.elapsedRealtime() + 5000;
             do {
-                scenario.onActivity(activity -> visible.set(activity.getWindow().getDecorView()
-                        .findViewWithTag("app-update-banner") != null));
-                if (!visible.get()) break;
+                gone = evaluate(scenario, "!document.getElementById('ig-update-card')");
+                if ("true".equals(gone)) break;
                 SystemClock.sleep(100);
             } while (SystemClock.elapsedRealtime() < expires);
-            assertFalse("Successful update check did not disappear", visible.get());
+            assertEquals("Successful update check did not disappear", "true", gone);
             assertEquals("true", evaluate(scenario, "location.href===updateBeforeUrl && document.querySelector('#local-page iframe')===updateBeforeFrame && updateBeforeFrame.contentWindow.location.href===updateBeforeFrameUrl"));
         } finally {
             scenario.onActivity(activity -> {
@@ -214,51 +216,6 @@ public class StandaloneSmokeTest {
                 catch (IllegalAccessException error) { throw new AssertionError(error); }
             });
         }
-    }
-
-    private static void checkCompactUpdateNotice(ActivityScenario<MainActivity> scenario) {
-        scenario.onActivity(activity -> {
-            float density = activity.getResources().getDisplayMetrics().density;
-            for (String message : new String[]{"ig is up to date", "Checking for updates…"}) {
-                boolean success = "ig is up to date".equals(message);
-                activity.onUpdateStatus(message, "", !success);
-                android.widget.LinearLayout banner = activity.getWindow().getDecorView()
-                        .findViewWithTag("app-update-banner");
-                android.view.View close = banner.findViewWithTag("app-update-dismiss");
-                int width = Math.round(360 * density);
-                banner.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                banner.layout(0, 0, width, banner.getMeasuredHeight());
-                assertEquals("Simple update status must occupy one row", 1, banner.getChildCount());
-                assertTrue("Simple update status is too tall", banner.getMeasuredHeight() <= Math.round(64 * density));
-                if (success) {
-                    assertEquals("Success must not show a close icon", android.view.View.GONE, close.getVisibility());
-                } else {
-                    assertEquals(Math.round(48 * density), close.getMeasuredWidth());
-                    assertEquals(Math.round(48 * density), close.getMeasuredHeight());
-                }
-                assertTrue("Notice must overlay rather than resize the player",
-                        banner.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams);
-                assertEquals(android.graphics.Color.TRANSPARENT,
-                        ((android.graphics.drawable.ColorDrawable) close.getBackground()).getColor());
-                android.widget.TextView label = banner.findViewWithTag("app-update-message");
-                label.setText("Couldn’t check for updates. Check your connection and try again.");
-                label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 28);
-                banner.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
-                        android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
-                banner.layout(0, 0, width, banner.getMeasuredHeight());
-                android.text.Layout layout = label.getLayout();
-                assertNotNull(layout);
-                assertTrue("Large text should wrap", layout.getLineCount() > 1);
-                assertEquals("Update text was truncated", label.getText().length(),
-                        layout.getLineEnd(layout.getLineCount() - 1));
-                assertTrue("Wrapped text was clipped", label.getMeasuredHeight() >= layout.getHeight());
-                for (int line = 0; line < layout.getLineCount(); line++) {
-                    assertEquals(0, layout.getEllipsisCount(line));
-                }
-            }
-            activity.onUpdateStatus("ig is up to date", "", false);
-        });
     }
 
     private static void checkCleanViewBack(ActivityScenario<MainActivity> scenario) throws Exception {
