@@ -53,12 +53,14 @@ public class UpdateTest {
     private static final class Status implements AppUpdater.Listener {
         final String expected;
         final CountDownLatch ready = new CountDownLatch(1);
+        final CountDownLatch hidden = new CountDownLatch(1);
         volatile String message, action;
         volatile boolean dismissible;
         Status(String expected) { this.expected = expected; }
         @Override public void onUpdateStatus(String message, String action, boolean dismissible) {
             this.message = message; this.action = action; this.dismissible = dismissible;
             if (expected.equals(message)) ready.countDown();
+            if (message.isEmpty() && ready.getCount() == 0) hidden.countDown();
         }
         @Override public void onUpdateInfo(String message) { fail("Check result should stay visible, not use a toast"); }
         @Override public void onUpdateInstall(File file) { fail("A check must not install anything"); }
@@ -75,7 +77,7 @@ public class UpdateTest {
         return new AppUpdater(context, source, preferences);
     }
 
-    @Test public void manualCheckResultsRemainVisibleAndCanBeDismissed() throws Exception {
+    @Test public void manualSuccessExpiresWhileActionableResultsCanBeDismissed() throws Exception {
         Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
         long current = UpdatePackage.code(app.getPackageManager().getPackageInfo(app.getPackageName(), 0));
         UpdatePackage same = new UpdatePackage(current, "current", APK_URL, "0000000000000000000000000000000000000000000000000000000000000000", 1);
@@ -89,8 +91,13 @@ public class UpdateTest {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> { updater.attach(status); updater.check(true); });
             assertTrue("No visible check result", status.ready.await(10, TimeUnit.SECONDS));
             assertEquals(actions[i], status.action);
-            assertTrue(status.dismissible);
-            InstrumentationRegistry.getInstrumentation().runOnMainSync(updater::dismiss);
+            if (i == 0) {
+                assertFalse("Success must not offer a dismiss icon", status.dismissible);
+                assertTrue("Success notice did not expire", status.hidden.await(5, TimeUnit.SECONDS));
+            } else {
+                assertTrue(status.dismissible);
+                InstrumentationRegistry.getInstrumentation().runOnMainSync(updater::dismiss);
+            }
             assertEquals("", status.message);
         }
     }
@@ -110,7 +117,7 @@ public class UpdateTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> updater.check(true));
         finish.countDown();
         assertTrue("Manual check lost its result", status.ready.await(10, TimeUnit.SECONDS));
-        assertTrue(status.dismissible);
+        assertFalse(status.dismissible);
     }
 
     @Test public void manifestIsStrictAndBounded() throws Exception {

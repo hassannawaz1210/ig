@@ -47,6 +47,9 @@ final class AppUpdater {
     private boolean checkDismissed;
     private boolean manualCheck;
     private String message = "";
+    private final Runnable hideSuccess = () -> {
+        if (phase == Phase.IDLE) { visible = false; render(); }
+    };
 
     static synchronized AppUpdater get(Context context) {
         if (instance == null) instance = new AppUpdater(context.getApplicationContext());
@@ -118,6 +121,7 @@ final class AppUpdater {
                 || now < preferences.getLong("nextCheck", 0))) return;
         // Prevent restart loops while a request is in flight, including process death.
         preferences.edit().putLong("nextCheck", now + failureDelay(1)).apply();
+        main.removeCallbacks(hideSuccess);
         phase = Phase.CHECKING;
         manualCheck = manual;
         checkDismissed = false;
@@ -136,6 +140,7 @@ final class AppUpdater {
                         message = "ig is up to date";
                         visible = manualCheck && !checkDismissed;
                         render();
+                        if (visible) main.postDelayed(hideSuccess, 3000);
                         return;
                     }
                     update = candidate;
@@ -338,7 +343,7 @@ final class AppUpdater {
         String action = phase == Phase.AVAILABLE ? "Update" : phase == Phase.DOWNLOADING ? "Cancel"
                 : phase == Phase.READY ? "Install" : phase == Phase.FAILED ? "Retry" : "";
         target.onUpdateStatus(visible ? message : "", action,
-                phase != Phase.DOWNLOADING && phase != Phase.VERIFYING);
+                phase != Phase.IDLE && phase != Phase.DOWNLOADING && phase != Phase.VERIFYING);
     }
 
     private static HttpURLConnection open(String address) throws IOException {

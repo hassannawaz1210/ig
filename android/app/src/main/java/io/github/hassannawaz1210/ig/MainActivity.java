@@ -284,6 +284,8 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         });
         web.setDownloadListener((url, userAgent, disposition, mimeType, length) -> saveDownload(Uri.parse(url)));
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+        if (updateBanner != null && updateBanner.getParent() != null)
+            ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
         updateBanner = null;
         updater.render();
         if (paused) web.onPause();
@@ -584,46 +586,57 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     @Override public void onUpdateStatus(String message, String action, boolean canDismiss) {
         if (isFinishing() || isDestroyed() || web == null) return;
         if (message.isEmpty()) {
-            if (updateBanner != null) root.removeView(updateBanner);
+            if (updateBanner != null) ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
             updateBanner = null;
             return;
         }
-        if (updateBanner == null) {
-            updateBanner = new LinearLayout(this);
-            updateBanner.setOrientation(LinearLayout.VERTICAL);
-            updateBanner.setBackgroundColor(Color.rgb(30, 30, 32));
-            int padding = Math.round(12 * getResources().getDisplayMetrics().density);
-            updateBanner.setPadding(padding, padding, padding, 0);
-            TextView label = new TextView(this);
-            label.setTag("app-update-message");
-            label.setTextColor(Color.WHITE);
-            label.setTextSize(14);
-            label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-            label.setTag("app-update-message");
-            updateBanner.addView(label, new LinearLayout.LayoutParams(-1, -2));
+        if (updateBanner != null) ((android.view.ViewGroup) updateBanner.getParent()).removeView(updateBanner);
+        float density = getResources().getDisplayMetrics().density;
+        int padding = Math.round(12 * density);
+        int touchSize = Math.round(48 * density);
+        updateBanner = new LinearLayout(this);
+        updateBanner.setTag("app-update-banner");
+        updateBanner.setOrientation(LinearLayout.VERTICAL);
+        updateBanner.setBackgroundColor(Color.rgb(30, 30, 32));
+        updateBanner.setPadding(padding, Math.round(4 * density), padding, Math.round(4 * density));
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(touchSize);
+        TextView label = new TextView(this);
+        label.setTag("app-update-message");
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(14);
+        label.setText(message);
+        label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView close = new TextView(this);
+        close.setTag("app-update-dismiss");
+        close.setText("×");
+        close.setTextColor(Color.WHITE);
+        close.setTextSize(24);
+        close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Dismiss update notice");
+        close.setBackgroundColor(Color.TRANSPARENT);
+        close.setFocusable(true);
+        close.setOnClickListener(view -> updater.dismiss());
+        close.setVisibility(canDismiss ? View.VISIBLE : View.GONE);
+        row.addView(close, new LinearLayout.LayoutParams(touchSize, touchSize));
+        updateBanner.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        if (!action.isEmpty()) {
             LinearLayout actions = new LinearLayout(this);
-            actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            actions.setGravity(Gravity.END);
             Button button = new Button(this);
             button.setAllCaps(false);
+            button.setText(action);
             button.setOnClickListener(view -> updater.action());
             actions.addView(button);
-            Button close = new Button(this);
-            close.setText("×");
-            close.setContentDescription("Dismiss update notice");
-            close.setMinWidth(0);
-            close.setMinimumWidth(0);
-            close.setOnClickListener(view -> updater.dismiss());
-            actions.addView(close, new LinearLayout.LayoutParams(padding * 4, -2));
             updateBanner.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-            root.addView(updateBanner, new LinearLayout.LayoutParams(-1, -2));
         }
-        ((TextView) updateBanner.getChildAt(0)).setText(message);
-        LinearLayout actions = (LinearLayout) updateBanner.getChildAt(1);
-        Button button = (Button) actions.getChildAt(0);
-        button.setText(action);
-        button.setVisibility(action.isEmpty() ? View.GONE : View.VISIBLE);
-        actions.getChildAt(1).setVisibility(canDismiss ? View.VISIBLE : View.GONE);
-        actions.setVisibility(action.isEmpty() && !canDismiss ? View.GONE : View.VISIBLE);
+        android.widget.FrameLayout host = findViewById(android.R.id.content);
+        android.widget.FrameLayout.LayoutParams placement = new android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        placement.setMargins(root.getPaddingLeft() + padding, 0, root.getPaddingRight() + padding,
+                root.getPaddingBottom() + padding);
+        host.addView(updateBanner, placement);
     }
 
     @Override public void onUpdateInfo(String message) {
