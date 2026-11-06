@@ -75,6 +75,7 @@ async function launch() {
 }
 
 const KEYS = {
+  h: {key:'h',code:'KeyH',windowsVirtualKeyCode:72,text:'h'},
   j: {key: 'j', code: 'KeyJ', windowsVirtualKeyCode: 74, text: 'j'},
   k: {key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, text: 'k'},
   ArrowDown: {key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40},
@@ -552,6 +553,66 @@ const KEYS = {
     assert.equal(mobile.navBottom,844,'bottom navigation fits the viewport');
     assert.equal(mobile.reelHeight,mobile.navTop,'video viewport ends above navigation');
     fs.writeFileSync('/tmp/ig-android-watch.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    // Clean view never resizes the player or changes playback state.
+    await evaluate("closeComments(); closeFeedMenu(); window.cleanVideo=document.createElement('video'); document.getElementById('s'+current).append(cleanVideo); Object.defineProperty(cleanVideo,'paused',{configurable:true,value:false}); cleanVideo.currentTime=7; window.cleanBefore={index:current,time:cleanVideo.currentTime,paused:cleanVideo.paused,height:feed.clientHeight}");
+    const twoFingerTap = async () => {
+      await touch('touchStart',[[140,350,1]]);
+      await touch('touchStart',[[140,350,1],[220,350,2]]);
+      await touch('touchEnd',[[220,350,2]]);
+      await touch('touchEnd',[]);
+    };
+    for(let n=0;n<4;n++) {
+      await twoFingerTap();
+      assert.equal(await evaluate('cleanView'),n%2===0,'two-finger taps repeatedly toggle Clean view');
+    }
+    await twoFingerTap();
+    const cleanState=await evaluate(`({height:feed.clientHeight,index:current,same:cleanVideo===document.querySelector('#s'+current+' video'),time:cleanVideo.currentTime,paused:cleanVideo.paused,
+      info:getComputedStyle(document.querySelector('#s'+current+' .info')).visibility,
+      actions:getComputedStyle(document.querySelector('#s'+current+' .bar')).visibility,
+      nav:getComputedStyle(document.querySelector('.android-nav')).visibility,
+      seek:getComputedStyle(document.querySelector('#s'+current+' .reel-seek')).visibility,before:cleanBefore})`);
+    assert.equal(cleanState.height,cleanState.before.height,'Clean view preserves Android navigation space');
+    assert.equal(cleanState.index,cleanState.before.index);assert.equal(cleanState.same,true);
+    assert.equal(cleanState.time,cleanState.before.time);assert.equal(cleanState.paused,cleanState.before.paused);
+    assert.equal(cleanState.info,'hidden');assert.equal(cleanState.actions,'hidden');assert.equal(cleanState.nav,'hidden');assert.equal(cleanState.seek,'hidden');
+    // Pinching and dragging two fingers must not become navigation or a tap.
+    await touch('touchStart',[[140,350,1],[220,350,2]]);
+    await touch('touchMove',[[90,300,1],[270,400,2]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cleanView'),true,'pinch does not toggle');
+    await touch('touchStart',[[140,350,1],[220,350,2]]);
+    await touch('touchMove',[[140,150,1],[220,150,2]]);await touch('touchEnd',[]);
+    await sleep(350);
+    assert.equal(await evaluate('current'),cleanState.index,'two-finger drag never scrolls');
+    assert.equal(await evaluate('cleanVideo.paused'),cleanState.paused,'release clicks do not pause');
+    await key('h');assert.equal(await evaluate('cleanView'),false,'H exits Clean view');
+    await key('h');assert.equal(await evaluate('cleanView'),true,'H enables Clean view');
+    await touch('touchStart',[[180,350]]);await sleep(400);
+    assert.equal(await evaluate('cleanVideo.playbackRate'),2,'Clean view keeps hold-to-speed');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.hold-speed')).visibility"),'visible','speed feedback remains visible');
+    await touch('touchStart',[[180,350,1],[240,350,2]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cleanVideo.playbackRate'),1,'second finger cancels hold');
+    assert.equal(await evaluate('cleanView'),true,'a long hold plus second finger is not a two-finger tap');
+    const bottom=await evaluate("document.querySelector('#s'+current).getBoundingClientRect().bottom-12");
+    await evaluate("window.cleanSeekCalls=[];window.realCleanSeek=seekReel;seekReel=(i,r)=>cleanSeekCalls.push(Number(r.value)); document.querySelector('#s'+current+' .reel-seek input').disabled=false");
+    await touch('touchStart',[[180,bottom]]);await touch('touchMove',[[280,bottom]]);await touch('touchEnd',[]);
+    assert.ok(await evaluate('cleanSeekCalls.some(value=>value>650)'),'initial bottom gesture can scrub without a second touch');
+    await evaluate('seekReel=realCleanSeek');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('#s'+current+' .reel-seek')).visibility"),'visible','bottom touch reveals seeking');
+    await sleep(2700);
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('#s'+current+' .reel-seek')).visibility"),'hidden','seek control hides again');
+    await evaluate("revealCleanSeek(); document.querySelector('#s'+current+' .reel-seek input').disabled=false;document.querySelector('#s'+current+' .reel-seek input').focus()");
+    await key('h');assert.equal(await evaluate('cleanView'),false,'H exits with seek input focused');
+    await evaluate('document.activeElement.blur();setCleanView(true)');
+    assert.equal(await evaluate('window.exitCleanView()'),true);assert.equal(await evaluate('window.exitCleanView()'),false);
+    await evaluate('showReelActions(current)');
+    await evaluate("[...document.querySelectorAll('#android-reel-actions button')].find(b=>b.textContent==='Clean view').click()");
+    assert.equal(await evaluate('cleanView'),true,'More menu enables Clean view');
+    await evaluate('setCleanView(false)');await sleep(100);
+    await touch('touchStart',[[180,350,1]]);
+    await touch('touchStart',[[180,350,1],[20,25,2]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cleanView'),false,'second finger outside video does not toggle');
+    assert.equal(await evaluate('reelHold'),null,'second finger outside video cancels hold');
+    await evaluate('cleanVideo.remove()');
     // A sideways swipe browses the current creator (Left/Right on a keyboard).
     const swipes = await evaluate(`(() => {
       const calls=[], real=browseCreator; browseCreator=d=>calls.push(d);
@@ -869,7 +930,7 @@ const KEYS = {
       const post=posts[current];post.video=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));post._rich=true;post._paused=false;
       setVideo(post,current,true);const video=document.querySelector('#s'+current+' video');
       if(video.readyState<1)await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
-      video.loop=true;video.currentTime=.25;await video.play();
+      video.loop=true;video.currentTime=.25;await video.play();setCleanView(true);
       video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
       video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
       await new Promise(resolve=>setTimeout(resolve,350));

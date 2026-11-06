@@ -399,3 +399,13 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 #local-page iframe {flex:1;min-height:0;width:100%;border:0;background:#101010;}
 #local-page-back {flex-shrink:0;min-height:48px;padding:12px 18px;border:0;border-bottom:1px solid #333;background:#101010;color:#eee;text-align:left;font:15px system-ui;cursor:pointer;}
 #local-page-back[hidden] {display:none;}
+
+/* Keep slide and Android navigation geometry unchanged while hiding chrome. */
+.clean-view .info,.clean-view .bar,.clean-view .top,.clean-view .android-nav {
+  visibility:hidden;pointer-events:none;
+}
+.clean-view .slide::after { visibility:hidden; }
+.clean-view .reel-seek { visibility:hidden;pointer-events:none; }
+.clean-view.clean-seek-visible .reel-seek { visibility:visible;pointer-events:auto; }
+
+.clean-view #action-status,.clean-view #preference-status { visibility:visible;pointer-events:auto; }

@@ -81,6 +81,12 @@ hold a playing reel for 2× speed and release to restore its previous speed.
 Paused reels show a play icon. Drag the bottom progress bar to jump forward or
 backward without changing whether the reel is playing or paused.
 
+Double-tap a reel to like it. Two-finger tap the video, press **H**, or choose
+**Clean view** from the ⋯ menu to hide the controls. Playback and navigation keep
+working; touch the bottom seek area to scrub. Two-finger tap again, press H, or
+use Android Back to show controls. Clean view lasts until you reload or restart;
+it is not part of your exported settings.
+
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
 following** on desktop or Android. Select your Instagram export ZIP, `following.json`,
 or `following.html`, review the handles, and import into an existing or new feed.

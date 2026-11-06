@@ -135,7 +135,7 @@ public class StandaloneSmokeTest {
     private static void checkSettingsBack(ActivityScenario<MainActivity> scenario) throws Exception {
         String initialSound = evaluate(scenario, "desiredSound");
         evaluate(scenario, "window.playerStateMarker={};window.originalPlayerStateMarker=window.playerStateMarker;"
-                + "if(!desiredSound)document.getElementById('mute').click();document.getElementById('settings-link').click()");
+                + "if(!desiredSound)document.getElementById('mute').click();setCleanView(true);document.getElementById('settings-link').click()");
         awaitSettings(scenario);
         assertEquals("true", evaluate(scenario, "Boolean(document.querySelector('#local-page iframe'))"));
         evaluate(scenario, "(()=>{const d=document.querySelector('#local-page iframe').contentDocument;"
@@ -152,10 +152,48 @@ public class StandaloneSmokeTest {
         assertEquals("Native Back did not close the child dialog first", "true", closed);
         scenario.onActivity(MainActivity::onBackPressed);
         awaitPlayer(scenario);
-        assertEquals("true", evaluate(scenario, "Boolean(window.playerStateMarker) && window.playerStateMarker===window.originalPlayerStateMarker && desiredSound===true"));
+        assertEquals("true", evaluate(scenario, "Boolean(window.playerStateMarker) && window.playerStateMarker===window.originalPlayerStateMarker && desiredSound===true && document.body.classList.contains('clean-view')"));
+        evaluate(scenario, "setCleanView(false)");
         assertTrue("Sound choice was not saved", Python.getInstance().getModule("ig.config")
                 .callAttr("playback_preferences").callAttr("__getitem__", "sound").toBoolean());
         if ("false".equals(initialSound)) evaluate(scenario, "document.getElementById('mute').click()");
+    }
+
+    private static void checkCleanViewBack(ActivityScenario<MainActivity> scenario) throws Exception {
+        AtomicReference<WebView> original = new AtomicReference<>();
+        scenario.onActivity(activity -> original.set(findWebView(activity.getWindow().getDecorView())));
+        evaluate(scenario, "window.cleanBackUrl=location.href;window.cleanBackFeed=document.getElementById('feed')");
+        for (int repeat = 0; repeat < 3; repeat++) {
+            evaluate(scenario, "setCleanView(true)");
+            assertEquals("true", evaluate(scenario, "document.body.classList.contains('clean-view')"));
+            scenario.onActivity(MainActivity::onBackPressed);
+            long deadline = SystemClock.elapsedRealtime() + 5000;
+            String state;
+            do {
+                state = evaluate(scenario, "!document.body.classList.contains('clean-view')");
+                if ("true".equals(state)) break;
+                SystemClock.sleep(100);
+            } while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("Back did not leave Clean View", "true", state);
+            assertEquals("true", evaluate(scenario, "location.href===cleanBackUrl && document.getElementById('feed')===cleanBackFeed"));
+            scenario.onActivity(activity -> assertSame("Back recreated WebView", original.get(), findWebView(activity.getWindow().getDecorView())));
+        }
+        // Older/local pages without the hook must retain normal dialog Back.
+        evaluate(scenario, "(()=>{window.savedCleanExit=window.exitCleanView;delete window.exitCleanView;"
+                + "const d=document.createElement('dialog');d.id='legacy-back-test';document.body.append(d);d.showModal()})()");
+        try {
+            scenario.onActivity(MainActivity::onBackPressed);
+            long deadline = SystemClock.elapsedRealtime() + 5000;
+            String state;
+            do {
+                state = evaluate(scenario, "!document.getElementById('legacy-back-test').open && location.href===cleanBackUrl");
+                if ("true".equals(state)) break;
+                SystemClock.sleep(100);
+            } while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("Back failed without Clean View hook", "true", state);
+        } finally {
+            evaluate(scenario, "window.exitCleanView=window.savedCleanExit;document.getElementById('legacy-back-test')?.remove()");
+        }
     }
 
     private static void checkFilePickerCancellation(ActivityScenario<MainActivity> scenario) throws Exception {
@@ -404,6 +442,7 @@ public class StandaloneSmokeTest {
             assertTrue("Backend smoke checks were empty", report.getJSONArray("tests").length() >= 4);
             assertEquals("true", evaluate(scenario,
                     "getComputedStyle(document.getElementById('shortcuts')).display === 'none'"));
+            checkCleanViewBack(scenario);
             checkSettingsBack(scenario);
             checkReelSharing(scenario);
             evaluate(scenario, "window.location.href='/settings'");

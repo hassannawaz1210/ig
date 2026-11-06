@@ -108,6 +108,7 @@ function showShortcuts() {
     <dt><kbd>K</kbd> / <kbd>↑</kbd></dt><dd>Previous reel</dd>
     <dt><kbd>→</kbd> / <kbd>←</kbd></dt><dd>Next / previous reel from this creator; J/K returns to the mix</dd>
     <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
+    <dt><kbd>H</kbd></dt><dd>Toggle Clean view</dd>
     <dt><kbd>M</kbd></dt><dd>Mute / unmute</dd>
     <dt><kbd>T</kbd></dt><dd>Toggle auto-scroll after each reel</dd>
     <dt><kbd>L</kbd></dt><dd>Like this reel locally</dd>
@@ -479,6 +480,7 @@ function showReelActions(index = current) {
     button.onclick = () => { dialog.close(); callback(); };
     actions.append(button);
   }
+  action(cleanView ? 'Leave Clean view' : 'Clean view', 'play', toggleCleanView);
   action('Not interested', 'less', () => rateReel(index, 'dislike'));
   action('More from this creator', 'user', () => { if (current !== index) showSlide(index); browseCreator(1); });
   if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));

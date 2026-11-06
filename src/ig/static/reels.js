@@ -1664,7 +1664,8 @@ function releaseReelKey(e) { heldKeys.delete(e.code || e.key.toLowerCase()); }
 function handleReelKey(e) {
   if (e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey ||
       document.getElementById('feed-picker') || document.getElementById('shortcut-help') ||
-      e.target?.closest('input, textarea, select, [contenteditable="true"], dialog')) return;
+      (e.target?.closest('input, textarea, select, [contenteditable="true"], dialog') &&
+       !(e.key.toLowerCase() === 'h' && e.target.matches('input[type="range"]') && !e.target.closest('dialog')))) return;
   const key = e.key.toLowerCase();
   const menu = document.getElementById('feed-menu');
   // Multi-select leaves this menu open. J/K resumes watching immediately;
@@ -1677,7 +1678,7 @@ function handleReelKey(e) {
   // must always use our one-step handler, including after clicking controls.
   if (key === ' ' && e.target?.closest('button, a, summary')) return;
   const actions = {'?':showShortcuts, '+':()=>chooseFeed('', true), ' ':togglePlayback, m:toggleMute, c:()=>toggleComments(current), l:()=>likeReel(current), n:()=>rateReel(current, 'dislike'), a:()=>e.shiftKey ? chooseFeed() : addCurrent(), r:removeCurrent, p:()=>openProfile(), w:()=>toggleWhy(current),
-    s:()=>toggleSavedReel(current), d:downloadCurrent, t:toggleAutoScroll,
+    s:()=>toggleSavedReel(current), d:downloadCurrent, t:toggleAutoScroll, h:toggleCleanView,
     b:()=>blockCurrent(e.shiftKey), arrowdown:()=>goRel(1), j:()=>goRel(1),
     arrowup:()=>goRel(-1), k:()=>goRel(-1),
     arrowright:()=>browseCreator(1), arrowleft:()=>browseCreator(-1)};
@@ -1793,6 +1794,119 @@ feed.addEventListener('scroll', noteScroll, {passive:true});
 // Touch gestures have explicit start/end boundaries. Do not infer a new swipe
 // from pauses between scroll events: slow dragging and momentum can both pause.
 // Cancel native vertical panning and commit one move when the finger lifts.
+// Clean view is deliberately per page: navigation overlays leave the player intact.
+let cleanView = false, cleanViewHintShown = false, cleanSeekTimer = null;
+function setCleanView(enabled) {
+  cleanView = Boolean(enabled);
+  document.body.classList.toggle('clean-view', cleanView);
+  document.body.classList.remove('clean-seek-visible');
+  clearTimeout(cleanSeekTimer);
+  if (cleanView && !cleanViewHintShown) {
+    cleanViewHintShown = true;
+    actionStatus(matchMedia('(pointer:coarse)').matches ? 'Two-finger tap to show controls.' : 'Press H to show controls.');
+  }
+}
+function toggleCleanView() { if (!localPage) setCleanView(!cleanView); }
+window.exitCleanView = () => {
+  if (!cleanView || localPage) return false;
+  setCleanView(false); return true;
+};
+function revealCleanSeek() {
+  if (!cleanView) return;
+  document.body.classList.add('clean-seek-visible');
+  clearTimeout(cleanSeekTimer);
+  cleanSeekTimer = setTimeout(() => {
+    if (document.querySelector('.reel-seek input[data-scrubbing],.reel-seek input:focus-visible')) revealCleanSeek();
+    else document.body.classList.remove('clean-seek-visible');
+  }, 2500);
+}
+let cleanGesture = null, cleanFirstTouch = null, cleanSeekTouch = false;
+function cleanVideoTarget(target) {
+  return !localPage && document.getElementById('comments-panel').hidden && !document.querySelector('dialog[open]') &&
+    !target.closest('button,a,input,.info,.bar,.reel-seek,#comments-panel') &&
+    target.closest('.slide')?.id === 's'+current;
+}
+function consumeCleanGesture(event) {
+  if (event.cancelable) event.preventDefault();
+  event.stopImmediatePropagation();
+  cancelPendingTap(); stopReelHold(); reelTouch = null;
+  ignoreHoldClickUntil = performance.now() + 800;
+}
+document.addEventListener('touchstart', event => {
+  if (event.touches.length > 1 || cleanGesture) {
+    if (!cleanGesture && !cleanFirstTouch && ![...event.touches].some(t => cleanVideoTarget(t.target))) return;
+    if (cleanSeekTouch?.range) delete cleanSeekTouch.range.dataset.scrubbing;
+    if (!cleanGesture) {
+      const points = [...event.touches];
+      cleanGesture = {at:cleanFirstTouch?.at ?? performance.now(), valid:!cleanSeekTouch && !cleanFirstTouch?.moved && points.length === 2 && points.every(t => cleanVideoTarget(t.target)),
+        points:new Map(points.map(t => [t.identifier,{x:t.clientX,y:t.clientY}]))};
+    } else cleanGesture.valid = false;
+    consumeCleanGesture(event); return;
+  }
+  if (!cleanVideoTarget(event.target)) { cleanFirstTouch = null; return; }
+  const first = event.touches[0];
+  cleanFirstTouch = {at:performance.now(),x:first.clientX,y:first.clientY,moved:false};
+  if (cleanView && !document.body.classList.contains('clean-seek-visible') && cleanVideoTarget(event.target)) {
+    const bounds = event.target.closest('.slide').getBoundingClientRect();
+    if (event.touches[0].clientY >= bounds.bottom - 48) {
+      revealCleanSeek(); cleanSeekTouch = {x:first.clientX,index:current,range:document.querySelector('#s'+current+' .reel-seek input')}; consumeCleanGesture(event);
+    }
+  }
+}, {capture:true,passive:false});
+document.addEventListener('touchmove', event => {
+  if (cleanFirstTouch && event.touches.length === 1) {
+    const touch = event.touches[0];
+    if (Math.hypot(touch.clientX-cleanFirstTouch.x,touch.clientY-cleanFirstTouch.y) > 12) cleanFirstTouch.moved = true;
+  }
+  if (cleanSeekTouch && !cleanGesture) {
+    consumeCleanGesture(event);
+    const touch = event.touches[0], range = cleanSeekTouch.range;
+    if (range && !range.disabled && current === cleanSeekTouch.index && Math.abs(touch.clientX-cleanSeekTouch.x)>6) {
+      const bounds = range.getBoundingClientRect();
+      range.dataset.scrubbing = '1';
+      range.value = Math.max(0,Math.min(1000,(touch.clientX-bounds.left)/bounds.width*1000));
+      seekReel(current,range); revealCleanSeek();
+    }
+    return;
+  }
+  if (!cleanGesture) return;
+  for (const touch of event.touches) {
+    const start = cleanGesture.points.get(touch.identifier);
+    if (!start || Math.hypot(touch.clientX-start.x,touch.clientY-start.y) > 12) cleanGesture.valid = false;
+  }
+  consumeCleanGesture(event);
+}, {capture:true,passive:false});
+document.addEventListener('touchend', event => {
+  if (!event.touches.length) cleanFirstTouch = null;
+  if (cleanSeekTouch && !cleanGesture) { consumeCleanGesture(event); if (!event.touches.length) resetCleanGesture(); return; }
+  if (!cleanGesture) return;
+  for (const touch of event.changedTouches) {
+    const start = cleanGesture.points.get(touch.identifier);
+    if (!start || Math.hypot(touch.clientX-start.x,touch.clientY-start.y) > 12) cleanGesture.valid = false;
+  }
+  consumeCleanGesture(event);
+  if (!event.touches.length) {
+    const toggle = cleanGesture.valid && performance.now()-cleanGesture.at <= 300;
+    cleanGesture = null; cleanSeekTouch = false;
+    if (toggle) toggleCleanView();
+  }
+}, {capture:true,passive:false});
+document.addEventListener('touchcancel', event => {
+  if (cleanGesture || cleanSeekTouch) consumeCleanGesture(event);
+  resetCleanGesture();
+}, {capture:true,passive:false});
+function resetCleanGesture() {
+  if (cleanSeekTouch?.range) delete cleanSeekTouch.range.dataset.scrubbing;
+  cleanGesture = null; cleanFirstTouch = null; cleanSeekTouch = false;
+}
+window.addEventListener('blur', resetCleanGesture);
+document.addEventListener('visibilitychange', () => { if (document.hidden) resetCleanGesture(); });
+feed.addEventListener('pointermove', event => {
+  if (!cleanView || event.pointerType === 'touch') return;
+  const slide = event.target.closest('.slide');
+  if (slide && event.clientY >= slide.getBoundingClientRect().bottom-48) revealCleanSeek();
+});
+feed.addEventListener('input', event => { if (event.target.closest('.reel-seek')) revealCleanSeek(); });
 let reelTouch = null;
 let reelHold = null, ignoreHoldClickUntil = 0;
 function stopReelHold() {
