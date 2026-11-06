@@ -746,7 +746,7 @@ class Handler(BaseHTTPRequestHandler):
                 username = str(body.get("username", "")).lstrip("@").lower()
                 if not USER_RE.fullmatch(username):
                     return self._send(400, b"bad username", "text/plain")
-                with edit_feeds(block=[username]) as feeds:
+                with edit_feeds() as feeds:
                     removed = False
                     for name, val in feeds.items():
                         accounts = accounts_from_feed(val)

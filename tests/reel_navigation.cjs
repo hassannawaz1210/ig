@@ -687,7 +687,7 @@ const KEYS = {
     await evaluate("closeFeedMenu(); showReelActions(current)");
     assert.ok(await evaluate("document.querySelector('#android-reel-actions[open]') !== null"));
     const actions = await evaluate("Array.from(document.querySelectorAll('#android-reel-actions .sheet-actions button'),b=>b.textContent)");
-    assert.ok(actions.includes('Remove and block this creator'));
+    assert.ok(actions.includes('Remove from feeds'));
     assert.ok(!actions.includes('Add creator to a feed') && !actions.includes('View profile'),'rail actions are not repeated in More');
     assert.ok(actions.includes('More from this creator'));
     fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
@@ -704,7 +704,7 @@ const KEYS = {
       await new Promise(r=>setTimeout(r,50));
       const afterCancel=[calls.length, !!document.getElementById('remove-creator-confirm')];
       showReelActions(current);
-      [...document.querySelectorAll('#android-reel-actions .sheet-actions button')].find(b=>b.textContent==='Remove and block this creator').click();
+      [...document.querySelectorAll('#android-reel-actions .sheet-actions button')].find(b=>b.textContent==='Remove from feeds').click();
       await new Promise(r=>setTimeout(r,50));
       document.querySelector('#remove-creator-confirm .confirm-remove').click();
       rmAcc=real;

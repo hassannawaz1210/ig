@@ -101,11 +101,11 @@ const {ctx, element, calls, timers} = createPage(async url =>
   `,removal.ctx);
   await vm.runInContext('removeCurrent()',removal.ctx);
   assert.equal(removal.calls.filter(c=>c.url==='/remove').length,1,'R sends removal for an unsaved discovery creator');
-  assert.equal(vm.runInContext('blockedAccounts.has("trial")',removal.ctx),true);
+  assert.equal(vm.runInContext('blockedAccounts.has("trial")',removal.ctx),false,'unfollowing never adds a block');
   assert.equal(removal.element('s0').style.display,'none');
   assert.equal(removal.element('s1').style.display,'none','all queued reels from the removed creator disappear');
   assert.equal(vm.runInContext('current',removal.ctx),2);
-  assert.match(removal.element('action-status').textContent,/removed and blocked/);
+  assert.match(removal.element('action-status').textContent,/removed from feeds/);
   vm.runInContext('accountChanged("trial",true); exhausted=false',removal.ctx);
   await vm.runInContext('more()',removal.ctx);
   assert.equal(vm.runInContext('blockedAccounts.has("trial")',removal.ctx),true,'server removal wins over an earlier local add');
@@ -116,7 +116,7 @@ const {ctx, element, calls, timers} = createPage(async url =>
   vm.runInContext('accountChanged("other",false)',removal.ctx);
   finishBatch({ok:true,json:async()=>({posts:[],has_more:false,feed_accounts:['other'],blocked:[]})});
   await pending;
-  assert.equal(vm.runInContext('blockedAccounts.has("other")',removal.ctx),true,'an older response cannot undo a removal made in flight');
+  assert.equal(vm.runInContext('blockedAccounts.has("other")',removal.ctx),false,'unfollowing does not block, even with an in-flight response');
   assert.equal(vm.runInContext('feeded.has("other")',removal.ctx),false);
   failRemoval=true;
   vm.runInContext('posts.push({shortcode:"failure",owner:"failure"});current=3',removal.ctx);
@@ -548,7 +548,7 @@ async function viewingTests() {
   assert.equal(element('s1').hidden, true, 'queued removed creator disappears');
   finish({ok:true,json:async()=>({posts:[{shortcode:'lateclip',owner:'removed'}],has_more:false,blocked:[],feed_accounts:['removed']})});
   await pending;
-  assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), true, 'stale response cannot undo removal');
+  assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), false, 'stale response must not turn unfollow into a block');
   assert.equal(vm.runInContext('visibleIndices().length', ctx), 0, 'stale batch cannot show removed creator');
   vm.runInContext("fetching=true; accountChanged('removed', true)", ctx);
   assert.equal(vm.runInContext("blockedAccounts.has('removed')", ctx), false, 'explicit re-add allows creator');

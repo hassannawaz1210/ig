@@ -119,7 +119,7 @@ function showShortcuts() {
     <dt><kbd>Shift+A</kbd></dt><dd>Enter accounts to add</dd>
     <dt><kbd>+</kbd></dt><dd>Create a feed</dd>
     <dt><kbd>Delete</kbd></dt><dd>Delete highlighted feed in the selector (Undo available)</dd>
-    <dt><kbd>R</kbd></dt><dd>Remove account and stop its reels</dd>
+    <dt><kbd>R</kbd></dt><dd>Remove account from feeds</dd>
     <dt><kbd>P</kbd></dt><dd>Open account profile</dd>
     <dt><kbd>C</kbd></dt><dd>Show / hide comments</dd>
     <dt><kbd>W</kbd></dt><dd>Why am I seeing this?</dd>
@@ -486,7 +486,7 @@ function showReelActions(index = current) {
   if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));
   action('Download video', 'download', () => downloadReel(index, document.getElementById('s'+index)?.querySelector('.download')));
   action('Block for this session', 'less', () => { if (current !== index) showSlide(index); blockCurrent(true); });
-  action('Remove and block this creator', 'trash', () => confirmRemoveCreator(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
+  action('Remove from feeds', 'trash', () => confirmRemoveCreator(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
   dialog.append(actions); dialog.showModal();
 }
 

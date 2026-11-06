@@ -76,7 +76,7 @@ function syncAccountButtons() {
     const saved = feeded.has(p.owner);
     button.innerHTML = '<span class="em">' + icon(saved ? 'check' : 'plus') + '</span><span>' + (saved ? 'in feed' : 'add') + '</span>';
     button.style.opacity = saved ? '.7' : '1';
-    button.title = saved ? 'Remove account and stop its reels (R)' : 'Add this account to a feed';
+    button.title = saved ? 'Remove account from feeds (R)' : 'Add this account to a feed';
     button.onclick = saved ? () => confirmRemoveCreator(p.owner, button) : () => addAcc(p.owner, button);
   });
 }
@@ -85,9 +85,16 @@ accountsChanged = (usernames, saved) => {
   const version = ++accountChangeVersion;
   for (const username of usernames) {
     accountUpdates.set(username, {value:saved, version});
-    blockUpdates.set(username, {value:!saved, version});
     saved ? feeded.add(username) : feeded.delete(username);
-    saved ? blockedAccounts.delete(username) : blockedAccounts.add(username);
+    if (saved) {
+      // Adding explicitly unblocks on the server. Unfollowing never blocks.
+      blockUpdates.set(username, {value:false, version});
+      blockedAccounts.delete(username);
+    } else {
+      const removed = posts.filter(p => p.owner === username);
+      removed.forEach(p => { p._dropped = true; });
+      releaseReservations(removed.map(p => p.reservation).filter(Boolean));
+    }
   }
   syncAccountButtons();
   hideFilteredReels();
@@ -519,7 +526,7 @@ function slideHtml(p, i) {
         <span class="em">${icon('info')}</span><span>why</span></button>` : ''}
       ${feeded.has(p.owner)
           ? `<div class="ico account-action" style="cursor:pointer;opacity:.7"
-             title="Remove account and stop its reels (R)"
+             title="Remove account from feeds (R)"
              onclick="confirmRemoveCreator('${esc(p.owner)}', this)">
              <span class="em">${icon('check')}</span><span>in feed</span></div>`
           : `<div class="ico account-action" style="cursor:pointer"
@@ -784,7 +791,11 @@ async function more() {
       });
       hideFilteredReels();
     }
-    if (d.posts?.length) append(d.posts);
+    if (d.posts?.length) append(d.posts.map(post => {
+      const change = accountUpdates.get(post.owner);
+      return change && !change.value && change.version > accountVersion
+        ? {...post, _dropped:true} : post;
+    }));
     exhausted = d.has_more === false;
     retry = (!d.posts?.length || !visibleIndices().length) && !exhausted;
     if (exhausted || visibleIndices().some(i => i > current)) switchingFeeds = false;
@@ -893,18 +904,18 @@ function restoreBlockedSound(event) {
 }
 document.addEventListener('pointerdown', restoreBlockedSound, true);
 document.addEventListener('keydown', restoreBlockedSound, true);
-// Tapping "in feed" removes and blocks a creator, so ask first. The R shortcut
+// Tapping "in feed" removes a creator from feeds, so ask first. The R shortcut
 // stays immediate because a key press is deliberate.
 function confirmRemoveCreator(u, el) {
   if (removingAccounts.has(u)) return;
   const dialog = androidSheet('remove-creator-confirm', 'Remove @' + u + '?');
   dialog.classList.add('confirm-sheet');
   const message = document.createElement('p');
-  message.textContent = 'They will be removed from all your feeds and their reels will stop showing. You can add them again later.';
+  message.textContent = 'Remove this account from all your feeds? You can add it again later.';
   const actions = document.createElement('div'); actions.className = 'confirm-actions';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
   const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'confirm-remove';
-  remove.textContent = 'Remove and block';
+  remove.textContent = 'Remove from feeds';
   cancel.onclick = () => dialog.close();
   remove.onclick = () => { dialog.close(); rmAcc(u, el); };
   actions.append(cancel, remove); dialog.append(message, actions);
@@ -924,7 +935,7 @@ async function rmAcc(u, el) {
       body:JSON.stringify({username:u})});
     if (!response.ok) throw new Error('Could not remove');
     notifyAccountChange(u, false);
-    actionStatus('@' + u + ' removed and blocked');
+    actionStatus('@' + u + ' removed from feeds');
   } catch (error) {
     if (label) label.textContent = 'retry';
     actionStatus('Could not remove @' + u + ' · try again');
