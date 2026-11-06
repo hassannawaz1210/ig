@@ -14,6 +14,8 @@ checkUpdates.hidden = !boot.android;
 function showUpdateState(notice) {
   const state = document.getElementById('update-state'), indicator = document.getElementById('update-indicator');
   state.hidden = !notice?.message;
+  // The card floats over this page too (from the top page); leave room for it.
+  document.body.classList.toggle('update-card-open', !!notice?.message);
   state.textContent = notice?.message || '';
   const busy = !!notice && !notice.action && /…$/.test(notice.message);
   indicator.className = 'update-indicator' + (busy ? ' busy' : '');
