@@ -38,6 +38,31 @@ All SQLite databases track their schema with `PRAGMA user_version`. Ordered migr
 
 No virtual environment, personal feed configuration, or runtime cache is included in the project. 
 
+## Recent and older reels
+
+The mixed feed starts with cached or first-page reels. While there is enough
+content ready to play, background workers rotate through eligible accounts and
+follow their next listing cursor. Newest-page refreshes keep a separate cursor
+from older-page exploration, so restarting or refreshing does not send every
+account back to the beginning.
+
+Lightweight listings and pagination progress live in `~/.cache/ig/reels.sqlite3`.
+Each account retains at most 240 pending listings and 120 detailed candidates;
+cached accounts expire after seven days without a newest-page refresh. These
+records contain public metadata, not downloaded videos or login tokens.
+Full reel details are fetched in small batches only for candidates being
+considered. Exploration uses the existing worker limits and shares a
+30-second request cadence with creator discovery. Older-page exploration requires at
+least six buffered or ready reels; low-buffer replenishment takes priority.
+
+For each chosen creator, when both groups have eligible clips, selection starts
+with roughly 70% from the latest page and 30% from later pages. The normal
+preference ranking then chooses within that group. Watched reels, duplicates,
+blocks, and dislikes still take precedence. Missing groups fall back to what is
+available, so this is an experiment rather than an exact delivery quota.
+“Older” means beyond the first listing page, not a specific date. Instagram's
+sequential cursors cannot jump straight to an arbitrary year.
+
 ## Profile cache and rate limits
 
 Fetched profiles (bio, post metadata and the pagination cursor, but never sessions or tokens) are saved to `~/.cache/ig/profiles.sqlite3`, so restarting the server doesn't download every account again. A cached profile is used for an hour, then refreshed. While Instagram is rate limiting, copies up to a day old are shown instead. Entries older than a week are removed, and at most 1,000 profiles are kept.

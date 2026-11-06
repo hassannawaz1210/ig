@@ -71,16 +71,17 @@ class ReelSourceTests(TempDirs):
             with patch('ig.reels.random.shuffle', side_effect=rng.shuffle), \
                  patch.object(instagram, 'reels_tab', return_value=listing(codes)) as tabs, \
                  patch.object(instagram, 'media_info', side_effect=detail) as media:
-                state = store.fetch('creator')
+                username = 'creator' + str(seed)
+                state = store.fetch(username)
                 first_batches.append(tuple(p['shortcode'] for p in state['posts']))
                 self.assertEqual(media.call_count, 3)
                 self.assertEqual(len(state['pending']), 9)
                 pending = [p['shortcode'] for p in state['pending']]
                 resumed = ReelStore()
-                cached = resumed.get('creator')
+                cached = resumed.get(username)
                 self.assertEqual([p['shortcode'] for p in cached['pending']], pending)
                 while cached['has_more']:
-                    resumed.more('creator')
+                    resumed.more(username)
                 self.assertCountEqual([p['shortcode'] for p in cached['posts']], codes)
                 self.assertEqual(media.call_count, len(codes))
                 tabs.assert_called_once()

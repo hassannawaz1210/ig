@@ -660,6 +660,25 @@ def pick_reel(posts, model, *, view_reference=None):
                key=lambda post: score(post, model) + view_count_boost(post, baselines)), False
 
 
+OLDER_REEL_SHARE = 0.30
+
+
+def pick_feed_reel(posts, model, *, view_reference=None):
+    """Choose a page-age group, then rank within it using the normal preferences.
+
+    Older means beyond the latest listing page, not a particular calendar age.
+    The split is a starting experiment, and an empty group never delays playback.
+    Callers must remove watched, reserved and disliked reels before this choice.
+    """
+    older = [post for post in posts if post.get('reel_age_group') == 'older']
+    recent = [post for post in posts if post.get('reel_age_group') != 'older']
+    if older and recent:
+        candidates = older if random.random() < OLDER_REEL_SHARE else recent
+    else:
+        candidates = older or recent
+    return pick_reel(candidates, model, view_reference=view_reference)
+
+
 def choose_reel(posts, model):
     return pick_reel(posts, model)[0]
 

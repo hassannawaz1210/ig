@@ -380,7 +380,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         if not fresh:
             continue  # Reserved clips may become eligible again after release/expiry.
         pool.setdefault('accepted', set()).add(username)
-        picked, exploratory = recommendations.pick_reel(fresh, model, view_reference=state['posts'])
+        picked, exploratory = recommendations.pick_feed_reel(fresh, model, view_reference=state['posts'])
         # Copy: profile posts are shared with the profile view and the cache.
         post = dict(picked)
         reason = Reason(username)

@@ -15,10 +15,16 @@ class Refill:
         self.completed_seconds = {}
         self.load_seconds = 12.0
         self.next_discovery_at = 0.0
+        self.last_exploration = None
+        self.exploration_pending = set()
+        self.refresh_after = {}
+        self.retained_refresh = set()
 
     def _load(self, name, paging):
         started = time.monotonic()
         try:
+            if paging == "explore":
+                return REELS.explore(name)
             return (more_reels if paging else REELS.load)(name)
         finally:
             self.completed_seconds[name] = time.monotonic() - started
@@ -30,6 +36,7 @@ class Refill:
             if not future.done():
                 continue
             del self.pending[name]
+            self.exploration_pending.discard(name)
             try:
                 future.result()
                 elapsed = self.completed_seconds.get(name)
@@ -44,71 +51,104 @@ class Refill:
                 owner_pool['dead'].add(name)
             except Exception as error:
                 self.retry_at[name] = time.monotonic() + 30
-                on_error(owner_pool, name, error)
+                if name not in self.retained_refresh:
+                    on_error(owner_pool, name, error)
             finally:
                 self.completed_seconds.pop(name, None)
+                self.retained_refresh.discard(name)
 
     def schedule(self, pool, names, saved, *, states=None):
         """Page sources below twelve unseen clips, at most two source workers at once."""
         states = STATE if states is None else states
-        candidates = []
-        for name in names:
-            if name in self.pending or self.retry_at.get(name, 0) > time.monotonic():
-                continue
+        now = time.monotonic()
+        pause = BACKOFF.remaining()
+        if pause > 0:
+            for name in names:
+                self.retry_at[name] = max(self.retry_at.get(name, 0), now + pause)
+            return
+        trusted = set(saved) | pool.get('accepted', set())
+        candidates, older = [], []
+        usable = set()
+        ready = pool.get('buffered', 0)
+        for name in dict.fromkeys(names):
             state = states.get(name)
             if state is None:
                 state = REELS.cached(name)  # disk only; never network
+            unseen = sum(p.get('is_video', False) and p['shortcode'] not in pool['served']
+                         for p in state['posts']) if state else 0
+            if unseen:
+                usable.add(name)
+            if name in trusted:
+                ready += unseen
+            if name in self.pending or self.retry_at.get(name, 0) > now:
+                continue
             if state is None:
-                candidates.append((0 if name in saved else 2, name, False))
-            elif REELS.is_stale(state) and not any(
-                    p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts']):
-                candidates.append((0 if name in saved else 2, name, False))
-            elif (name in saved or name in pool.get('accepted', set()) or not state['posts'] or (len(state['posts']) < 9 and state.get('pending'))) and state.get('has_more'):
-                unseen = sum(p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])
+                candidates.append((0, name, False))
+            elif REELS.is_stale(state) and now >= self.refresh_after.get(name, 0):
+                # Even a full archive needs its latest page refreshed. Failed or
+                # stale-cache refreshes must not repeat on every batch request.
+                candidates.append((0 if unseen == 0 else 2, name, False))
+            elif (name in trusted or not state['posts'] or
+                  (len(state['posts']) < 9 and state.get('pending'))) and state.get('has_more'):
                 if unseen < 12:
-                    candidates.append((0 if unseen == 0 else 1, name, True))
-        # Cold candidates arrive alphabetically. Vary equal-priority workers so
-        # a fresh session does not always load the same first two creators.
-        # Priority and oldest-last-scheduled fairness still win over this tie-break.
+                    retry_delay = (state.get('archive_retry_at') or 0) - time.time()
+                    if 'pending' in state and not state['pending'] and retry_delay > 0:
+                        self.retry_at[name] = now + retry_delay
+                    elif ('pending' not in state or state['pending'] or
+                          REELS.can_explore(state)):
+                        candidates.append((0 if unseen == 0 else 1, name, True))
+            if state and name in trusted and (REELS.can_explore(state) or any(
+                    p.get('reel_age_group') == 'older' for p in state.get('pending', []))):
+                older.append((3, name, 'explore'))
         random.shuffle(candidates)
         candidates.sort(key=lambda entry: (entry[0], self.last_scheduled.get(entry[1], 0)))
-        # When the queue is healthy, reserve one of the existing two workers
-        # for discovery. A fixed request cadence bounds background exploration.
-        ready = pool.get('buffered', 0) + sum(
-            p.get('is_video', False) and p['shortcode'] not in pool['served']
-            for name, state in states.items() if name in saved for p in state['posts'])
         trials = [c for c in candidates if c[1] not in saved]
-        saved_candidates = [c for c in candidates if c[1] in saved]
-        trial_running = any(name not in saved for name in self.pending)
-        if trials and not trial_running and time.monotonic() >= self.next_discovery_at:
-            weights = pool.get('discovery_weights', {})
-            # Most inspections go to creator credits and relevant mentions;
-            # a small exploration share still tests weak leads such as fans.
-            strong = [c for c in trials if weights.get(c[1], 0) >= 1]
-            if strong and random.random() < .8:
-                trials = strong
-            # Try never-inspected candidates before revisiting old sources.
-            oldest = min(self.last_scheduled.get(c[1], 0) for c in trials)
-            eligible = [c for c in trials if self.last_scheduled.get(c[1], 0) == oldest]
-            trial = random.choices(eligible, weights=[weights.get(c[1], 1) for c in eligible], k=1)[0]
-            if ready >= 6 or not saved_candidates:
-                candidates = [trial] + saved_candidates
-            else:
-                candidates = saved_candidates + [trial]
-        else:
-            if trials and time.monotonic() < self.next_discovery_at:
-                for _, name, _ in trials:
-                    self.retry_at[name] = self.next_discovery_at
-            candidates = saved_candidates
+        regular = [c for c in candidates if c[1] in saved]
+        # Older work can replace a buffered source's normal detail hydration;
+        # do not wait until all recent clips have been consumed. Cold/empty
+        # sources and latest-page refreshes still take priority.
+        urgent_names = {c[1] for c in candidates if c[0] == 0 or c[2] is False}
+        older = [c for c in older if c[1] not in urgent_names] if ready >= 6 else []
+        random.shuffle(older)
+        older.sort(key=lambda c: self.last_scheduled.get(c[1], 0))
+        special = None
+        kind = None
+        if not self.exploration_pending and now >= self.next_discovery_at:
+            # Alternate the single exploration allowance: older clips must not
+            # crowd out new creators, nor add another stream of requests.
+            if older and (not trials or self.last_exploration == 'discovery'):
+                special, kind = older[0], 'older'
+            elif trials:
+                weights = pool.get('discovery_weights', {})
+                strong = [c for c in trials if weights.get(c[1], 0) >= 1]
+                if strong and random.random() < .8:
+                    trials = strong
+                oldest = min(self.last_scheduled.get(c[1], 0) for c in trials)
+                eligible = [c for c in trials if self.last_scheduled.get(c[1], 0) == oldest]
+                special = random.choices(eligible, weights=[weights.get(c[1], 1) for c in eligible], k=1)[0]
+                kind = 'discovery'
+        elif now < self.next_discovery_at:
+            for _, name, _ in trials:
+                self.retry_at[name] = self.next_discovery_at
+        candidates = regular
+        if special:
+            regular = [c for c in regular if c[1] != special[1]]
+            # Startup and empty sources get both workers before optional work.
+            urgent = [c for c in regular if c[0] == 0]
+            rest = [c for c in regular if c[0] != 0]
+            candidates = urgent + [special] + rest if ready >= 6 else regular + [special]
         for _, name, paging in candidates:
             if len(self.pending) >= 2:
                 break
-            if name not in saved:
-                if trial_running or time.monotonic() < self.next_discovery_at:
-                    continue
-                self.next_discovery_at = time.monotonic() + 30
-                trial_running = True
-            self.last_scheduled[name] = time.monotonic()
+            if special and name == special[1]:
+                self.next_discovery_at = now + 30
+                self.last_exploration = kind
+                self.exploration_pending.add(name)
+            if paging is False:
+                self.refresh_after[name] = now + 300
+                if name in usable:
+                    self.retained_refresh.add(name)
+            self.last_scheduled[name] = now
             self.pending[name] = (self.executor.submit(self._load, name, paging), pool)
 
     def waiting(self, names):
