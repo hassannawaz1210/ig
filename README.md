@@ -73,6 +73,12 @@ Use the paper-plane **Share** button beside a reel to share its Instagram link.
 Android opens the system share sheet; browsers use their share menu or copy the
 link to your clipboard.
 
+Search finds accounts in your feeds and opens exact @handles or Instagram links.
+It does not use Instagram's login-only global keyword search. On touch screens,
+hold a playing reel for 2× speed and release to restore its previous speed.
+Paused reels show a pause icon. Drag the bottom progress bar to jump forward or
+backward without changing whether the reel is playing or paused.
+
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
 following** on desktop or Android. Select your Instagram export ZIP, `following.json`,
 or `following.html`, review the handles, and import into an existing or new feed.

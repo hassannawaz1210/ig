@@ -2,6 +2,8 @@
 import json
 
 PATHS = {
+    'pause': '<path d="M8 5v14M16 5v14" stroke-width="4"/>',
+    'search': '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
     'share': '<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',
     'settings': '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/>',
     'trash': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',

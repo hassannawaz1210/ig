@@ -469,6 +469,14 @@ function slideHtml(p, i) {
   return `<div class="slide" id="s${i}">
     <img class="poster" loading="lazy" src="${esc(p.image)}" alt="">
     <div class="spin" id="spin${i}" hidden>loading…</div>
+    <span class="pause-indicator" id="pause${i}" role="status" aria-label="Paused" hidden>${icon('pause')}</span>
+    <div class="reel-seek">
+      <input id="seek${i}" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Seek within reel"
+        onpointerdown="stopReelHold();this.dataset.scrubbing='1'" onpointerup="delete this.dataset.scrubbing"
+        onpointercancel="delete this.dataset.scrubbing" onchange="delete this.dataset.scrubbing"
+        oninput="seekReel(${i}, this)">
+      <output id="seek-time${i}" for="seek${i}"></output>
+    </div>
     <div class="info">
       <a class="user" href="/u/${esc(p.owner)}" target="_blank"
         rel="noopener">@${esc(p.owner)}</a>
@@ -577,10 +585,11 @@ function setVideo(p, i, play = false) {
   if (!v) {
     slide.insertAdjacentHTML('beforeend',
       `<video muted loop playsinline preload="auto"
-        onplaying="this.parentNode.querySelector('.poster').style.opacity=0; onReelPlaying(${i})"
+        onplaying="this.parentNode.querySelector('.poster').style.opacity=0; onReelPlaying(${i}); updatePauseIcon(${i}, false)"
         ontimeupdate="onReelProgress(${i}, this)"
+        onloadedmetadata="updateSeekBar(${i}, this)" ondurationchange="updateSeekBar(${i}, this)"
         onwaiting="interruptPlayback(${i})" onerror="interruptPlayback(${i})"
-        onseeking="onReelSeeking(${i}, this)" onpause="if(posts[${i}]) posts[${i}]._lastSample=null"
+        onseeking="onReelSeeking(${i}, this)" onpause="if(posts[${i}]) posts[${i}]._lastSample=null; updatePauseIcon(${i}, true)"
         onclick="tap(event)"></video>`);
     v = slide.querySelector('video');
   }
@@ -916,7 +925,32 @@ function onReelPlaying(i) {
   posts[i]._lastSample = !document.hidden && video ? {time:video.currentTime, wall:performance.now()} : null;
   queueSong(i);
 }
+function updateSeekBar(i, video) {
+  const input = document.getElementById('seek'+i);
+  if (!input) return;
+  const duration = video.duration;
+  input.disabled = !Number.isFinite(duration) || duration <= 0;
+  if (input.disabled || input.dataset.scrubbing) return;
+  input.value = Math.round(video.currentTime / duration * 1000);
+  const time = seconds => Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2,'0');
+  const label = time(video.currentTime) + ' / ' + time(duration);
+  input.setAttribute('aria-valuetext', label);
+  const output = document.getElementById('seek-time'+i);
+  if (output) output.textContent = label;
+  input.style.setProperty('--progress', (video.currentTime / duration * 100) + '%');
+}
+function seekReel(i, input) {
+  const video = document.querySelector('#s'+i+' video');
+  if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+  stopReelHold();
+  video.currentTime = video.duration * Math.max(0, Math.min(1000, Number(input.value))) / 1000;
+  if (posts[i]) posts[i]._lastSample = null;
+  const scrubbing = input.dataset.scrubbing;
+  delete input.dataset.scrubbing; updateSeekBar(i, video);
+  if (scrubbing) input.dataset.scrubbing = scrubbing;
+}
 function onReelProgress(i, video) {
+  updateSeekBar(i, video);
   const p = posts[i];
   if (!p) return;
   const sample = {time:video.currentTime, wall:performance.now()};
@@ -1031,6 +1065,7 @@ window.addEventListener('pageshow', event => {
 // Settings and other local pages sit over the mounted player. Returning never
 // reconstructs its queue, seeks its video, or closes its comments.
 function showLocalPage(destination, push = true) {
+  stopReelHold();
   localPageVersion += 1;
   if (!localPage) {
     const video = document.querySelector('#s'+current+' video');
@@ -1218,6 +1253,52 @@ async function recognizeSong(i) {
     queueSong(current);
   }
 }
+function showSearch() {
+  const dialog = androidSheet('reel-search', 'Search');
+  const form = document.createElement('form');
+  const input = document.createElement('input');
+  input.type = 'search'; input.placeholder = 'Account, @handle, or Instagram link';
+  input.setAttribute('aria-label', 'Search accounts or open Instagram link');
+  input.autocomplete = 'off'; input.autocapitalize = 'none'; input.spellcheck = false;
+  const results = document.createElement('div'); results.className = 'search-results';
+  const status = document.createElement('p'); status.setAttribute('role', 'status');
+  let accounts = [...feeded];
+  function destination(value) {
+    if (/^@?[A-Za-z0-9._]{1,30}$/.test(value)) return '/u/' + value.replace(/^@/, '');
+    try {
+      const url = new URL(value.startsWith('www.') ? 'https://' + value : value);
+      if (url.protocol !== 'https:' || !['instagram.com','www.instagram.com','m.instagram.com'].includes(url.hostname)) return null;
+      const code = reelLinkCode(url.href);
+      if (code) return '/reel/' + code;
+      const match = url.pathname.match(/^\/(?:_u\/)?([A-Za-z0-9._]{1,30})\/?$/);
+      if (match && !['explore','accounts','direct','reels','stories','p','reel'].includes(match[1])) return '/u/' + match[1];
+    } catch (_) {}
+    return null;
+  }
+  function open(path) {
+    visitLocalPage(path).then(() => dialog.close()).catch(error => { status.textContent = error.message; });
+  }
+  function render() {
+    results.replaceChildren(); status.textContent = '';
+    const value = input.value.trim(), query = value.replace(/^@/, '').toLowerCase();
+    const path = destination(value);
+    const matches = accounts.filter(name => name.toLowerCase().includes(query)).sort().slice(0,50);
+    const add = (label, path) => {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+      button.onclick = () => open(path); results.append(button);
+    };
+    if (path && !matches.some(name => path === '/u/' + name)) add(path.startsWith('/reel/') ? 'Open reel' : 'Open @' + path.slice(3), path);
+    for (const name of matches) add('@' + name, '/u/' + name);
+    if (!results.children.length) status.textContent = value ? 'No matching accounts. Enter an exact @handle or Instagram link.' : 'Enter an @handle or Instagram link.';
+  }
+  input.oninput = render;
+  form.onsubmit = event => { event.preventDefault(); const path = destination(input.value.trim()); if (path) open(path); };
+  form.append(input); dialog.append(form, results, status); render(); dialog.showModal(); input.focus();
+  fetch('/settings/data').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(data => {
+    if (!dialog.isConnected) return;
+    accounts = [...new Set(Object.values(data.feeds || {}).flat())]; render();
+  }).catch(() => {});
+}
 let sharingReel = false;
 async function shareReel(i) {
   const code = posts[i]?.shortcode;
@@ -1337,15 +1418,22 @@ function advanceAutoScroll() {
   else maybeMore();
 }
 setInterval(advanceAutoScroll, 500);
+function updatePauseIcon(i, paused) {
+  const indicator = document.getElementById('pause'+i);
+  if (indicator) indicator.hidden = !paused;
+}
 function togglePlayback() {
   lastNavigation = null;
   const p = posts[current];
   if (!p || isHidden(p)) return;
   const video = document.getElementById('s'+current)?.querySelector('video');
   p._paused = video ? !video.paused : !p._paused;
+  updatePauseIcon(current, p._paused);
+  stopReelHold();
   if (video) p._paused ? video.pause() : playVideo(video);
 }
 function showSlide(i) {
+  stopReelHold();
   if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse(false);
   if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
@@ -1597,6 +1685,7 @@ function goRel(d) {
 const SCROLL_BURST_GAP_MS = 150;
 let lastWheel = -Infinity;
 function scrollsItself(el) {
+  if (el.closest?.('.reel-seek')) return true;
   for (; el && el !== feed; el = el.parentElement)
     if (el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)) return true;
   return false;
@@ -1680,18 +1769,51 @@ feed.addEventListener('scroll', noteScroll, {passive:true});
 // from pauses between scroll events: slow dragging and momentum can both pause.
 // Cancel native vertical panning and commit one move when the finger lifts.
 let reelTouch = null;
+let reelHold = null, ignoreHoldClickUntil = 0;
+function stopReelHold() {
+  if (!reelHold) return;
+  clearTimeout(reelHold.timer);
+  if (reelHold.active) {
+    reelHold.video.playbackRate = reelHold.rate;
+    ignoreHoldClickUntil = performance.now() + 700;
+  }
+  reelHold.badge?.remove();
+  reelHold = null;
+}
+feed.addEventListener('click', event => {
+  if (performance.now() < ignoreHoldClickUntil && !event.target.closest('button,a,.bar,.info,.reel-seek')) {
+    event.preventDefault(); event.stopImmediatePropagation();
+  }
+}, true);
+feed.addEventListener('contextmenu', event => {
+  if (reelHold) event.preventDefault();
+});
+window.addEventListener('blur', stopReelHold);
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopReelHold(); });
 feed.addEventListener('touchstart', e => {
+  stopReelHold();
+  if (e.target.closest('.reel-seek')) { reelTouch = null; return; }
   if (e.touches.length !== 1 || scrollsItself(e.target)) { reelTouch = null; return; }
   const t = e.touches[0];
   reelTouch = {id:t.identifier, x:t.clientX, y:t.clientY, dx:0, dy:0, vertical:false};
+  const video = document.querySelector('#s'+current+' video');
+  if (!video || e.target.closest('button,a,.bar,.info') || e.target.closest('.slide')?.id !== 's'+current) return;
+  const hold = reelHold = {video,rate:video.playbackRate,active:false};
+  hold.timer = setTimeout(() => {
+    if (reelHold !== hold || !reelTouch || video.paused || localPage) return;
+    hold.active = true; reelTouch.held = true; video.playbackRate = 2;
+    hold.badge = document.createElement('span'); hold.badge.className = 'hold-speed';
+    hold.badge.textContent = '2×'; video.closest('.slide').append(hold.badge);
+  }, 350);
 }, {passive:true});
 feed.addEventListener('touchmove', e => {
   if (!reelTouch) return;
-  if (e.touches.length !== 1) { reelTouch = null; return; }
+  if (e.touches.length !== 1) { stopReelHold(); reelTouch = null; return; }
   const t = [...e.touches].find(t => t.identifier === reelTouch.id);
   if (!t) { reelTouch = null; return; }
   reelTouch.dx = t.clientX - reelTouch.x;
   reelTouch.dy = t.clientY - reelTouch.y;
+  if (Math.hypot(reelTouch.dx, reelTouch.dy) > 12) stopReelHold();
   if (reelTouch.horizontal) return;
   if (!reelTouch.vertical && Math.abs(reelTouch.dx) > Math.abs(reelTouch.dy)) {
     // A sideways swipe browses the current creator, like Left/Right on a keyboard.
@@ -1707,7 +1829,9 @@ feed.addEventListener('touchmove', e => {
 }, {passive:false});
 feed.addEventListener('touchend', e => {
   const gesture = reelTouch;
+  stopReelHold();
   reelTouch = null;
+  if (gesture?.held) return;
   if (!gesture || e.touches.length || !(gesture.vertical || gesture.horizontal)) return;
   const t = [...e.changedTouches].find(t => t.identifier === gesture.id);
   if (!t) return;
@@ -1720,7 +1844,7 @@ feed.addEventListener('touchend', e => {
   const distance = gesture.y - t.clientY;
   if (Math.abs(distance) >= 48) goRel(Math.sign(distance));
 }, {passive:true});
-feed.addEventListener('touchcancel', () => { reelTouch = null; }, {passive:true});
+feed.addEventListener('touchcancel', () => { stopReelHold(); reelTouch = null; }, {passive:true});
 updateFeedStatus();
 if (boot.android && typeof setupAndroidUI === 'function') setupAndroidUI();
 setMuted(muted);

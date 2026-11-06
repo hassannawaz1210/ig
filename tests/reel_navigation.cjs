@@ -116,6 +116,20 @@ const KEYS = {
     assert.equal(await evaluate('location.href'),url,'sharing does not navigate away');
     await evaluate(`delete navigator.share; delete navigator.clipboard`);
     // The reel whose top edge is at the top of the feed, as the user sees it.
+    await evaluate(`showSearch(); window.searchRoute=null; window.originalVisit=visitLocalPage;
+      visitLocalPage=async path=>{searchRoute=path};
+      var searchInput=document.querySelector('#reel-search input');searchInput.value='@ocean.of.films';searchInput.dispatchEvent(new Event('input'));
+      document.querySelector('#reel-search form').requestSubmit()`);
+    assert.equal(await evaluate('searchRoute'),'/u/ocean.of.films');
+    await evaluate(`showSearch(); var searchInput=document.querySelector('#reel-search input');
+      searchInput.value='https://www.instagram.com/reel/DSmBF6-k8rM/?tracking=example';searchInput.dispatchEvent(new Event('input'));
+      document.querySelector('#reel-search form').requestSubmit()`);
+    assert.equal(await evaluate('searchRoute'),'/reel/DSmBF6-k8rM');
+    await evaluate(`showSearch();var searchInput=document.querySelector('#reel-search input');searchInput.value='https://evil.example/reel/DSmBF6-k8rM/';searchInput.dispatchEvent(new Event('input'))`);
+    assert.equal(await evaluate(`document.querySelector('#reel-search .search-results').children.length`),0);
+    await evaluate(`document.getElementById('reel-search').close();visitLocalPage=originalVisit`);
+    await sleep(50);
+    await evaluate(`document.activeElement.blur()`);
     const shown = () => evaluate(`(() => {
       const top = feed.getBoundingClientRect().top;
       const slide = [...feed.querySelectorAll('.slide')].find(s =>
@@ -189,6 +203,18 @@ const KEYS = {
       await touch('touchEnd', []);
     };
     await sleep(250);
+    await evaluate(`window.holdVideo=document.createElement('video');document.getElementById('s'+current).append(holdVideo);
+      Object.defineProperty(holdVideo,'paused',{configurable:true,value:false});holdVideo.playbackRate=1.25;
+      window.beforeHoldPaused=posts[current]._paused`);
+    await touch('touchStart', [[180,440]]); await sleep(450);
+    assert.equal(await evaluate('holdVideo.playbackRate'),2,'holding plays at 2x');
+    await touch('touchEnd', []); await sleep(100);
+    assert.equal(await evaluate('holdVideo.playbackRate'),1.25,'release restores previous speed');
+    assert.equal(await evaluate('posts[current]._paused===beforeHoldPaused'),true,'hold release does not tap-pause');
+    await touch('touchStart', [[180,440]]); await sleep(450);
+    await touch('touchCancel', []);
+    assert.equal(await evaluate('holdVideo.playbackRate'),1.25,'cancel restores speed');
+    await evaluate(`holdVideo.remove()`);
     await swipe(740,100); await expectReel(7, 'a phone fling moves one reel');
     await sleep(600); await expectReel(7, 'momentum cannot advance another reel');
     await swipe(740,100,350); await expectReel(8, 'a paused phone swipe moves one reel');
@@ -834,6 +860,17 @@ const KEYS = {
       setVideo(post,current,true);const video=document.querySelector('#s'+current+' video');
       if(video.readyState<1)await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
       video.loop=true;video.currentTime=.25;await video.play();
+      togglePlayback();
+      if(document.getElementById('pause'+current).hidden)throw new Error('Paused icon missing');
+      const seek=document.getElementById('seek'+current);
+      updateSeekBar(current,video);
+      if(seek.disabled)throw new Error('Seek bar unavailable after metadata');
+      seek.value=750;seekReel(current,seek);
+      if(Math.abs(video.currentTime-video.duration*.75)>.1||!video.paused)throw new Error('Paused seek forward failed');
+      seek.value=250;seekReel(current,seek);
+      if(Math.abs(video.currentTime-video.duration*.25)>.1||!video.paused)throw new Error('Paused seek backward failed');
+      togglePlayback();await video.play();
+      if(!document.getElementById('pause'+current).hidden)throw new Error('Pause icon remained while playing');
       post._comments=[];post._commentCursor=null;post.comment_count=0;toggleComments(current);
       window.navigationSnapshot={video,index:current,code:post.shortcode,posts:[...posts],time:video.currentTime,
         comments:document.getElementById('comments-panel').hidden};

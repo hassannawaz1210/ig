@@ -400,7 +400,8 @@ function setupAndroidUI() {
 }
 
 function androidSheet(id, title) {
-  document.getElementById(id)?.close();
+  const previous = document.getElementById(id);
+  previous?.close(); previous?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = id;
   dialog.className = 'android-action-sheet';
