@@ -25,8 +25,25 @@ const countEl = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmt = n => (n??0).toLocaleString();
-const fdate = t => t ? new Date(t*1000).toLocaleDateString(
-    undefined, {month:'short', day:'numeric'}) : '';
+// How old a post is: "5 minutes ago", "3 days ago", "2 years ago".
+const AGE_UNITS = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]];
+function postAge(t, now = Date.now()) {
+  if (!t) return '';
+  const seconds = Math.max(0, Math.round(now / 1000 - t));
+  for (const [unit, size] of AGE_UNITS) {
+    const count = Math.floor(seconds / size);
+    if (count >= 1) return `${count} ${unit}${count === 1 ? '' : 's'} ago`;
+  }
+  return 'just now';
+}
+// "3 days ago · Oct 8" (with the year when it isn't this year).
+function postDate(t) {
+  if (!t) return '';
+  const date = new Date(t * 1000);
+  const day = date.toLocaleDateString(undefined, date.getFullYear() === new Date().getFullYear()
+    ? {month:'short', day:'numeric'} : {month:'short', day:'numeric', year:'numeric'});
+  return `<time class="date" datetime="${date.toISOString()}" title="Posted ${esc(date.toLocaleString())}">${postAge(t)} · ${day}</time>`;
+}
 
 const posts = [];
 let autoScroll = playbackBoot.auto_scroll === true;
@@ -487,7 +504,7 @@ function slideHtml(p, i) {
     </div>
     <div class="info">
       <a class="user" href="/u/${esc(p.owner)}" title="View profile (P)">@${esc(p.owner)}</a>
-      <span class="date">${fdate(p.taken_at)}</span>
+      ${postDate(p.taken_at)}
       ${p.caption ? `<button type="button" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption" onclick="toggleCaption(${i})">${esc(p.caption)}</button>` : ''}
       <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
       <div class="why" id="why${i}" hidden></div>

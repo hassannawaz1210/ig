@@ -578,6 +578,18 @@ const KEYS = {
         autoScrollButton:!!document.getElementById('auto-scroll')};
     })()`);
     assert.equal(mobile.shortcuts,'none','Android has no keyboard-shortcut button');
+    // How old each post is, shown beside the creator on the phone.
+    const ages = await evaluate(`(() => { const now = Date.UTC(2026, 10, 7, 12); const t = s => now / 1000 - s;
+      return [postAge(t(20), now), postAge(t(60), now), postAge(t(7200), now), postAge(t(86400), now),
+        postAge(t(3 * 86400), now), postAge(t(15 * 86400), now), postAge(t(70 * 86400), now), postAge(t(800 * 86400), now), postAge(0, now)]; })()`);
+    assert.deepEqual(ages, ['just now', '1 minute ago', '2 hours ago', '1 day ago', '3 days ago', '2 weeks ago', '2 months ago', '2 years ago', '']);
+    const dated = await evaluate(`(() => { const d = document.querySelector('.slide:not([hidden]) .info .date');
+      return d && {text: d.textContent, display: getComputedStyle(d).display, datetime: d.getAttribute('datetime'), top: d.getBoundingClientRect().top,
+        userTop: d.parentNode.querySelector('.user').getBoundingClientRect().top}; })()`);
+    assert.ok(dated, 'reels show their post date');
+    assert.match(dated.text, / ago · /, 'age and date: ' + dated.text);
+    assert.notEqual(dated.display, 'none', 'the post date is visible on the phone');
+    assert.ok(Math.abs(dated.top - dated.userTop) < 12, 'date sits beside the creator name');
     assert.equal(mobile.more,'flex','Android reel actions have a visible touch control');
     assert.ok(mobile.rail.some(c=>c.includes('account-action')),'add creator sits in the reel rail');
     assert.ok(!mobile.rail.some(c=>c.includes('profile-action')),'profile has no redundant rail button');
