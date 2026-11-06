@@ -105,7 +105,8 @@ class ServerErrorTests(LiveServer):
             status, _, body = self.request('GET', '/u/nasa')
         self.assertEqual(status, 500)
         self.assertNotIn(b'secret', body)
-        self.assertIn(b'ig logs', body)
+        self.assertIn(b'Try again', body)
+        self.assertIn(b'Back to reels', body)
         self.assertIn('secret internal detail', '\n'.join(logged.output))
 
     def test_instagram_errors_keep_their_helpful_message(self):

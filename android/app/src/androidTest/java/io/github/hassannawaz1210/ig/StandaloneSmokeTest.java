@@ -137,6 +137,7 @@ public class StandaloneSmokeTest {
         evaluate(scenario, "window.playerStateMarker={};window.originalPlayerStateMarker=window.playerStateMarker;"
                 + "if(!desiredSound)document.getElementById('mute').click();setCleanView(true);document.getElementById('settings-link').click()");
         awaitSettings(scenario);
+        checkNativeUpdateLink(scenario);
         assertEquals("true", evaluate(scenario, "Boolean(document.querySelector('#local-page iframe'))"));
         evaluate(scenario, "(()=>{const d=document.querySelector('#local-page iframe').contentDocument;"
                 + "const dialog=d.createElement('dialog');dialog.id='native-back-test';d.body.append(dialog);dialog.showModal()})()");
@@ -157,6 +158,51 @@ public class StandaloneSmokeTest {
         assertTrue("Sound choice was not saved", Python.getInstance().getModule("ig.config")
                 .callAttr("playback_preferences").callAttr("__getitem__", "sound").toBoolean());
         if ("false".equals(initialSound)) evaluate(scenario, "document.getElementById('mute').click()");
+    }
+
+    private static void checkNativeUpdateLink(ActivityScenario<MainActivity> scenario) throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Context app = instrumentation.getTargetContext();
+        long version = UpdatePackage.code(app.getPackageManager().getPackageInfo(app.getPackageName(), 0));
+        CountDownLatch checked = new CountDownLatch(1);
+        AppUpdater fake = new AppUpdater(app, () -> {
+            checked.countDown();
+            return new UpdatePackage(version, "current", "", "", 1);
+        }, app.getSharedPreferences("update-navigation-test", Context.MODE_PRIVATE));
+        java.lang.reflect.Field field = MainActivity.class.getDeclaredField("updater");
+        field.setAccessible(true);
+        AtomicReference<AppUpdater> original = new AtomicReference<>();
+        scenario.onActivity(activity -> {
+            try {
+                original.set((AppUpdater) field.get(activity));
+                original.get().detach(activity);
+                field.set(activity, fake);
+                fake.attach(activity);
+            } catch (IllegalAccessException error) { throw new AssertionError(error); }
+        });
+        try {
+            evaluate(scenario, "window.updateBeforeFrame=document.querySelector('#local-page iframe');"
+                    + "window.updateBeforeUrl=location.href;window.updateBeforeFrameUrl=updateBeforeFrame.contentWindow.location.href;"
+                    + "updateBeforeFrame.contentDocument.querySelector('a[href=\"/app/update/check\"]').click()");
+            assertTrue("Settings iframe did not invoke native updater", checked.await(10, TimeUnit.SECONDS));
+            AtomicReference<String> text = new AtomicReference<>();
+            long deadline = SystemClock.elapsedRealtime() + 10000;
+            do {
+                scenario.onActivity(activity -> {
+                    android.widget.TextView label = activity.getWindow().getDecorView().findViewWithTag("app-update-message");
+                    text.set(label == null ? null : label.getText().toString());
+                });
+                if ("ig is up to date".equals(text.get())) break;
+                SystemClock.sleep(100);
+            } while (SystemClock.elapsedRealtime() < deadline);
+            assertEquals("Check success was not visible", "ig is up to date", text.get());
+            assertEquals("true", evaluate(scenario, "location.href===updateBeforeUrl && document.querySelector('#local-page iframe')===updateBeforeFrame && updateBeforeFrame.contentWindow.location.href===updateBeforeFrameUrl"));
+        } finally {
+            scenario.onActivity(activity -> {
+                try { fake.detach(activity); field.set(activity, original.get()); original.get().attach(activity); }
+                catch (IllegalAccessException error) { throw new AssertionError(error); }
+            });
+        }
     }
 
     private static void checkCleanViewBack(ActivityScenario<MainActivity> scenario) throws Exception {

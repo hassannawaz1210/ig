@@ -590,33 +590,40 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         }
         if (updateBanner == null) {
             updateBanner = new LinearLayout(this);
-            updateBanner.setGravity(Gravity.CENTER_VERTICAL);
+            updateBanner.setOrientation(LinearLayout.VERTICAL);
             updateBanner.setBackgroundColor(Color.rgb(30, 30, 32));
             int padding = Math.round(12 * getResources().getDisplayMetrics().density);
-            updateBanner.setPadding(padding, 0, 0, 0);
+            updateBanner.setPadding(padding, padding, padding, 0);
             TextView label = new TextView(this);
+            label.setTag("app-update-message");
             label.setTextColor(Color.WHITE);
             label.setTextSize(14);
-            label.setMaxLines(2);
-            updateBanner.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            label.setTag("app-update-message");
+            updateBanner.addView(label, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout actions = new LinearLayout(this);
+            actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             Button button = new Button(this);
             button.setAllCaps(false);
             button.setOnClickListener(view -> updater.action());
-            updateBanner.addView(button);
+            actions.addView(button);
             Button close = new Button(this);
             close.setText("×");
             close.setContentDescription("Dismiss update notice");
             close.setMinWidth(0);
             close.setMinimumWidth(0);
             close.setOnClickListener(view -> updater.dismiss());
-            updateBanner.addView(close, new LinearLayout.LayoutParams(padding * 4, -2));
+            actions.addView(close, new LinearLayout.LayoutParams(padding * 4, -2));
+            updateBanner.addView(actions, new LinearLayout.LayoutParams(-1, -2));
             root.addView(updateBanner, new LinearLayout.LayoutParams(-1, -2));
         }
         ((TextView) updateBanner.getChildAt(0)).setText(message);
-        Button button = (Button) updateBanner.getChildAt(1);
+        LinearLayout actions = (LinearLayout) updateBanner.getChildAt(1);
+        Button button = (Button) actions.getChildAt(0);
         button.setText(action);
         button.setVisibility(action.isEmpty() ? View.GONE : View.VISIBLE);
-        updateBanner.getChildAt(2).setVisibility(canDismiss ? View.VISIBLE : View.GONE);
+        actions.getChildAt(1).setVisibility(canDismiss ? View.VISIBLE : View.GONE);
+        actions.setVisibility(action.isEmpty() && !canDismiss ? View.GONE : View.VISIBLE);
     }
 
     @Override public void onUpdateInfo(String message) {

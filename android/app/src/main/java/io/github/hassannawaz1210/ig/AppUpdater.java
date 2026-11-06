@@ -23,6 +23,7 @@ import java.util.concurrent.Executors;
 
 /** One updater per process; downloads never occupy the Python/backend worker. */
 final class AppUpdater {
+    interface ManifestSource { UpdatePackage load() throws Exception; }
     interface Listener {
         void onUpdateStatus(String message, String action, boolean canDismiss);
         void onUpdateInfo(String message);
@@ -33,6 +34,7 @@ final class AppUpdater {
     private static final long DAY = 24L * 60 * 60 * 1000;
     private final Context context;
     private final SharedPreferences preferences;
+    private final ManifestSource source;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private WeakReference<Listener> listener = new WeakReference<>(null);
@@ -43,6 +45,7 @@ final class AppUpdater {
     private File downloaded;
     private boolean visible;
     private boolean checkDismissed;
+    private boolean manualCheck;
     private String message = "";
 
     static synchronized AppUpdater get(Context context) {
@@ -51,8 +54,13 @@ final class AppUpdater {
     }
 
     private AppUpdater(Context context) {
+        this(context, AppUpdater::loadManifest, context.getSharedPreferences("app-updates", Context.MODE_PRIVATE));
+    }
+
+    AppUpdater(Context context, ManifestSource source, SharedPreferences preferences) {
         this.context = context;
-        preferences = context.getSharedPreferences("app-updates", Context.MODE_PRIVATE);
+        this.source = source;
+        this.preferences = preferences;
         // An install permission screen may outlive this process. Restore only
         // metadata here; the file is verified again on the worker before use.
         try {
@@ -97,6 +105,7 @@ final class AppUpdater {
 
     void check(boolean manual) {
         if (phase == Phase.CHECKING || phase == Phase.DOWNLOADING || phase == Phase.VERIFYING) {
+            if (manual && phase == Phase.CHECKING) manualCheck = true;
             if (manual) { checkDismissed = false; visible = true; render(); }
             return;
         }
@@ -110,32 +119,29 @@ final class AppUpdater {
         // Prevent restart loops while a request is in flight, including process death.
         preferences.edit().putLong("nextCheck", now + failureDelay(1)).apply();
         phase = Phase.CHECKING;
+        manualCheck = manual;
         checkDismissed = false;
         visible = manual;
         message = "Checking for updates…";
         render();
         worker.execute(() -> {
             try {
-                UpdatePackage candidate;
-                HttpURLConnection connection = open(UpdatePackage.MANIFEST_URL);
-                try (InputStream input = connection.getInputStream()) {
-                    candidate = UpdatePackage.parse(new String(UpdatePackage.readManifest(input), StandardCharsets.UTF_8));
-                } finally { connection.disconnect(); }
+                UpdatePackage candidate = source.load();
                 long installed = installedVersion();
                 preferences.edit().putInt("failures", 0).putLong("nextCheck", System.currentTimeMillis() + DAY).apply();
                 main.post(() -> {
                     if (candidate.versionCode <= installed) {
                         update = null;
                         phase = Phase.IDLE;
-                        visible = false;
+                        message = "ig is up to date";
+                        visible = manualCheck && !checkDismissed;
                         render();
-                        if (manual && !checkDismissed) info("ig is up to date");
                         return;
                     }
                     update = candidate;
                     phase = Phase.AVAILABLE;
                     message = "ig " + candidate.versionName + " is available";
-                    visible = !checkDismissed && (manual || candidate.versionCode > preferences.getLong("noticedVersion", 0));
+                    visible = !checkDismissed && (manualCheck || candidate.versionCode > preferences.getLong("noticedVersion", 0));
                     render();
                 });
             } catch (Exception error) {
@@ -145,7 +151,7 @@ final class AppUpdater {
                 main.post(() -> {
                     phase = Phase.FAILED;
                     message = "Couldn’t check for updates";
-                    visible = manual && !checkDismissed;
+                    visible = manualCheck && !checkDismissed;
                     render();
                 });
             }
@@ -362,5 +368,12 @@ final class AppUpdater {
             }
         }
         throw new IOException("Too many update redirects");
+    }
+
+    private static UpdatePackage loadManifest() throws Exception {
+        HttpURLConnection connection = open(UpdatePackage.MANIFEST_URL);
+        try (InputStream input = connection.getInputStream()) {
+            return UpdatePackage.parse(new String(UpdatePackage.readManifest(input), StandardCharsets.UTF_8));
+        } finally { connection.disconnect(); }
     }
 }

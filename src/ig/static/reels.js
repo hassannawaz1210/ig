@@ -1294,7 +1294,7 @@ function showSearch() {
   input.autocomplete = 'off'; input.autocapitalize = 'none'; input.spellcheck = false;
   const results = document.createElement('div'); results.className = 'search-results';
   const status = document.createElement('p'); status.setAttribute('role', 'status');
-  let accounts = [...feeded];
+  let accounts = [...feeded], accountsError = false;
   function destination(value) {
     if (/^@?[A-Za-z0-9._]{1,30}$/.test(value)) return '/u/' + value.replace(/^@/, '');
     try {
@@ -1321,7 +1321,8 @@ function showSearch() {
     };
     if (path && !matches.some(name => path === '/u/' + name)) add(path.startsWith('/reel/') ? 'Open reel' : 'Open @' + path.slice(3), path);
     for (const name of matches) add('@' + name, '/u/' + name);
-    if (!results.children.length) status.textContent = value ? 'No matching accounts. Enter an exact @handle or Instagram link.' : 'Enter an @handle or Instagram link.';
+    if (!results.children.length) status.textContent = value ? 'Enter an exact @handle or an Instagram profile or reel link.' :
+      accountsError ? 'Couldn’t load your accounts. You can still enter an @handle or Instagram link.' : 'Enter an @handle or Instagram link.';
   }
   input.oninput = render;
   form.onsubmit = event => { event.preventDefault(); const path = destination(input.value.trim()); if (path) open(path); };
@@ -1339,11 +1340,11 @@ function showSearch() {
     viewport?.removeEventListener('scroll',fitSearch);
     window.removeEventListener('resize',fitSearch);
   },{once:true});
-  form.append(input); dialog.append(form, results, status); render(); fitSearch(); dialog.showModal(); input.focus();
+  form.append(input); dialog.append(form, status, results); render(); fitSearch(); dialog.showModal(); input.focus();
   fetch('/settings/data').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(data => {
     if (!dialog.isConnected) return;
     accounts = [...new Set(Object.values(data.feeds || {}).flat())]; render();
-  }).catch(() => {});
+  }).catch(() => { if (dialog.isConnected) { accountsError = true; render(); } });
 }
 let sharingReel = false;
 async function shareReel(i) {

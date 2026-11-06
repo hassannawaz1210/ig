@@ -1031,6 +1031,44 @@ const KEYS = {
     await evaluate("fetch('/settings/playback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_scroll:true})})");
     await evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))");
     for(let i=0;!(await evaluate('autoScroll'));i++){assert.ok(i<40,'cached page did not read playback preferences');await sleep(50);}
+    // Search remains usable when account suggestions fail; status pages stay in
+    // the mounted-player frame, including retry and return after an HTTP error.
+    await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await evaluate(`window.statusSavedAccounts=[...feeded];feeded.clear();window.statusFetch=fetch;
+      window.fetch=(path,options)=>path==='/settings/data'?Promise.resolve(new Response('{}',{status:503})):statusFetch(path,options);showSearch()`);
+    for(let n=0;!(await evaluate(`document.querySelector('#reel-search [role=status]').textContent.includes('Couldn’t load')`));n++) {
+      assert.ok(n<40,'search did not report unavailable suggestions');await sleep(50);
+    }
+    assert.equal(await evaluate(`document.querySelector('#reel-search').scrollWidth<=document.querySelector('#reel-search').clientWidth`),true,'search error fits phone width');
+    assert.equal(await evaluate(`(() => {const dialog=document.getElementById('reel-search');
+      const input=dialog.querySelector('input').getBoundingClientRect(), status=dialog.querySelector('[role=status]').getBoundingClientRect();
+      return status.top>=input.bottom && status.top-input.bottom<40 && status.bottom<=dialog.querySelector('.search-results').getBoundingClientRect().top})()`),true,'Search error sits directly below input, above results');
+    fs.writeFileSync('/tmp/ig-search-error-phone.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await evaluate(`window.fetch=statusFetch;statusSavedAccounts.forEach(name=>feeded.add(name));
+      const field=document.querySelector('#reel-search input');field.value='retry_profile';field.dispatchEvent(new Event('input'));
+      document.querySelector('#reel-search form').requestSubmit()`);
+    for(let n=0;!(await evaluate(`!!document.querySelector('#local-page iframe')?.contentDocument?.getElementById('retry-page')`));n++) {
+      assert.ok(n<60,'profile error page did not open');await sleep(50);
+    }
+    const statusLayout=await evaluate(`(() => {const d=document.querySelector('#local-page iframe').contentDocument;
+      const buttons=[...d.querySelectorAll('.status-actions a')].map(a=>{const r=a.getBoundingClientRect();return {width:r.width,height:r.height,right:r.right,bottom:r.bottom}});
+      return {overflow:d.documentElement.scrollWidth>d.documentElement.clientWidth,buttons,message:d.querySelector('.page-status').textContent}})()`);
+    assert.equal(statusLayout.overflow,false,'profile error fits phone width');
+    assert.ok(statusLayout.buttons.every(b=>b.height>=44&&b.right<=390&&b.bottom<=844),'status actions remain touch sized and visible');
+    assert.ok(statusLayout.message.includes('Instagram is temporarily unavailable'));
+    fs.writeFileSync('/tmp/ig-profile-error-phone.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    await evaluate(`document.querySelector('#local-page iframe').contentDocument.getElementById('retry-page').click()`);
+    for(let n=0;!(await evaluate(`!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('.card')`));n++) {
+      assert.ok(n<60,'profile retry did not recover');await sleep(50);
+    }
+    assert.equal(await evaluate(`document.querySelector('#s'+current+' video')===navigationSnapshot.video`),true,'retry preserves underlying player');
+    await evaluate('handleLocalBack()');
+    for(let n=0;await evaluate(`!!document.getElementById('local-page')`);n++){assert.ok(n<60);await sleep(50);}
+    await evaluate(`visitLocalPage('/u/missing_profile')`);
+    for(let n=0;!(await evaluate(`!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('.page-status')`));n++){assert.ok(n<60);await sleep(50);}
+    await evaluate(`document.querySelector('#local-page iframe').contentDocument.querySelector('.status-actions a[href="/"]').click()`);
+    for(let n=0;await evaluate(`!!document.getElementById('local-page')`);n++){assert.ok(n<60);await sleep(50);}
+    assert.equal(await evaluate(`document.querySelector('#s'+current+' video')===navigationSnapshot.video && current===navigationSnapshot.index && navigationSnapshot.video.paused`),true,'error-page Back retains same paused reel');
     // Notices hide by themselves unless they must stay (loading, waiting for a tap).
     await evaluate(`actionStatus('Saved', {hideAfterMs:50})`);
     await sleep(200);

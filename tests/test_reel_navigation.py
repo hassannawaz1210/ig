@@ -42,6 +42,7 @@ def fake_posts(count: int, start: int = 0) -> list[dict]:
 
 class FakeReelsServer(BaseHTTPRequestHandler):
     """The reels page and its static files, with stub JSON endpoints."""
+    profile_retries = 0
     batches = 0
     selected = None
     deleted = None
@@ -59,6 +60,13 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/u/retry_profile':
+            type(self).profile_retries += 1
+            if type(self).profile_retries > 1:
+                return self.reply(200, views.viewer_html('Recovered profile', '', fake_posts(2)).encode(), 'text/html; charset=utf-8')
+            return self.reply(503, views.status_html('Couldn’t load profile', 'Instagram is temporarily unavailable. Please try again.').encode(), 'text/html; charset=utf-8')
+        if self.path == '/u/missing_profile':
+            return self.reply(404, views.status_html('Profile unavailable', 'This profile could not be loaded.').encode(), 'text/html; charset=utf-8')
         if self.path == '/u/test_profile':
             return self.reply(200, views.viewer_html('Test profile', '', fake_posts(100)).encode(), 'text/html; charset=utf-8')
         if self.path == '/settings/data':

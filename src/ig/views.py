@@ -99,3 +99,10 @@ def settings_html() -> str:
         'android': config.ANDROID,
         'scroll_animation': config.scroll_animation(),
     }))
+
+
+def status_html(title: str, message: str, *, retry: bool = True) -> str:
+    actions = ('<a class="primary" id="retry-page" href="">Try again</a>' if retry else
+               '<a class="primary" href="https://github.com/hassannawaz1210/ig/releases/tag/android-updates">Open downloads</a>')
+    actions += '<a href="/">Back to reels</a>'
+    return render("status.html", title=escape(title), message=escape(message), actions=actions)

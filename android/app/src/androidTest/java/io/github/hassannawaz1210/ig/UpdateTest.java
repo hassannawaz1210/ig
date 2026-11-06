@@ -1,7 +1,9 @@
 package io.github.hassannawaz1210.ig;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
@@ -25,6 +27,8 @@ import java.security.MessageDigest;
 import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -44,6 +48,69 @@ public class UpdateTest {
         return new JSONObject().put("version_code", 1234).put("version_name", "0.5.0-preview.2.1")
                 .put("apk_url", APK_URL).put("sha256", UpdatePackage.hex(MessageDigest.getInstance("SHA-256").digest(PAYLOAD)))
                 .put("size", PAYLOAD.length);
+    }
+
+    private static final class Status implements AppUpdater.Listener {
+        final String expected;
+        final CountDownLatch ready = new CountDownLatch(1);
+        volatile String message, action;
+        volatile boolean dismissible;
+        Status(String expected) { this.expected = expected; }
+        @Override public void onUpdateStatus(String message, String action, boolean dismissible) {
+            this.message = message; this.action = action; this.dismissible = dismissible;
+            if (expected.equals(message)) ready.countDown();
+        }
+        @Override public void onUpdateInfo(String message) { fail("Check result should stay visible, not use a toast"); }
+        @Override public void onUpdateInstall(File file) { fail("A check must not install anything"); }
+    }
+
+    private static AppUpdater testUpdater(AppUpdater.ManifestSource source) {
+        Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        SharedPreferences preferences = app.getSharedPreferences("update-ui-test-" + UUID.randomUUID(), Context.MODE_PRIVATE);
+        Context context = new ContextWrapper(app) {
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+                return preferences;
+            }
+        };
+        return new AppUpdater(context, source, preferences);
+    }
+
+    @Test public void manualCheckResultsRemainVisibleAndCanBeDismissed() throws Exception {
+        Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        long current = UpdatePackage.code(app.getPackageManager().getPackageInfo(app.getPackageName(), 0));
+        UpdatePackage same = new UpdatePackage(current, "current", APK_URL, "0000000000000000000000000000000000000000000000000000000000000000", 1);
+        UpdatePackage newer = new UpdatePackage(current + 1, "next", APK_URL, "0000000000000000000000000000000000000000000000000000000000000000", 1);
+        AppUpdater.ManifestSource[] sources = {() -> same, () -> newer, () -> { throw new java.io.IOException("offline"); }};
+        String[] messages = {"ig is up to date", "ig next is available", "Couldn’t check for updates"};
+        String[] actions = {"", "Update", "Retry"};
+        for (int i = 0; i < sources.length; i++) {
+            AppUpdater updater = testUpdater(sources[i]);
+            Status status = new Status(messages[i]);
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> { updater.attach(status); updater.check(true); });
+            assertTrue("No visible check result", status.ready.await(10, TimeUnit.SECONDS));
+            assertEquals(actions[i], status.action);
+            assertTrue(status.dismissible);
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(updater::dismiss);
+            assertEquals("", status.message);
+        }
+    }
+
+    @Test public void manualTapDuringAutomaticCheckStillGetsVisibleSuccess() throws Exception {
+        Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        long current = UpdatePackage.code(app.getPackageManager().getPackageInfo(app.getPackageName(), 0));
+        CountDownLatch started = new CountDownLatch(1), finish = new CountDownLatch(1);
+        AppUpdater updater = testUpdater(() -> {
+            started.countDown();
+            if (!finish.await(10, TimeUnit.SECONDS)) throw new java.io.IOException("test timed out");
+            return new UpdatePackage(current, "current", APK_URL, "0000000000000000000000000000000000000000000000000000000000000000", 1);
+        });
+        Status status = new Status("ig is up to date");
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> { updater.attach(status); updater.check(false); });
+        assertTrue(started.await(10, TimeUnit.SECONDS));
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> updater.check(true));
+        finish.countDown();
+        assertTrue("Manual check lost its result", status.ready.await(10, TimeUnit.SECONDS));
+        assertTrue(status.dismissible);
     }
 
     @Test public void manifestIsStrictAndBounded() throws Exception {

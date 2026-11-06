@@ -23,7 +23,7 @@ from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
 from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
-from .views import viewer_html, reels_html, settings_html, feeds_html, static_file
+from .views import viewer_html, reels_html, settings_html, feeds_html, static_file, status_html
 
 log = logging.getLogger(__name__)
 
@@ -140,7 +140,12 @@ class Handler(BaseHTTPRequestHandler):
             log.info("%s failed: %s", context or self.path, error)
         if as_json:
             return self._send(status, json.dumps({"error": message}).encode(), "application/json")
-        return self._send(status, message.encode(), "text/plain; charset=utf-8")
+        title = "Couldn’t open this page"
+        if self.path.startswith('/u/'):
+            title = "Account unavailable" if status == 404 else "Couldn’t load account"
+        if status == 500:
+            message = "Something went wrong. Try again in a moment."
+        return self._send(status, status_html(title, message).encode(), "text/html; charset=utf-8")
 
     def _allowed(self) -> bool:
         return self.access is None or self.access.allow(self)
@@ -274,6 +279,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b"ok", "text/plain")
         if not self._allowed():
             return
+        if self.path == '/app/update/check':
+            html = status_html('Check for updates',
+                'This version cannot check for updates here. Download the latest Android app to enable in-app updates.', retry=False)
+            return self._send(200, html.encode(), 'text/html; charset=utf-8')
         if self.path in ('/settings', '/settings/feeds', '/settings/data'):
             try:
                 if self.path == '/settings':
@@ -351,8 +360,8 @@ class Handler(BaseHTTPRequestHandler):
             username = m.group(1).lower()
             try:
                 state = load_profile(username)
-                html = viewer_html(f"@{username} — logged-out feed",
-                                   "50 more per click · click a post to zoom",
+                html = viewer_html(f"@{username}",
+                                   "Posts",
                                    state["posts"], username)
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
