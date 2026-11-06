@@ -313,10 +313,11 @@ final class AppUpdater {
             throw new IOException("Invalid staged update");
         Uri uri = new Uri.Builder().scheme("content").authority(context.getPackageName() + ".updates")
                 .appendPath(apk.getName()).build();
-        return new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
-                .setClipData(ClipData.newRawUri("ig update", uri))
+        Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 .putExtra(Intent.EXTRA_RETURN_RESULT, true);
+        intent.setClipData(ClipData.newRawUri("ig update", uri));
+        return intent;
     }
 
     private void info(String text) {
