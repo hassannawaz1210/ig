@@ -31,6 +31,7 @@ const fdate = t => t ? new Date(t*1000).toLocaleDateString(
 const posts = [];
 let autoScroll = playbackBoot.auto_scroll === true;
 let creatorTrail = null;
+const creatorTrails = new Map();
 let shownCodes = new Set();
 try { shownCodes = new Set(JSON.parse(sessionStorage.getItem('ig-shown-reels') || '[]')); } catch (_) {}
 function rememberShown(code) {
@@ -40,7 +41,7 @@ function rememberShown(code) {
   try { sessionStorage.setItem('ig-shown-reels', JSON.stringify([...shownCodes])); } catch (_) {}
 }
 function excludedReelCodes() {
-  return [...new Set([...shownCodes, ...posts.filter(p => !p._dropped).map(p => p.shortcode), ...(creatorTrail?.items || []).map(p => p.shortcode)])].slice(-1000);
+  return [...new Set([...shownCodes, ...posts.filter(p => !p._dropped).map(p => p.shortcode), ...[...creatorTrails.values()].flatMap(trail => trail.items.map(p => p.shortcode))])].slice(-1000);
 }
 const queueClient = globalThis.crypto?.randomUUID?.() || 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 let reservationTimer = null;
@@ -398,11 +399,12 @@ function releaseVideo(slide) {
   if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
 }
 function dropQueuedReels() {
-  leaveCreatorBrowse(false);
+  leaveCreatorBrowse();
   const released = [];
   posts.forEach((p, i) => {
     if (i <= current || p._dropped) return;
     p._dropped = true;
+    creatorTrails.delete(i);
     if (p.reservation && !(p._watchedSeconds > 0)) released.push(p.reservation);
     const slide = document.getElementById('s'+i);
     if (!slide) return;
@@ -688,7 +690,7 @@ const io = new IntersectionObserver(es => {
     const i = +e.target.id.slice(1);
     if (!isHidden(posts[i]) && i !== current) {
       recordQuickSkip(current);
-      leaveCreatorBrowse(false);
+      leaveCreatorBrowse();
       current = i;
       document.querySelectorAll('video').forEach(v => v.pause());
       activate(i);
@@ -1479,7 +1481,7 @@ function togglePlayback() {
 function showSlide(i) {
   cancelPendingTap();
   stopReelHold();
-  if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse(false);
+  if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse();
   if (i === undefined || isHidden(posts[i])) return;
   document.querySelectorAll('video').forEach(v => v.pause());
   if (current !== i) recordQuickSkip(current);
@@ -1609,20 +1611,26 @@ function replaceCreatorSlide(post, play = true) {
   observeNew();
   if (play) showSlide(i);
 }
-function leaveCreatorBrowse(play = true) {
+function leaveCreatorBrowse() {
   const trail = creatorTrail;
   if (!trail) return;
   creatorTrail = null;
-  clearTimeout(trail.timer);
+  clearTimeout(trail.timer); trail.timer = null;
+  // Leaving vertically keeps this slot and its horizontal position intact.
+  // Invalidate any pending response even if we return before it arrives.
+  trail.request = (trail.request || 0) + 1; trail.busy = false;
   actionStatus('');
-  if (current === trail.index) replaceCreatorSlide(trail.items[0], play);
 }
 async function browseCreator(direction) {
   const p = posts[current];
   if (!p || isHidden(p)) return;
   if (!creatorTrail) {
-    if (direction < 0) return;
-    creatorTrail = {index:current, owner:p.owner, items:[p], at:0, busy:false, timer:null};
+    creatorTrail = creatorTrails.get(current) || null;
+    if (!creatorTrail) {
+      if (direction < 0) return;
+      creatorTrail = {index:current, owner:p.owner, items:[p], at:0, busy:false, timer:null};
+      creatorTrails.set(current, creatorTrail);
+    }
   }
   const trail = creatorTrail;
   if (direction < 0) {
@@ -1708,7 +1716,7 @@ document.addEventListener('keydown', handleReelKey);
 document.addEventListener('keyup', releaseReelKey);
 if (typeof window !== 'undefined') window.addEventListener('blur', () => heldKeys.clear());
 function goRel(d) {
-  leaveCreatorBrowse(false);
+  leaveCreatorBrowse();
   const indices = visibleIndices();
   const at = indices.indexOf(current);
   const i = indices[Math.max(0, Math.min(indices.length - 1, at + d))];

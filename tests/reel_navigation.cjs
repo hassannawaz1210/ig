@@ -517,7 +517,15 @@ const KEYS = {
     await key('j');
     await sleep(200);
     assert.equal(await evaluate('creatorTrail'),null,'J resumes the mixed feed');
-    assert.equal(await evaluate('posts['+originalSlot.index+'].shortcode'),originalSlot.code,'original queue slot restored');
+    assert.equal(await evaluate('posts['+originalSlot.index+'].shortcode'),'branch001','vertical navigation retains the horizontal reel');
+    await key('k');
+    assert.equal(await evaluate('posts[current].shortcode'),'branch001','returning keeps the horizontal position');
+    await evaluate('browseCreator(-1)');
+    assert.equal(await evaluate('posts[current].shortcode'),originalSlot.code,'previous horizontal reel remains accessible');
+    await evaluate('browseCreator(1)');
+    assert.equal(await evaluate('posts[current].shortcode'),'branch001');
+    assert.equal(await evaluate('creatorRequests'),1,'returning reuses the horizontal history');
+    await key('j');
     await evaluate(`(() => {
       const previousFetch=window.fetch;
       window.fetch=(url,options)=>String(url).startsWith('/creator/') ?
