@@ -11,6 +11,10 @@ The standalone [Android app](https://github.com/hassannawaz1210/ig/releases/down
 runs on your phone without a desktop server. It checks GitHub for updates and
 also has **Settings → Check for updates**. Tap Update and confirm Android's
 installer; your feeds and settings stay in place. No app store is needed.
+**Already using preview 31.1 or earlier?** Those builds used inconsistent signing
+keys. Follow the [one-time backup and migration steps](android/README.md#older-preview-migration)
+before installing a newer APK.
+
 See [Android setup](android/README.md) for build instructions and current limitations.
 
 ## Getting started

@@ -37,8 +37,9 @@ The `android` source set includes `../../src`, so changes to the shared app do
 not need copying. Chaquopy extracts the `ig` package and its HTML/CSS/JS assets.
 No desktop databases, feeds, virtual environment, or caches enter the APK.
 
-CI restores a private preview signing key so successive published APKs can be
-installed as updates while keeping feeds. Local builds use your own Android debug
+CI passes the saved private preview key explicitly through `IG_ANDROID_KEYSTORE`
+and verifies the APK certificate before publishing. Successive published APKs
+can then be installed as updates while keeping feeds. Local builds use your own Android debug
 key. Keep using the same signing key when building updates.
 
 ## Updates
@@ -56,6 +57,24 @@ the latest download and `update.json`, which points to that version's asset.
 CI assigns increasing version codes automatically. Local builds can override
 `IG_ANDROID_VERSION_CODE` and `IG_ANDROID_VERSION_NAME`; a differently signed
 local build cannot update an official preview.
+
+## Older preview migration
+
+Builds up to `0.5.0-preview.31.1` were accidentally signed with different temporary
+build-runner keys. Android cannot update those installations with the corrected
+stable-key APK. The updater must not bypass that protection.
+
+1. In the old app, open **Settings → Export backup**. Save the JSON outside the
+   app and confirm it is present in your Files app.
+2. Download the latest APK. Keep your backup before removing the old app.
+3. Uninstall the old app, install the new APK, then choose **Settings → Import backup**.
+4. Confirm your feeds, saved reels, blocks, and settings were restored.
+
+The JSON backup does not include viewing history or learned recommendations.
+For a full migration, an ADB backup of the debuggable app's local databases can
+preserve those too. Do not remove the old app until you have a verified backup.
+After this one-time migration, future releases use the stable key and install
+in place through the app updater.
 
 ## Runtime
 

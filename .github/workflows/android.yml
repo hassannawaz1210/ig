@@ -53,9 +53,10 @@ jobs:
         shell: bash
         run: |
           test -n "$ANDROID_PREVIEW_KEYSTORE" || { echo 'Missing Android preview signing key'; exit 1; }
-          mkdir -p "$HOME/.android"
-          printf '%s' "$ANDROID_PREVIEW_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          preview_key="$RUNNER_TEMP/ig-preview.keystore"
+          printf '%s' "$ANDROID_PREVIEW_KEYSTORE" | base64 --decode > "$preview_key"
+          chmod 600 "$preview_key"
+          echo "IG_ANDROID_KEYSTORE=$preview_key" >> "$GITHUB_ENV"
       - name: Build standalone APK and instrumentation tests
         working-directory: android
         env:
@@ -67,6 +68,8 @@ jobs:
           echo "IG_ANDROID_VERSION_CODE=$IG_ANDROID_VERSION_CODE" >> "$GITHUB_ENV"
           echo "IG_ANDROID_VERSION_NAME=$IG_ANDROID_VERSION_NAME" >> "$GITHUB_ENV"
           gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest
+      - name: Verify stable APK signing identity
+        run: python android/ci/verify_signing.py android/app/build/outputs/apk/debug/app-debug.apk
       - name: Keep installable APK
         uses: actions/upload-artifact@v4
         with:

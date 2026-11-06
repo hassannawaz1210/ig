@@ -194,6 +194,57 @@ public class UpdateTest {
         rejected(() -> current.verifyArchive(app, new File(app.getApplicationInfo().sourceDir)));
     }
 
+    @Test public void completeDownloadReportsVersionMismatchAfterPrivateApkVerification() throws Exception {
+        Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        PackageInfo installed = app.getPackageManager().getPackageInfo(app.getPackageName(), 0);
+        File source = new File(app.getApplicationInfo().sourceDir);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream input = new java.io.FileInputStream(source)) {
+            byte[] buffer = new byte[64 * 1024];
+            int count;
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
+        }
+        // A valid real signed APK, but a deliberately incorrect advertised version.
+        // Exercise the actual worker through download, checksum, fsync and the
+        // Android parser against the app-private staged file, without network.
+        UpdatePackage candidate = new UpdatePackage(UpdatePackage.code(installed) + 1,
+                installed.versionName, APK_URL, UpdatePackage.hex(digest.digest()), source.length());
+        SharedPreferences preferences = app.getSharedPreferences("update-stage-test-" + UUID.randomUUID(), Context.MODE_PRIVATE);
+        AppUpdater updater = new AppUpdater(app, () -> candidate, preferences, address ->
+                new java.net.HttpURLConnection(new java.net.URL(address)) {
+                    @Override public void connect() { }
+                    @Override public void disconnect() { }
+                    @Override public boolean usingProxy() { return false; }
+                    @Override public long getContentLengthLong() { return source.length(); }
+                    @Override public InputStream getInputStream() throws java.io.IOException {
+                        return new java.io.FileInputStream(source);
+                    }
+                });
+        CountDownLatch available = new CountDownLatch(1), complete = new CountDownLatch(1), failed = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<String> error = new java.util.concurrent.atomic.AtomicReference<>();
+        AppUpdater.Listener listener = new AppUpdater.Listener() {
+            @Override public void onUpdateStatus(String message, String action, boolean dismissible) {
+                if (message.endsWith(" is available")) available.countDown();
+                if (message.equals("Downloading update… 100%")) complete.countDown();
+                if (action.equals("Update") && !message.endsWith(" is available")) {
+                    error.set(message);
+                    failed.countDown();
+                }
+            }
+            @Override public void onUpdateInfo(String message) { fail(message); }
+            @Override public void onUpdateInstall(File apk) { fail("Mismatched APK reached installation"); }
+        };
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> { updater.attach(listener); updater.check(true); });
+        assertTrue(available.await(10, TimeUnit.SECONDS));
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(updater::action);
+        assertTrue("APK was not completely downloaded", complete.await(60, TimeUnit.SECONDS));
+        assertTrue("APK verification did not finish", failed.await(30, TimeUnit.SECONDS));
+        assertEquals("APK version does not match the release", error.get());
+        assertFalse(new File(AppUpdater.directory(app), "download.part.apk").exists());
+        assertFalse(preferences.contains("ready"));
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> updater.detach(listener));
+    }
+
     @Test public void installIntentGrantsOnlyReadAccessToOnePrivateApk() throws Exception {
         Context app = InstrumentationRegistry.getInstrumentation().getTargetContext();
         File directory = AppUpdater.directory(app);

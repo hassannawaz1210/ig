@@ -101,6 +101,10 @@ final class UpdatePackage {
         return bytes.toByteArray();
     }
 
+    static final class VerificationException extends IOException {
+        VerificationException(String message) { super(message); }
+    }
+
     interface Progress { void copied(long bytes); }
 
     void copyVerified(InputStream input, OutputStream output, BooleanSupplier cancelled, Progress progress) throws Exception {
@@ -111,14 +115,16 @@ final class UpdatePackage {
         while ((read = input.read(buffer)) != -1) {
             if (cancelled.getAsBoolean()) throw new IOException("Update cancelled");
             total += read;
-            if (total > size || total > MAX_BYTES) throw new IOException("Update is too large");
+            if (total > size || total > MAX_BYTES) throw new VerificationException("APK exceeds the expected size");
             digest.update(buffer, 0, read);
             if (output != null) output.write(buffer, 0, read);
             progress.copied(total);
         }
         if (cancelled.getAsBoolean()) throw new IOException("Update cancelled");
-        if (total != size || !MessageDigest.isEqual(hex(digest.digest()).getBytes(java.nio.charset.StandardCharsets.US_ASCII),
-                sha256.getBytes(java.nio.charset.StandardCharsets.US_ASCII))) throw new IOException("Update verification failed");
+        if (total != size) throw new VerificationException("APK download is incomplete");
+        if (!MessageDigest.isEqual(hex(digest.digest()).getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                sha256.getBytes(java.nio.charset.StandardCharsets.US_ASCII)))
+            throw new VerificationException("APK checksum does not match the release");
     }
 
     void verifyFile(Context context, File file) throws Exception {
@@ -133,16 +139,21 @@ final class UpdatePackage {
         int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
         PackageInfo installed = context.getPackageManager().getPackageInfo(context.getPackageName(), flags);
         PackageInfo archive = context.getPackageManager().getPackageArchiveInfo(file.getAbsolutePath(), flags);
-        if (archive == null) throw new IOException("Invalid update APK");
+        if (archive == null) throw new VerificationException("Android could not read the APK or its signing certificate");
         verifyIdentity(archive.packageName, code(archive), archive.versionName, signers(archive),
                 installed.packageName, code(installed), signers(installed));
     }
 
     void verifyIdentity(String packageName, long code, String name, Set<String> signatures,
                         String installedPackage, long installedCode, Set<String> installedSignatures) throws IOException {
-        if (!installedPackage.equals(packageName) || code != versionCode || code <= installedCode
-                || !versionName.equals(name) || signatures.isEmpty() || installedSignatures.isEmpty()
-                || !signatures.equals(installedSignatures)) throw new IOException("Update does not match this app");
+        if (!installedPackage.equals(packageName)) throw new VerificationException("APK belongs to a different app");
+        if (code != versionCode) throw new VerificationException("APK version does not match the release");
+        if (code <= installedCode) throw new VerificationException("APK is not newer than the installed app");
+        if (!versionName.equals(name)) throw new VerificationException("APK version name does not match the release");
+        if (signatures.isEmpty() || installedSignatures.isEmpty())
+            throw new VerificationException("Android could not read the app signing certificate");
+        if (!signatures.equals(installedSignatures))
+            throw new VerificationException("APK signing certificate differs from the installed app");
     }
 
     static long code(PackageInfo info) {

@@ -88,7 +88,10 @@ def publish():
             print('A matching or newer update is already published')
             return
     notes = OUTPUT / 'release-notes.txt'
-    notes.write_text('Tested Android preview. Install over the existing app to keep your feeds and settings.\n\n'
+    notes.write_text('Tested Android preview signed with the stable preview key.\n\n'
+                     'Upgrading from preview 31.1 or earlier requires a one-time backup, reinstall and restore. '
+                     'See https://github.com/hassannawaz1210/ig/blob/android-standalone/android/README.md#older-preview-migration . '
+                     'Newer stable-key builds update in place.\n\n'
                      f'Version: {manifest["version_name"]}\nSource: {commit}\n')
     existing = next((r for r in releases if r['tag_name'] == tag), None)
     if not existing:

@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 /** One updater per process; downloads never occupy the Python/backend worker. */
 final class AppUpdater {
     interface ManifestSource { UpdatePackage load() throws Exception; }
+    interface ApkSource { HttpURLConnection open(String url) throws IOException; }
     interface Listener {
         void onUpdateStatus(String message, String action, boolean canDismiss);
         void onUpdateInfo(String message);
@@ -35,6 +36,7 @@ final class AppUpdater {
     private final Context context;
     private final SharedPreferences preferences;
     private final ManifestSource source;
+    private final ApkSource apkSource;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private WeakReference<Listener> listener = new WeakReference<>(null);
@@ -61,6 +63,11 @@ final class AppUpdater {
     }
 
     AppUpdater(Context context, ManifestSource source, SharedPreferences preferences) {
+        this(context, source, preferences, AppUpdater::open);
+    }
+
+    AppUpdater(Context context, ManifestSource source, SharedPreferences preferences, ApkSource apkSource) {
+        this.apkSource = apkSource;
         this.context = context;
         this.source = source;
         this.preferences = preferences;
@@ -188,15 +195,17 @@ final class AppUpdater {
         worker.execute(() -> {
             File partial = new File(directory(context), "download.part.apk");
             HttpURLConnection connection = null;
+            String stage = "connect to the update server";
             try {
                 File directory = directory(context);
                 if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("No update directory");
-                connection = open(candidate.apkUrl);
+                connection = apkSource.open(candidate.apkUrl);
                 activeConnection = connection;
                 long expected = connection.getContentLengthLong();
                 if (expected >= 0 && expected != candidate.size) throw new IOException("Unexpected APK size");
                 long deadline = SystemClock.elapsedRealtime() + 5 * 60 * 1000;
                 int[] lastPercent = {-1};
+                stage = "download the update";
                 try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(partial)) {
                     candidate.copyVerified(input, output, () -> cancelled || SystemClock.elapsedRealtime() > deadline, bytes -> {
                         int percent = (int) (bytes * 100 / candidate.size);
@@ -210,10 +219,13 @@ final class AppUpdater {
                             });
                         }
                     });
+                    stage = "save the downloaded APK";
                     output.getFD().sync();
                 }
+                stage = "verify the APK identity";
                 candidate.verifyArchive(context, partial);
                 if (cancelled) throw new IOException("Update cancelled");
+                stage = "prepare the update for installation";
                 File ready = new File(directory, candidate.sha256 + ".apk");
                 if (ready.exists() && !ready.delete()) throw new IOException("Could not replace staged update");
                 if (!partial.renameTo(ready)) throw new IOException("Could not stage update");
@@ -228,10 +240,13 @@ final class AppUpdater {
                     if (listener.get() != null) install();
                 });
             } catch (Exception error) {
+                android.util.Log.e("ig-updater", "Could not " + stage, error);
+                String failure = error instanceof UpdatePackage.VerificationException
+                        ? error.getMessage() : "Couldn’t " + stage;
                 partial.delete();
                 main.post(() -> {
                     phase = Phase.AVAILABLE;
-                    message = cancelled ? "Update download cancelled" : "Couldn’t download or verify update";
+                    message = cancelled ? "Update download cancelled" : failure;
                     render();
                 });
             } finally {
@@ -275,12 +290,14 @@ final class AppUpdater {
                     if (target != null) target.onUpdateInstall(apk);
                 });
             } catch (Exception error) {
+                android.util.Log.e("ig-updater", "Could not verify staged APK before installation", error);
                 preferences.edit().remove("ready").remove("awaitingPermission").apply();
                 apk.delete();
                 main.post(() -> {
                     downloaded = null;
                     phase = Phase.AVAILABLE;
-                    message = "Update verification failed · download again";
+                    message = error instanceof UpdatePackage.VerificationException
+                            ? error.getMessage() : "Couldn’t read or verify the saved APK · download again";
                     render();
                 });
             }
