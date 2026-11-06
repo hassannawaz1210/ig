@@ -171,6 +171,8 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         leads = recommendations.related_leads(snapshot[0], include_liked=config.selected_feeds() is None,
                                                topics=selected, reasons=evidence)
         discover_leads(pool, leads, add_topic_leads(leads, evidence, selected, snapshot))
+        pool['topic_trials'] = {name: info for name, info in evidence.items()
+                                if info.get('source') == 'popular_topic' and info.get('shortcode')}
         source_weights = recommendations.discovery_weights(evidence)
         pool['discovery_weights'] = {name: strength * source_weights.get(name, 1) for name, strength in leads.items()}
         pool['buffered'] = sum(holder == client for _, _, holder in reservations)
@@ -206,7 +208,7 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         waiting = REFILL.waiting(candidates)
         batch['refill_seconds'] = REFILL.load_seconds
         reserved_elsewhere = any(owner in candidates and holder != client for _, owner, holder in reservations)
-        batch['has_more'] = bool(batch['posts']) or waiting or reserved_elsewhere or bool(full & set(candidates))
+        batch['has_more'] = bool(batch['posts']) or waiting or TOPICS.waiting() or reserved_elsewhere or bool(full & set(candidates))
         if waiting:
             batch['retry_after_ms'] = 750
         blocked = blocked_accounts()
@@ -273,6 +275,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None,
                                           reasons=lead_reasons, topics=selected)
     discover_leads(pool, leads, add_topic_leads(leads, lead_reasons, selected, snapshot))
+    topic_trials = {name: info for name, info in lead_reasons.items()
+                    if info.get('source') == 'popular_topic' and info.get('shortcode')}
     liked_creators = recommendations.discovery_accounts()
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
@@ -298,16 +302,16 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         if requests_left <= 0 or trial_requests_left <= 0:
             if cached is None:
                 cached = REELS.cache.fresh_usernames()
-            loaded = [a for a in candidates if a in STATE or a in cached]
+            loaded = [a for a in candidates if (TOPICS.trial_state(topic_trials[a]) if a in topic_trials else a in STATE or a in cached)]
             candidates = loaded if requests_left <= 0 else \
                 loaded + [a for a in candidates if a in saved and a not in STATE and a not in cached]
             if not candidates:
                 break
         # Deliver already available clips before trying cold discovery profiles.
         # A slow account must not hold playable reels behind a network request.
-        ready = [a for a in candidates if a in STATE and any(
+        ready = [a for a in candidates if any(
             p.get('is_video') and p['shortcode'] not in pool['served']
-            for p in STATE[a]['posts'])]
+            for p in ((TOPICS.trial_state(topic_trials[a]) if a in topic_trials else STATE.get(a)) or {}).get('posts', []))]
         if ready:
             candidates = ready
         elif out:
@@ -343,14 +347,23 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             username = choose_account(pool, candidates, preferred)
         tried.add(username)
         try:
-            state = STATE.get(username)
+            topic_trial = topic_trials.get(username)
+            if topic_trial:
+                state = TOPICS.trial_state(topic_trial)
+                if state is None and allow_network and requests_left > 0 and trial_requests_left > 0:
+                    state = TOPICS.trial_state(topic_trial, network=True)
+                    requests_left, trial_requests_left = _spend_request(requests_left, trial_requests_left, False)
+                if state is None:
+                    continue
+            else:
+                state = STATE.get(username)
             if not allow_network and state is None:
                 state = REELS.cached(username)
                 if state is None:
                     continue
             # Over budget, an older in-memory copy is better than another request.
-            if state is None or (requests_left > 0 and REELS.is_stale(state) and not any(
-                    p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])):
+            if not topic_trial and (state is None or (requests_left > 0 and REELS.is_stale(state) and not any(
+                    p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts']))):
                 state, used_network = REELS.load(username)
                 if used_network:
                     requests_left, trial_requests_left = _spend_request(
@@ -377,8 +390,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         uncertain = False
         memberships = {name for name, accounts in selected.items() if username in accounts}
         topic_lead = lead_reasons.get(username) or {}
-        if not memberships and topic_lead.get('source') == 'popular_topic' and topic_lead.get('feed') in selected:
-            # Instagram listed this creator under one of the feed's topics.
+        if not memberships and topic_trial and topic_lead.get('feed') in selected:
+            # Evidence applies only to this exact reel, never the whole creator.
             memberships = {topic_lead['feed']}
         if not memberships:
             # Curated meme starters are known candidates. Other credit/liked
@@ -416,7 +429,8 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         fresh = [p for p in fresh if reactions.get(p['shortcode']) != 'dislike']
         if not fresh:
             continue  # Reserved clips may become eligible again after release/expiry.
-        pool.setdefault('accepted', set()).add(username)
+        if not topic_trial:
+            pool.setdefault('accepted', set()).add(username)
         picked, exploratory = recommendations.pick_feed_reel(fresh, model, view_reference=state['posts'])
         # Copy: profile posts are shared with the profile view and the cache.
         post = dict(picked)

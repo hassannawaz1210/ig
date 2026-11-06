@@ -46,6 +46,7 @@ def parse_topic_page(html: str) -> tuple[dict[str, str], list[str]]:
     split into sections whose reels carry only numeric ids; their linked
     sub-topic pages are the narrow kind, so they are returned to follow."""
     creators: dict[str, str] = {}
+    recognised = False
     related: list[str] = []
 
     def walk(value):
@@ -70,17 +71,21 @@ def parse_topic_page(html: str) -> tuple[dict[str, str], list[str]]:
     # Narrow pages: xig_logged_out_popular_search_media_info;
     # broad pages: ig_popular_search_category_hub.
     for payload in instagram.sjs_payloads(html, 'popular_search'):
+        recognised = recognised or any(isinstance(instagram.nested_find(payload, key), dict) for key in (
+            'xig_logged_out_popular_search_media_info', 'ig_popular_search_category_hub'))
         walk(payload)
     if not creators and not related:
         # The page layout may change; sections are also embedded in other payloads.
         for payload in instagram.sjs_payloads(html, '/popular/'):
             walk(payload)
+    if not recognised and not creators and not related:
+        raise instagram.UnexpectedResponse('Instagram did not return a recognised topic page')
     return dict(list(creators.items())[:MAX_CREATORS_PER_TOPIC]), related
 
 
 def fetch_topic_page(slug: str) -> tuple[dict[str, str], list[str]]:
-    session = instagram._new_session()
-    response = instagram.request(session, 'GET', POPULAR_URL.format(slug))
+    with instagram._new_session() as session:
+        response = instagram.request(session, 'GET', POPULAR_URL.format(slug))
     if response.status_code == 404:
         return {}, []
     if response.status_code >= 400:
@@ -100,8 +105,48 @@ class TopicDiscovery:
         self.fetch = fetch
         self.enabled = False          # the server turns this on; tests stay offline
         self._wanted: list[str] = []
+        self._active = None
+        self._roots = set()
+        self._clips = {}
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
+
+    def trial_state(self, info, *, network=False):
+        """Load only the reel that supplied the topic lead, never its creator's grid."""
+        from .reels import REELS
+        code = info.get('shortcode')
+        if not code:
+            return None
+        with self._lock:
+            cached = self._clips.get(code)
+        if cached and time.time() - cached[0] < 900:
+            if cached[1]['posts'][0].get('owner') == info.get('username'):
+                return cached[1]
+        if not network:
+            return None
+        post = REELS.media(code)
+        if not post.get('is_video') or (post.get('owner') or '').lower() != info.get('username'):
+            raise instagram.UnexpectedResponse('Topic reel does not match its listed creator')
+        state = {'posts': [post], 'has_more': False}
+        with self._lock:
+            self._clips[code] = (time.time(), state)
+            while len(self._clips) > 200:
+                del self._clips[next(iter(self._clips))]
+        return state
+
+    def waiting(self):
+        with self._lock:
+            return self.enabled and bool(self._wanted or self._active)
+
+    @staticmethod
+    def related_topics(row):
+        # Rotate pairs each refresh period, including after a restart. Every
+        # linked topic gets a turn rather than permanently favouring the first two.
+        related = row[2]
+        if not related:
+            return []
+        start = (int(time.time() // TOPIC_TTL) * MAX_RELATED) % len(related)
+        return [related[(start + i) % len(related)] for i in range(min(MAX_RELATED, len(related)))]
 
     # ---- cache ----
     def _rows(self, slugs):
@@ -142,13 +187,16 @@ class TopicDiscovery:
 
     def leads(self, feeds, exclude=()) -> dict[str, dict]:
         """Creators from cached topic pages of these feeds, as
-        {username: {'source': 'popular_topic', 'topic': word, 'feed': feed}}.
+        Each lead retains its topic, feed, creator and exact reel shortcode.
         Stale or missing pages are queued for the background worker."""
         try:
             topics = self.feed_topics(feeds)
-            slugs = list(dict.fromkeys(slug for words in topics.values() for slug in words))[:MAX_TOPICS]
+            slugs = list(dict.fromkeys(slug for words in topics.values() for slug in words))
+            if len(slugs) > MAX_TOPICS:
+                start = (int(time.time() // TOPIC_TTL) * MAX_TOPICS) % len(slugs)
+                slugs = (slugs[start:] + slugs[:start])[:MAX_TOPICS]
             rows = self._rows(slugs)
-            followed = {slug: row[2][:MAX_RELATED] for slug, row in rows.items()}
+            followed = {slug: self.related_topics(row) for slug, row in rows.items()}
             sub_rows = self._rows([s for subs in followed.values() for s in subs if s not in rows])
             rows.update(sub_rows)
         except Exception:
@@ -162,9 +210,9 @@ class TopicDiscovery:
                 if slug not in slugs:
                     continue
                 for source in [slug] + followed.get(slug, []):
-                    for name in (rows.get(source) or (0, {}, [], None))[1]:
+                    for name, code in (rows.get(source) or (0, {}, [], None))[1].items():
                         if name not in exclude and name not in found:
-                            found[name] = {'source': 'popular_topic', 'topic': source.replace('-', ' '), 'feed': feed}
+                            found[name] = {'source': 'popular_topic', 'topic': source.replace('-', ' '), 'feed': feed, 'shortcode': code, 'username': name}
         return found
 
     # ---- background refresh ----
@@ -183,13 +231,14 @@ class TopicDiscovery:
         due = [slug for slug in slugs if self._due(rows.get(slug), now)]
         # Follow a broad page's sub-topics once it has been fetched.
         for slug in slugs:
-            for sub in (rows.get(slug) or (0, {}, [], None))[2][:MAX_RELATED]:
+            for sub in self.related_topics(rows.get(slug) or (0, {}, [], None)):
                 if self._due(rows.get(sub), now):
                     due.append(sub)
-        if not due:
-            return
         with self._lock:
-            self._wanted = list(dict.fromkeys(self._wanted + due))
+            self._roots = set(slugs)
+            self._wanted = list(dict.fromkeys(slug for slug in due if slug != self._active))
+            if not self._wanted:
+                return
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._run, name='ig-topic-discovery', daemon=True)
                 self._worker.start()
@@ -201,11 +250,19 @@ class TopicDiscovery:
                     self._worker = None
                     return
                 slug = self._wanted.pop(0)
+                self._active = slug
             try:
                 if not self._due(self._rows([slug]).get(slug), time.time()):
                     continue
                 creators, related = self.fetch(slug)
                 self._store(slug, creators, related)
+                # A broad page may have no clips of its own. Queue its children
+                # immediately so an empty feed cannot finish between the two stages.
+                children = self.related_topics((time.time(), creators, related, None)) if slug in self._roots else []
+                child_rows = self._rows(children)
+                due_children = [child for child in children if self._due(child_rows.get(child), time.time())]
+                with self._lock:
+                    self._wanted = list(dict.fromkeys(self._wanted + due_children))
                 log.info('Topic “%s”: %d creators, %d sub-topics', slug, len(creators), len(related))
             except instagram.RateLimited as error:
                 log.warning('Topic discovery paused: %s', error)
@@ -218,6 +275,9 @@ class TopicDiscovery:
                     self._store(slug, failed=True)
                 except Exception:
                     log.exception('Could not record the failed topic “%s”', slug)
+            finally:
+                with self._lock:
+                    self._active = None
             time.sleep(REQUEST_GAP)
 
 

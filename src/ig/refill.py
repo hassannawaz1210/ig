@@ -4,7 +4,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from .instagram import RateLimited, ProfileUnavailable, BACKOFF
 from .reels import REELS, STATE, more_reels
-from .topics import TOPIC_TRIAL_SHARE
+from .topics import TOPICS, TOPIC_TRIAL_SHARE
 
 
 class Refill:
@@ -24,6 +24,8 @@ class Refill:
     def _load(self, name, paging):
         started = time.monotonic()
         try:
+            if isinstance(paging, dict):
+                return TOPICS.trial_state(paging, network=True)
             if paging == "explore":
                 return REELS.explore(name)
             return (more_reels if paging else REELS.load)(name)
@@ -72,6 +74,14 @@ class Refill:
         usable = set()
         ready = pool.get('buffered', 0)
         for name in dict.fromkeys(names):
+            topic_trial = pool.get('topic_trials', {}).get(name) if name not in saved else None
+            if topic_trial:
+                if topic_trial['shortcode'] in pool['served']:
+                    continue
+                state = TOPICS.trial_state(topic_trial)
+                if state is None and name not in self.pending and self.retry_at.get(name, 0) <= now:
+                    candidates.append((0, name, topic_trial))
+                continue
             state = states.get(name)
             if state is None:
                 state = REELS.cached(name)  # disk only; never network
@@ -114,7 +124,10 @@ class Refill:
         older.sort(key=lambda c: self.last_scheduled.get(c[1], 0))
         special = None
         kind = None
-        if not self.exploration_pending and now >= self.next_discovery_at:
+        empty_topic_feed = not saved and any(isinstance(c[2], dict) for c in trials)
+        if empty_topic_feed and now < self.next_discovery_at:
+            trials = [c for c in trials if isinstance(c[2], dict)]
+        if not self.exploration_pending and (now >= self.next_discovery_at or empty_topic_feed):
             # Alternate the single exploration allowance: older clips must not
             # crowd out new creators, nor add another stream of requests.
             if older and (not trials or self.last_exploration == 'discovery'):
@@ -147,7 +160,7 @@ class Refill:
             if len(self.pending) >= 2:
                 break
             if special and name == special[1]:
-                self.next_discovery_at = now + 30
+                self.next_discovery_at = now + (0 if empty_topic_feed and isinstance(paging, dict) else 30)
                 self.last_exploration = kind
                 self.exploration_pending.add(name)
             if paging is False:

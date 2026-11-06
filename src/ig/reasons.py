@@ -67,7 +67,7 @@ class Reason:
             details.append(f"{owner} uses hashtags from reels in your feeds: {tags}." if tags
                            else f"{owner} uses hashtags from reels in your feeds.")
         elif self.lead and self.lead.get("source") == "popular_topic":
-            details.append(f"{owner} is popular for “{self.lead.get('topic')}” on Instagram, "
+            details.append(f"This reel appeared on Instagram’s “{self.lead.get('topic')}” page, "
                            f"a topic of {_feeds_phrase([self.lead.get('feed')])}.")
         elif self.lead and self.lead.get("source") in LEAD_TEXT:
             text = f"{owner} " + LEAD_TEXT[self.lead["source"]].format(via=self.lead.get("via") or "another creator")

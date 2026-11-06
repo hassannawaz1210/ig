@@ -461,14 +461,10 @@ function updateFeedStatus() {
   const empty = !boot.post_code && Array.isArray(boot.feeds) && boot.feeds.length === 0;
   const needsAccounts = !boot.post_code && Array.isArray(boot.feeds) && boot.feeds.length > 0 && feeded.size === 0;
   document.getElementById('feed-create').hidden = !empty;
-  document.getElementById('feed-add').hidden = !needsAccounts;
+  document.getElementById('feed-add').hidden = !needsAccounts || state !== 'empty';
   if (empty) {
     box.hidden = false; box.dataset.state = 'empty';
     document.getElementById('feed-status-text').textContent = 'Create your first feed to start watching';
-    document.getElementById('feed-retry').hidden = true;
-  } else if (needsAccounts) {
-    box.hidden = false; box.dataset.state = 'empty';
-    document.getElementById('feed-status-text').textContent = 'Add accounts to your feed to start watching';
     document.getElementById('feed-retry').hidden = true;
   }
 }

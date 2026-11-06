@@ -636,3 +636,13 @@ async function viewingTests() {
   assert.match(failure.element('feed-status-text').textContent,/Unavailable/);
   assert.equal(failure.element('feed-retry').hidden,false,'failed link can be retried');
 })().catch(error => {console.error(error);process.exitCode=1;});
+
+// Empty account lists still play discovered topic reels.
+(async () => {
+  const page = createPage(async () => ({ok:true,json:async()=>({posts:reels('topicclip', 'topicclip2', 'topicclip3'),has_more:false})}),
+    {boot:{feeds:['edits']}});
+  await new Promise(setImmediate);
+  vm.runInContext('feeded.clear(); updateFeedStatus()', page.ctx);
+  assert.equal(page.element('feed-status').hidden,true,'empty feeds must not cover discovered reels with an add-accounts notice');
+  assert.equal(page.element('feed-add').hidden,true,'adding profiles is optional');
+})().catch(error => {console.error(error);process.exitCode=1;});

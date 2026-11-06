@@ -11,6 +11,9 @@ from ig import config
 class BackgroundRefillTests(TempDirs):
     def setUp(self):
         super().setUp()
+        topic_pages = patch('ig.feeds.TOPICS.enabled', False)
+        topic_pages.start()
+        self.addCleanup(topic_pages.stop)
         self.refill = Refill()
         self.addCleanup(self.refill.executor.shutdown, wait=True)
 

@@ -8,6 +8,7 @@ from ig import backup, config, feeds, instagram, topics
 from ig.reasons import Reason
 from ig.server import Handler
 from test_ig import ProjectTests
+from test_profile_cache import TempDirs
 
 
 def page(payload):
@@ -45,7 +46,8 @@ class TopicPageTests(ProjectTests):
         self.assertEqual(related, ['football-skills', 'goalkeeper-saves'])
 
     def test_unrecognised_page_finds_nothing(self):
-        self.assertEqual(topics.parse_topic_page('<html>login</html>'), ({}, []))
+        with self.assertRaises(instagram.UnexpectedResponse):
+            topics.parse_topic_page('<html>login</html>')
 
 
 class TopicWordTests(ProjectTests):
@@ -109,7 +111,8 @@ class TopicDiscoveryTests(ProjectTests):
         self.discovery._worker.join(5)
         self.refresh(['islam', 'football'])  # broad page fetched; now its sub-topic
         found = self.discovery.leads(['islam', 'football'], exclude={'saved_one'})
-        self.assertEqual(found, {
+        self.assertEqual({name: {k: v for k, v in info.items() if k not in ('shortcode', 'username')}
+                          for name, info in found.items()}, {
             'quran_daily': {'source': 'popular_topic', 'topic': 'islam', 'feed': 'islam'},
             'deen.reminders': {'source': 'popular_topic', 'topic': 'quran', 'feed': 'islam'},
             'skills.daily': {'source': 'popular_topic', 'topic': 'football skills', 'feed': 'football'}})
@@ -152,7 +155,7 @@ class TopicDiscoveryTests(ProjectTests):
         self.assertEqual(reasons['credited']['source'], 'popular_topic', 'topic pages outrank reel-based credits')
         reason = Reason('quran_daily')
         reason.lead = reasons['quran_daily']
-        self.assertIn('is popular for “quran” on Instagram, a topic of your Islam feed.', ' '.join(reason.source_details()))
+        self.assertIn('This reel appeared on Instagram’s “quran” page, a topic of your Islam feed.', ' '.join(reason.source_details()))
 
 
 class TopicPoolRoomTests(ProjectTests):
@@ -208,3 +211,104 @@ class TopicBackupTests(ProjectTests):
                               'feed_topics': topics_value}).encode()
             with self.assertRaises(ValueError, msg=repr(topics_value)):
                 backup.parse(bad)
+
+
+class TopicSafetyTests(TempDirs):
+    def setUp(self):
+        super().setUp()
+        patcher = patch('ig.history.HISTORY_JSON', config.CACHE / 'history.json')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_rotation_visits_every_subtopic(self):
+        row = (0, {}, ['one', 'two', 'three', 'four', 'five'], None)
+        seen = set()
+        for cycle in range(5):
+            with patch.object(topics.time, 'time', return_value=cycle * topics.TOPIC_TTL):
+                chosen = topics.TopicDiscovery.related_topics(row)
+                self.assertEqual(len(chosen), 2)
+                seen.update(chosen)
+        self.assertEqual(seen, set(row[2]))
+
+    def test_login_shell_refresh_preserves_cached_creators(self):
+        discovery = topics.TopicDiscovery(lambda slug: topics.parse_topic_page('<html>login</html>'))
+        discovery._store('edits', {'creator': 'AAAAAAAAAAA'}, [])
+        with patch.object(topics.time, 'time', return_value=time.time() + topics.TOPIC_TTL + 1), \
+             patch.object(topics, 'REQUEST_GAP', 0):
+            discovery._wanted = ['edits']
+            discovery._run()
+            row = discovery._rows(['edits'])['edits']
+            self.assertEqual(row[1], {'creator': 'AAAAAAAAAAA'})
+            self.assertFalse(discovery._due(row, time.time()))
+
+    def test_recognised_empty_page_is_valid_but_null_payload_is_not(self):
+        self.assertEqual(topics.parse_topic_page(page({'xig_logged_out_popular_search_media_info': {'edges': []}})), ({}, []))
+        with self.assertRaises(instagram.UnexpectedResponse):
+            topics.parse_topic_page(page({'xig_logged_out_popular_search_media_info': None}))
+
+    def test_topic_reel_owner_must_match(self):
+        discovery = topics.TopicDiscovery()
+        info = {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}
+        with patch.object(feeds.REELS, 'media', return_value={'is_video': True, 'owner': 'someone_else'}):
+            with self.assertRaises(instagram.UnexpectedResponse):
+                discovery.trial_state(info, network=True)
+        self.assertIsNone(discovery.trial_state(info))
+
+    def test_empty_feed_trials_exact_topic_reel_without_profile_requests(self):
+        from ig.refill import Refill
+        config.save_feeds({'edits': []})
+        discovery = topics.TopicDiscovery()
+        discovery._store('edits', {'creator': 'AAAAAAAAAAA'}, [])
+        refill = Refill()
+        self.addCleanup(refill.executor.shutdown, wait=True)
+        post = {'shortcode': 'AAAAAAAAAAA', 'owner': 'creator', 'is_video': True, 'caption': 'film edit'}
+        with patch.object(feeds, 'TOPICS', discovery), patch('ig.refill.TOPICS', discovery), \
+             patch.object(feeds, 'REFILL', refill), \
+             patch.object(feeds, 'STATE', {'creator': {'posts': [{'shortcode': 'UNRELATED01', 'owner': 'creator', 'is_video': True}], 'has_more': True}}), \
+             patch.object(feeds.REELS, 'media', return_value=post) as media, \
+             patch.object(feeds.REELS, 'load') as profile:
+            pool = feeds.make_pool([])
+            first = feeds.pool_more(pool)
+            for future, _ in list(refill.pending.values()):
+                future.result(timeout=2)
+            result = first if first['posts'] else feeds.pool_more(pool)
+            self.assertEqual([p['shortcode'] for p in result['posts']], ['AAAAAAAAAAA'])
+            self.assertNotIn('creator', pool.get('accepted', set()))
+            self.assertEqual(feeds.pool_more(pool)['posts'], [])
+            media.assert_called_once_with('AAAAAAAAAAA')
+            profile.assert_not_called()
+
+    def test_empty_feed_waits_for_background_topic_page(self):
+        config.save_feeds({'edits': []})
+        with patch.object(feeds.TOPICS, 'leads', return_value={}), \
+             patch.object(feeds.TOPICS, 'waiting', return_value=True):
+            result = feeds.pool_more(feeds.make_pool([]))
+        self.assertEqual(result['posts'], [])
+        self.assertTrue(result['has_more'])
+
+    def test_empty_feed_does_not_wait_thirty_seconds_between_topic_reels(self):
+        from ig.refill import Refill
+        discovery = topics.TopicDiscovery()
+        refill = Refill()
+        self.addCleanup(refill.executor.shutdown, wait=True)
+        refill.next_discovery_at = time.monotonic() + 30
+        info = {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}
+        pool = {'served': set(), 'topic_trials': {'creator': info}}
+        with patch('ig.refill.TOPICS', discovery), patch.object(feeds.REELS, 'media', return_value={
+                'shortcode': 'AAAAAAAAAAA', 'owner': 'creator', 'is_video': True}) as media:
+            refill.schedule(pool, ['creator'], set(), states={})
+            self.assertIn('creator', refill.pending)
+            for future, _ in list(refill.pending.values()):
+                future.result(timeout=2)
+            media.assert_called_once()
+
+    def test_consumed_topic_reels_are_not_refetched_after_cache_expiry(self):
+        from ig.refill import Refill
+        refill = Refill()
+        self.addCleanup(refill.executor.shutdown, wait=True)
+        pool = {'served': {'AAAAAAAAAAA'}, 'topic_trials': {
+            'creator': {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}}}
+        with patch('ig.refill.TOPICS.trial_state') as load:
+            refill.schedule(pool, ['creator'], set(), states={})
+            load.assert_not_called()
+        self.assertFalse(refill.pending)
