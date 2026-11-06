@@ -56,6 +56,8 @@ jobs:
           preview_key="$RUNNER_TEMP/ig-preview.keystore"
           printf '%s' "$ANDROID_PREVIEW_KEYSTORE" | base64 --decode > "$preview_key"
           chmod 600 "$preview_key"
+          actual_certificate=$(keytool -exportcert -alias androiddebugkey -keystore "$preview_key" -storepass android | sha256sum | cut -d ' ' -f 1)
+          test "$actual_certificate" = e0ae751b94e608392125cba3322259081dc994c5c38f7b31679960617b9666f5 || { echo "Saved signing key certificate mismatch: $actual_certificate"; exit 1; }
           echo "IG_ANDROID_KEYSTORE=$preview_key" >> "$GITHUB_ENV"
       - name: Build standalone APK and instrumentation tests
         working-directory: android

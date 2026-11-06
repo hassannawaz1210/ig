@@ -17,7 +17,7 @@ def verify(apk):
     output = subprocess.check_output([str(signers[-1]), 'verify', '--print-certs', str(apk)], text=True)
     certificates = re.findall(r'^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)$', output, re.MULTILINE)
     if [value.lower() for value in certificates] != [EXPECTED_CERTIFICATE]:
-        raise RuntimeError('APK signing certificate differs from the saved preview key; refusing publication')
+        raise RuntimeError('APK signing certificate differs from the saved preview key; refusing publication. Found: ' + repr(certificates))
     print('APK signature verified against the saved preview certificate')
 
 
