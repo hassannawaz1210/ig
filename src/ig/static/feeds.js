@@ -2,7 +2,7 @@
 const boot = JSON.parse(document.getElementById('boot').textContent);
 if (boot.android) document.body.classList.add('android-app');
 let chosenFeeds = null;  // read by chooseFeed() to preselect a feed
-let loadVersion = 0, feedsData = {};
+let loadVersion = 0, feedsData = {}, feedTopics = {};
 const status = document.getElementById('settings-status');
 const statusHider = autoHideStatus(status);
 const container = document.getElementById('settings-feeds');
@@ -22,7 +22,57 @@ function confirmSettingsAction(host, message, label, action) {
   };
   confirmation.append(element('p','',message),cancel,confirm); host.append(confirmation); cancel.focus();
 }
-function renderFeed(name, accounts, open) {
+// Discovery topics: the feed name, plus extra words. ig looks up each one on
+// Instagram's public topic pages to find creators outside your feeds.
+function renderTopics(name, topics) {
+  const box = element('div','feed-topics');
+  const heading = element('div','feed-topics-heading');
+  heading.append(element('span','', 'Discovery topics'),
+    element('small','', 'New creators come from Instagram’s popular reels for these topics.'));
+  const chips = element('div','topic-chips');
+  const input = element('input','topic-input'); input.type='text'; input.maxLength=40;
+  input.placeholder='Add a topic'; input.autocomplete='off'; input.spellcheck=false;
+  input.setAttribute('aria-label',`Add a discovery topic to ${displayName(name)}`);
+  let current = [...topics], saving = false;
+  const render = () => {
+    chips.replaceChildren();
+    const fixed = element('span','topic-chip fixed',displayName(name)); fixed.title='From the feed name';
+    chips.append(fixed);
+    for (const word of current) {
+      const chip = element('span','topic-chip', word);
+      const remove = element('button','topic-remove','×'); remove.type='button';
+      remove.setAttribute('aria-label',`Remove topic ${word}`);
+      remove.onclick = () => save(current.filter(item => item !== word));
+      chip.append(remove); chips.append(chip);
+    }
+    chips.append(input);
+  };
+  async function save(next) {
+    if (saving) return;
+    saving = true; input.disabled = true;
+    const previous = current; current = next; render();
+    try {
+      const data = await settingsRequest('/feeds/topics', {name, topics: next});
+      current = data.topics; feedTopics[name] = data.topics;
+    } catch (error) { current = previous; status.textContent = error.message; }
+    finally { saving = false; input.disabled = false; render(); input.focus(); }
+  }
+  const add = () => {
+    const words = input.value.split(',').map(word => word.trim().toLowerCase().replace(/\s+/g,' ')).filter(Boolean);
+    input.value = '';
+    const next = [...new Set([...current, ...words])];
+    if (next.length !== current.length) save(next);
+  };
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ',') { event.preventDefault(); add(); }
+    else if (event.key === 'Backspace' && !input.value && current.length) save(current.slice(0, -1));
+  });
+  input.addEventListener('blur', () => { if (input.value.trim()) add(); });
+  render();
+  box.append(heading, chips);
+  return box;
+}
+function renderFeed(name, accounts, open, topics = []) {
   const details = element('details','feed-setting'); details.dataset.name=name; details.open=open;
   const summary = element('summary');
   summary.append(element('span','feed-name',displayName(name)),
@@ -44,7 +94,7 @@ function renderFeed(name, accounts, open) {
     };
     status.append(undo); await loadFeeds();
   });
-  tools.append(add,remove); body.append(tools);
+  tools.append(add,remove); body.append(tools, renderTopics(name, topics));
   const search = element('input','account-search'); search.type='search';
   search.placeholder='Find an account'; search.setAttribute('aria-label',`Find an account in ${displayName(name)}`);
   search.autocomplete='off'; search.spellcheck=false;
@@ -85,7 +135,8 @@ function filterFeeds() {
   for (const item of container.querySelectorAll('.feed-setting')) {
     const name = item.dataset.name;
     const match = !query || displayName(name).toLowerCase().includes(query) ||
-      (feedsData[name] || []).some(account => account.includes(query));
+      (feedsData[name] || []).some(account => account.includes(query)) ||
+      (feedTopics[name] || []).some(word => word.includes(query));
     item.hidden = !match; if (match) shown++;
   }
   container.querySelector('.no-match')?.remove();
@@ -97,7 +148,7 @@ async function loadFeeds(preferredFeed) {
   try {
     const data = await settingsRequest('/settings/data');
     if (version !== loadVersion) return;
-    feedsData = data.feeds;
+    feedsData = data.feeds; feedTopics = data.feed_topics || {};
     const open = new Set([...container.querySelectorAll('details[open]')].map(item => item.dataset.name));
     if (preferredFeed) open.add(preferredFeed);
     const names = Object.keys(data.feeds);
@@ -106,7 +157,7 @@ async function loadFeeds(preferredFeed) {
     feedSearch.hidden = names.length < 2;
     container.replaceChildren();
     if (!names.length) container.append(element('p','muted empty','No feeds yet. Create one, or import from Settings.'));
-    for (const name of names) container.append(renderFeed(name, data.feeds[name], open.has(name)));
+    for (const name of names) container.append(renderFeed(name, data.feeds[name], open.has(name), data.feed_topics?.[name] || []));
     filterFeeds();
   } catch (error) { if (version === loadVersion) status.textContent = error.message; }
   finally { if (version === loadVersion) container.setAttribute('aria-busy','false'); }

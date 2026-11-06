@@ -33,7 +33,7 @@ class SettingsTests(ProjectTests):
         self.assertEqual(json.loads(response[1]), {'scroll_animation': 'snappy'})
         self.assertEqual(config.scroll_animation(), 'snappy')
         data = json.loads(self.request('/settings/data')[1])
-        self.assertEqual(data, {'feeds': {'keep': ['old']}, 'scroll_animation': 'snappy',
+        self.assertEqual(data, {'feeds': {'keep': ['old']}, 'feed_topics': {'keep': []}, 'scroll_animation': 'snappy',
                                 'selected_feeds': ['keep'], 'blocked_accounts': ['blocked'],
                                 'sound': False, 'auto_scroll': False,
                                 'playback_missing': ['sound', 'auto_scroll']})

@@ -36,7 +36,7 @@ class BackupTests(ProjectTests):
         document = json.loads(response[1])
         self.assertEqual(document, payload({'edits': ['one', 'two'], 'empty': []}, ['blocked'],
             version=2, saved_reels=[], settings={'sound':False, 'auto_scroll':False,
-                'scroll_animation':'smooth', 'selected_feeds':['edits']}))
+                'scroll_animation':'smooth', 'selected_feeds':['edits']}, feed_topics={}))
         self.assertEqual(backup.parse(response[1]), document)
 
     def test_preview_does_not_write_and_counts_memberships(self):
@@ -139,7 +139,7 @@ class BackupTests(ProjectTests):
         self.assertEqual(exported[0], 200)
         document = json.loads(exported[1])
         self.assertEqual(document['version'], 2)
-        self.assertEqual(set(document), {'format','version','feeds','blocked','saved_reels','settings'})
+        self.assertEqual(set(document), {'format','version','feeds','blocked','saved_reels','settings','feed_topics'})
         self.assertEqual(set(document['saved_reels'][0]), set(backup.SAVED_FIELDS))
         self.assertEqual(document['saved_reels'][0]['saved_at'], 123.5)
         self.assertNotIn(b'cdn.example', exported[1])

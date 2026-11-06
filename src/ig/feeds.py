@@ -9,6 +9,7 @@ from .instagram import InstagramError, RateLimited, ProfileUnavailable
 from .reels import STATE, REELS, more_reels
 from .reasons import Reason
 from .refill import REFILL
+from .topics import TOPICS, TOPIC_LEAD, TOPIC_TRIAL_SHARE
 
 log = logging.getLogger(__name__)
 
@@ -91,17 +92,46 @@ def feed_pool(name: str) -> dict:
     return fresh
 
 
-def discover_into(pool, usernames, *, meme_source=False) -> None:
+MAX_DISCOVERED = 300   # candidates per pool from caption, tag and comment leads
+TOPIC_ROOM = 60        # extra room so topic-page creators aren't crowded out
+
+
+def discover_into(pool, usernames, *, meme_source=False, limit=MAX_DISCOVERED) -> None:
     blocked = blocked_accounts()
     for u in usernames or []:
         u = (u or "").lstrip("@").lower()
         if u in blocked:
             continue
         if USER_RE.fullmatch(u) and u not in pool["discovered"] \
-                and len(pool["discovered"]) < 300:
+                and len(pool["discovered"]) < limit:
             pool["discovered"].add(u)
         if meme_source and u in pool["discovered"]:
             pool["meme_discoveries"].add(u)
+
+
+def add_topic_leads(leads: dict, reasons: dict, selected: dict, snapshot) -> list[str]:
+    """Add creators from the selected feeds' topic pages (see topics.py).
+
+    These reach beyond creators connected to your feeds. Stronger evidence
+    (for example an explicit credit) keeps its own reason."""
+    saved, other_saved, _, blocked, _ = snapshot
+    added = []
+    for name, info in TOPICS.leads(selected, exclude=saved | other_saved | blocked).items():
+        if leads.get(name, 0) < TOPIC_LEAD:
+            leads[name] = TOPIC_LEAD
+            reasons[name] = info
+            added.append(name)
+    return added
+
+
+def discover_leads(pool: dict, leads: dict, topic_names: list[str]) -> None:
+    """Fill the pool with related leads, then topic creators in their own room:
+    with hundreds of related leads, the pool would otherwise be full."""
+    discover_into(pool, [name for name in leads if name not in set(topic_names)])
+    discover_into(pool, topic_names, limit=MAX_DISCOVERED + TOPIC_ROOM)
+    # Hundreds of related leads would otherwise win almost every trial;
+    # refill.py and _pool_more give these creators a fixed share instead.
+    pool['topic_leads'] = set(topic_names) & pool['discovered']
 
 
 def discover(usernames) -> None:
@@ -140,7 +170,7 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         evidence = {}
         leads = recommendations.related_leads(snapshot[0], include_liked=config.selected_feeds() is None,
                                                topics=selected, reasons=evidence)
-        discover_into(pool, leads)
+        discover_leads(pool, leads, add_topic_leads(leads, evidence, selected, snapshot))
         source_weights = recommendations.discovery_weights(evidence)
         pool['discovery_weights'] = {name: strength * source_weights.get(name, 1) for name, strength in leads.items()}
         pool['buffered'] = sum(holder == client for _, _, holder in reservations)
@@ -239,9 +269,10 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     # Credits from saved/liked reels survive restarts and do not require the
     # user to open each reel's media before we can discover its creator.
     lead_reasons = {}
+    snapshot = snapshot or account_snapshot()
     leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None,
                                           reasons=lead_reasons, topics=selected)
-    discover_into(pool, leads)
+    discover_leads(pool, leads, add_topic_leads(leads, lead_reasons, selected, snapshot))
     liked_creators = recommendations.discovery_accounts()
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
@@ -259,7 +290,6 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     requests_left = REQUESTS_PER_BATCH if allow_network else 0
     trial_requests_left = TRIAL_REQUESTS_PER_BATCH
     cached = None
-    snapshot = snapshot or account_snapshot()
     streak = pool.get('saved_streak', 3)
     while len(out) < min(limit, 6):
         candidates = available_accounts(pool, tried | excluded, snapshot)
@@ -297,6 +327,9 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         discovery_turn = bool(rested_trials) and streak >= 3
         if discovery_turn:
             candidates = rested_trials
+            from_topics = [a for a in candidates if a in pool.get('topic_leads', ())]
+            if from_topics and random.random() < TOPIC_TRIAL_SHARE:
+                candidates = from_topics
         elif any(a in saved for a in candidates):
             candidates = [a for a in candidates if a in saved]
         groups = [(name, [a for a in candidates if a in members]) for name, members in selected.items()]
@@ -343,6 +376,10 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             continue
         uncertain = False
         memberships = {name for name, accounts in selected.items() if username in accounts}
+        topic_lead = lead_reasons.get(username) or {}
+        if not memberships and topic_lead.get('source') == 'popular_topic' and topic_lead.get('feed') in selected:
+            # Instagram listed this creator under one of the feed's topics.
+            memberships = {topic_lead['feed']}
         if not memberships:
             # Curated meme starters are known candidates. Other credit/liked
             # leads must establish relevance independently of the source tag.

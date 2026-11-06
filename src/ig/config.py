@@ -114,7 +114,15 @@ def _deleted_feeds_schema(db):
     db.execute('CREATE TABLE IF NOT EXISTS deleted_feeds (id INTEGER PRIMARY KEY, name TEXT NOT NULL, accounts TEXT NOT NULL, deleted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, restored INTEGER NOT NULL DEFAULT 0)')
 
 
-SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema, _rename_edits_schema, _deleted_feeds_schema)
+def _feed_topics_schema(db):
+    # Extra discovery topics per feed. No foreign key: feeds are rewritten as a
+    # whole, and a restored feed keeps its words. Readers skip deleted feeds.
+    db.execute('CREATE TABLE IF NOT EXISTS feed_topics (feed TEXT NOT NULL, word TEXT NOT NULL, '
+               'position INTEGER NOT NULL, PRIMARY KEY (feed, word))')
+
+
+SETTINGS_MIGRATIONS = (_initial_schema, _feed_selection_schema, _edits_and_gaming_schema, _rename_edits_schema,
+                       _deleted_feeds_schema, _feed_topics_schema)
 
 
 def delete_feed(name):
@@ -262,6 +270,45 @@ def set_playback_preferences(changes: dict, *, migrate=False) -> dict:
                        "ON CONFLICT(key) " + conflict,
                        [(key, json.dumps(value)) for key, value in changes.items()])
         return _playback_preferences(db)
+
+
+MAX_TOPIC_WORDS = 20
+TOPIC_WORD_RE = re.compile(r"[^\W_](?:[\w' -]{0,38}[^\W_])?")
+
+
+def clean_topic_words(words) -> list[str]:
+    """Validate a feed's extra topics: short words or phrases, deduplicated."""
+    if not isinstance(words, list) or any(not isinstance(word, str) for word in words):
+        raise ValueError('Topics must be a list of words.')
+    cleaned = list(dict.fromkeys(' '.join(word.lower().split()) for word in words if word.strip()))
+    if len(cleaned) > MAX_TOPIC_WORDS:
+        raise ValueError(f'Use at most {MAX_TOPIC_WORDS} topics per feed.')
+    for word in cleaned:
+        if not TOPIC_WORD_RE.fullmatch(word):
+            raise ValueError(f'“{word[:40]}” is not a topic. Use letters, numbers and spaces (up to 40).')
+    return cleaned
+
+
+def feed_topic_words() -> dict[str, list[str]]:
+    """Extra discovery topics for each existing feed (the feed name is implied)."""
+    with database(readonly=True) as db:
+        names = [name for (name,) in db.execute('SELECT name FROM feeds ORDER BY position')]
+        words = {name: [] for name in names}
+        for feed, word in db.execute('SELECT feed, word FROM feed_topics ORDER BY feed, position'):
+            if feed in words:
+                words[feed].append(word)
+        return words
+
+
+def set_feed_topic_words(name: str, words) -> list[str]:
+    cleaned = clean_topic_words(words)
+    with database() as db:
+        if db.execute('SELECT 1 FROM feeds WHERE name=?', (name,)).fetchone() is None:
+            raise KeyError(name)
+        db.execute('DELETE FROM feed_topics WHERE feed=?', (name,))
+        db.executemany('INSERT INTO feed_topics(feed, word, position) VALUES (?, ?, ?)',
+                       [(name, word, i) for i, word in enumerate(cleaned)])
+    return cleaned
 
 
 def remove_feed_account(name: str, username: str) -> dict:

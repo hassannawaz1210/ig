@@ -85,6 +85,16 @@ label.row {cursor:pointer;}
 .confirmation .confirm-remove {color:var(--danger);border-color:#5a2a27;}
 .load-accounts {margin-top:10px;width:100%;}
 .feed-search {margin-bottom:10px;}
+.feed-topics {margin:4px 0 14px;padding:12px;border-radius:10px;background:#0f0f10;}
+.feed-topics-heading span {display:block;font-weight:550;font-size:14px;}
+.feed-topics-heading small {display:block;font-size:12.5px;margin-top:2px;}
+.topic-chips {display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;}
+.topic-chip {display:inline-flex;align-items:center;gap:2px;padding:4px 4px 4px 11px;border-radius:999px;background:#26262a;font-size:13.5px;text-transform:none;}
+.topic-chip.fixed {padding-right:11px;color:var(--soft);text-transform:capitalize;}
+.topic-remove {min-height:26px;width:26px;padding:0;border:0;border-radius:50%;color:var(--soft);font-size:16px;line-height:1;}
+.topic-remove:hover {color:var(--text);background:#ffffff14;}
+.topic-input {flex:1;min-width:120px;min-height:34px;padding:4px 8px;border:0;border-radius:8px;background:transparent;color:var(--text);}
+.topic-input:focus {outline:none;background:#1a1a1d;}
 .feed-setting[hidden] {display:none;}
 .sr-only {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
 

@@ -91,7 +91,23 @@ def parse(data):
     if document['version'] == 2:
         result['saved_reels'] = _saved_reels(document.get('saved_reels', []))
         result['settings'] = _settings(document.get('settings', {}))
+    # Optional; older versions of ig ignore this field when importing.
+    result['feed_topics'] = _feed_topics(document.get('feed_topics', {}), normalized)
     return result
+
+
+def _feed_topics(value, feeds):
+    """Each feed's extra discovery topics; only for feeds in this backup."""
+    if not isinstance(value, dict):
+        raise ValueError('The backup contains invalid feed topics.')
+    topics = {}
+    for name, words in value.items():
+        if name not in feeds:
+            raise ValueError('The backup has topics for a feed it does not contain.')
+        cleaned = config.clean_topic_words(words)
+        if cleaned:
+            topics[name] = cleaned
+    return topics
 
 
 def summary(document):
@@ -125,9 +141,13 @@ def export():
         saved = [dict(zip(SAVED_FIELDS, row)) for row in db.execute(
             'SELECT code, owner, caption, taken_at, like_count, comment_count, saved_at '
             'FROM saved_data.saved_reels ORDER BY saved_at DESC, code')]
+        topics = {}
+        for name, word in db.execute('SELECT feed, word FROM feed_topics ORDER BY feed, position'):
+            if name in feeds:
+                topics.setdefault(name, []).append(word)
         document = {'format': 'ig-feeds', 'version': 2, 'feeds': feeds,
                     'blocked': [row[0] for row in db.execute('SELECT username FROM blocked_accounts ORDER BY username')],
-                    'saved_reels': saved, 'settings': settings}
+                    'saved_reels': saved, 'settings': settings, 'feed_topics': topics}
     data = json.dumps(document, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode() + b'\n'
     if len(data) > MAX_BYTES:
         raise TooLarge('Your data exceeds the 5 MB backup limit. No backup was created.')
@@ -176,6 +196,13 @@ def merge(document):
         blocks = {row[0] for row in db.execute('SELECT username FROM blocked_accounts')}
         new_blocks = [account for account in document['blocked'] if account not in blocks]
         config._write_feeds(db, feeds)
+        for name, words in document.get('feed_topics', {}).items():
+            # Add topics the profile doesn't have yet, after its own.
+            existing = [row[0] for row in db.execute('SELECT word FROM feed_topics WHERE feed=? ORDER BY position', (name,))]
+            merged = config.clean_topic_words(list(dict.fromkeys(existing + words))[:config.MAX_TOPIC_WORDS])
+            db.execute('DELETE FROM feed_topics WHERE feed=?', (name,))
+            db.executemany('INSERT INTO feed_topics(feed, word, position) VALUES (?, ?, ?)',
+                           [(name, word, i) for i, word in enumerate(merged)])
         db.executemany('INSERT INTO blocked_accounts VALUES (?)', [(account,) for account in new_blocks])
         saved_added = _merge_saved_reels(db, saved) if saved else 0
         _merge_settings(db, settings)

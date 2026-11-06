@@ -23,6 +23,7 @@ from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
 from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
+from .topics import TOPICS
 from .views import viewer_html, reels_html, settings_html, feeds_html, static_file, status_html
 
 log = logging.getLogger(__name__)
@@ -290,6 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == '/settings/feeds':
                     return self._send(200, feeds_html().encode(), 'text/html; charset=utf-8')
                 return self._send(200, json.dumps({'feeds': load_feeds(),
+                    'feed_topics': config.feed_topic_words(),
                     'selected_feeds': selected_feeds(),
                     'blocked_accounts': sorted(blocked_accounts()),
                     'scroll_animation': config.scroll_animation(),
@@ -505,10 +507,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.access.sign_in(self)
         if not self._allowed():
             return
-        if self.path in ('/settings/scroll', '/settings/playback', '/feeds/accounts/remove'):
+        if self.path in ('/settings/scroll', '/settings/playback', '/feeds/accounts/remove', '/feeds/topics'):
             try:
                 length = int(self.headers.get('Content-Length') or 0)
-                if not 0 < length <= 1024:
+                if not 0 < length <= 4096:
                     raise ValueError('Invalid request size.')
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
@@ -520,6 +522,11 @@ class Handler(BaseHTTPRequestHandler):
                 elif self.path == '/settings/playback':
                     migrate = body.pop('migrate', False)
                     result = config.set_playback_preferences(body, migrate=migrate)
+                elif self.path == '/feeds/topics':
+                    name = body.get('name')
+                    if not isinstance(name, str):
+                        raise ValueError('Choose a feed.')
+                    result = {'name': name, 'topics': config.set_feed_topic_words(name, body.get('topics'))}
                 else:
                     result = config.remove_feed_account(body.get('name'), body.get('username'))
                 return self._send(200, json.dumps(result).encode(), 'application/json')
@@ -844,6 +851,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(host: str, port: int, access=None) -> ThreadingHTTPServer:
+    # A real server may fetch topic pages in the background; tests that build
+    # a Handler directly stay offline.
+    TOPICS.enabled = True
     handler = Handler if access is None else type("SharedHandler", (Handler,), {"access": access})
     return ThreadingHTTPServer((host, port), handler)
 

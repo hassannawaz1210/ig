@@ -4,6 +4,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from .instagram import RateLimited, ProfileUnavailable, BACKOFF
 from .reels import REELS, STATE, more_reels
+from .topics import TOPIC_TRIAL_SHARE
 
 
 class Refill:
@@ -121,7 +122,12 @@ class Refill:
             elif trials:
                 weights = pool.get('discovery_weights', {})
                 strong = [c for c in trials if weights.get(c[1], 0) >= 1]
-                if strong and random.random() < .8:
+                # Topic-page creators get a fixed share (see topics.py), or
+                # hundreds of related leads would nearly always be loaded first.
+                from_topics = [c for c in trials if c[1] in pool.get('topic_leads', ())]
+                if from_topics and random.random() < TOPIC_TRIAL_SHARE:
+                    trials = from_topics
+                elif strong and random.random() < .8:
                     trials = strong
                 oldest = min(self.last_scheduled.get(c[1], 0) for c in trials)
                 eligible = [c for c in trials if self.last_scheduled.get(c[1], 0) == oldest]
