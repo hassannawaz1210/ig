@@ -45,14 +45,29 @@
     .reel-seek:hover input:not(:disabled) { --seek-height:3px;--seek-thumb:1;opacity:1; }
     .reel-seek:hover input:not(:disabled) + output { display:block; }
   }
-  #reel-search { width:min(440px,calc(100vw - 48px));box-sizing:border-box;max-height:80dvh;
-    border:1px solid #333;border-radius:16px;background:#171717;color:#eee;padding:20px; }
-  #reel-search .search-results { margin-top:14px;max-height:48dvh;overflow-y:auto; }
+  #reel-search { width:min(440px,calc(100vw - 32px));box-sizing:border-box;height:min(560px,80dvh);max-height:80dvh;
+    border:1px solid #333;border-radius:16px;background:#171717;color:#eee;padding:16px;overflow:hidden; }
+  #reel-search[open] { display:flex;flex-direction:column;gap:12px; }
+  #reel-search .sheet-heading,#reel-search form { flex:none; }
+  #reel-search input { margin:0;min-height:48px;border:1px solid #444;border-radius:10px;background:#242424; }
+  #reel-search input:focus { outline:2px solid #aaa;outline-offset:1px;border-color:transparent;box-shadow:none; }
+  #reel-search .search-results { flex:1;min-height:0;margin:0;max-height:none;overflow-y:auto;overscroll-behavior:contain; }
   #reel-search .search-results button { display:block;width:100%;text-align:left;min-height:44px;
     background:none;border:0;color:inherit;font:inherit;padding:10px;border-radius:6px; }
   #reel-search .search-results button:hover,#reel-search .search-results button:focus-visible { background:#ffffff12; }
-  #reel-search p { color:#aaa;font-size:13px; }
+  #reel-search p { flex:none;color:#aaa;font-size:13px;margin:0; }
   #reel-search p:empty { display:none; }
+  #reel-search::backdrop { background:#000b; }
+  @media (max-width:640px), (pointer:coarse) {
+    #reel-search,.android-app #reel-search {
+      position:fixed;inset:auto 0 var(--search-bottom,0px);margin:0;width:100%;max-width:100%;
+      height:min(560px,calc(var(--search-viewport-height,100dvh) - 12px));
+      max-height:calc(var(--search-viewport-height,100dvh) - 12px);min-height:0;
+      padding:12px 16px max(16px,env(safe-area-inset-bottom));border:0;border-top:1px solid #333;
+      border-radius:20px 20px 0 0;overflow:hidden;background:#171717;
+    }
+    #reel-search .search-results button { min-height:48px;padding:12px 8px;overflow-wrap:anywhere; }
+  }
   .bar { position:absolute; right:10px; bottom:100px; display:flex;
           flex-direction:column; gap:20px; align-items:center; font-size:12px;
           text-align:center; z-index:3; }

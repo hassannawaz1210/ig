@@ -116,6 +116,32 @@ const KEYS = {
     assert.equal(await evaluate('current'),0,'sharing does not switch reels');
     assert.equal(await evaluate('location.href'),url,'sharing does not navigate away');
     await evaluate(`delete navigator.share; delete navigator.clipboard`);
+    // Search fills the phone width and keeps its input above scrolling results.
+    await evaluate(`document.body.classList.add('android-app');showSearch()`);
+    await sleep(100);
+    for (const [width,height] of [[360,800],[390,430],[780,360]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:true});
+      await send('Emulation.setTouchEmulationEnabled',{enabled:true});
+      await sleep(100);
+      const searchLayout = await evaluate(`(() => {
+        const dialog=document.getElementById('reel-search'), results=dialog.querySelector('.search-results');
+        results.replaceChildren(...Array.from({length:30},(_,n)=>{const b=document.createElement('button');b.textContent='@creator'+n;return b}));
+        const rect=dialog.getBoundingClientRect(), input=dialog.querySelector('input').getBoundingClientRect();
+        const before=input.top;results.scrollTop=200;
+        return {left:rect.left,width:rect.width,top:rect.top,bottom:rect.bottom,
+          viewport:innerWidth,height:innerHeight,scrollable:results.scrollHeight>results.clientHeight,
+          inputFixed:dialog.querySelector('input').getBoundingClientRect().top===before};
+      })()`);
+      assert.ok(Math.abs(searchLayout.left)<1 && Math.abs(searchLayout.width-searchLayout.viewport)<1,JSON.stringify(searchLayout));
+      assert.ok(searchLayout.top>=0 && searchLayout.bottom<=searchLayout.height+1,JSON.stringify(searchLayout));
+      assert.ok(searchLayout.scrollable && searchLayout.inputFixed,'only search results scroll');
+      if (width===360 && process.env.IG_SEARCH_SCREENSHOT) {
+        const shot=await send('Page.captureScreenshot');fs.writeFileSync(process.env.IG_SEARCH_SCREENSHOT,Buffer.from(shot.data,'base64'));
+      }
+    }
+    await evaluate(`document.getElementById('reel-search').close();document.body.classList.remove('android-app')`);
+    await send('Emulation.clearDeviceMetricsOverride');
+    await send('Emulation.setTouchEmulationEnabled',{enabled:false});
     // The reel whose top edge is at the top of the feed, as the user sees it.
     await evaluate(`showSearch(); window.searchRoute=null; window.originalVisit=visitLocalPage;
       visitLocalPage=async path=>{searchRoute=path};

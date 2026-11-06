@@ -1287,7 +1287,7 @@ function showSearch() {
   const dialog = androidSheet('reel-search', 'Search');
   const form = document.createElement('form');
   const input = document.createElement('input');
-  input.type = 'search'; input.placeholder = 'Account, @handle, or Instagram link';
+  input.type = 'search'; input.placeholder = 'Search accounts or paste a link';
   input.setAttribute('aria-label', 'Search accounts or open Instagram link');
   input.autocomplete = 'off'; input.autocapitalize = 'none'; input.spellcheck = false;
   const results = document.createElement('div'); results.className = 'search-results';
@@ -1323,7 +1323,21 @@ function showSearch() {
   }
   input.oninput = render;
   form.onsubmit = event => { event.preventDefault(); const path = destination(input.value.trim()); if (path) open(path); };
-  form.append(input); dialog.append(form, results, status); render(); dialog.showModal(); input.focus();
+  const viewport = window.visualViewport;
+  function fitSearch() {
+    const height = viewport?.height || innerHeight;
+    dialog.style.setProperty('--search-viewport-height', height + 'px');
+    dialog.style.setProperty('--search-bottom', Math.max(0,innerHeight-height-(viewport?.offsetTop || 0)) + 'px');
+  }
+  viewport?.addEventListener('resize',fitSearch);
+  viewport?.addEventListener('scroll',fitSearch);
+  window.addEventListener('resize',fitSearch);
+  dialog.addEventListener('close',() => {
+    viewport?.removeEventListener('resize',fitSearch);
+    viewport?.removeEventListener('scroll',fitSearch);
+    window.removeEventListener('resize',fitSearch);
+  },{once:true});
+  form.append(input); dialog.append(form, results, status); render(); fitSearch(); dialog.showModal(); input.focus();
   fetch('/settings/data').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(data => {
     if (!dialog.isConnected) return;
     accounts = [...new Set(Object.values(data.feeds || {}).flat())]; render();
