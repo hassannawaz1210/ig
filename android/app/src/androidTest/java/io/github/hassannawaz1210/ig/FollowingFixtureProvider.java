@@ -37,8 +37,18 @@ public final class FollowingFixtureProvider extends ContentProvider {
         }
         return true;
     }
-    @Override public String getType(Uri uri) { return "application/json"; }
+    @Override public String getType(Uri uri) { return "application/x-json"; }
     @Override public Bundle call(String method, String arg, Bundle extras) {
+        if ("canReadUpdate".equals(method)) {
+            Bundle result = new Bundle();
+            long identity = Binder.clearCallingIdentity();
+            try (java.io.InputStream input = getContext().getContentResolver().openInputStream(Uri.parse(arg))) {
+                result.putBoolean("readable", input != null && input.read() >= 0);
+            } catch (IOException | SecurityException error) {
+                result.putBoolean("readable", false);
+            } finally { Binder.restoreCallingIdentity(identity); }
+            return result;
+        }
         if ("readBackup".equals(method)) {
             Bundle result = new Bundle();
             result.putString("backup", savedBackup);

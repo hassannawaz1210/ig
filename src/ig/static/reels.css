@@ -20,20 +20,31 @@
     color:white;z-index:3;pointer-events:none; }
   .pause-indicator[hidden] { display:none; }
   .pause-indicator .icon { width:36px;height:36px; }
+  .slide video { touch-action:manipulation; }
+  .tap-heart { position:absolute;left:50%;top:50%;z-index:5;pointer-events:none;animation:like-heart .7s ease-out both; }
+  .tap-heart .icon { width:84px;height:84px;fill:#fff;stroke:#fff;filter:drop-shadow(0 2px 8px #0008); }
+  @keyframes like-heart { 0% {transform:translate(-50%,-50%) scale(.4);opacity:0}
+    25%,65% {transform:translate(-50%,-50%) scale(1);opacity:1}
+    100% {transform:translate(-50%,-50%) scale(1.1);opacity:0} }
   .reel-seek { position:absolute;bottom:0;left:12px;right:12px;z-index:4;height:28px; }
   .reel-seek input { appearance:none;-webkit-appearance:none;width:100%;height:28px;margin:0;
-    background:transparent;cursor:pointer;touch-action:none; }
-  .reel-seek input::-webkit-slider-runnable-track { height:3px;border-radius:2px;
+    background:transparent;cursor:pointer;touch-action:none;opacity:.3;transition:opacity .15s; }
+  .reel-seek input::-webkit-slider-runnable-track { height:var(--seek-height,1px);border-radius:2px;
     background:linear-gradient(to right,#fff var(--progress,0%),#ffffff55 var(--progress,0%)); }
-  .reel-seek input::-moz-range-track { height:3px;background:#ffffff55; }
-  .reel-seek input::-moz-range-progress { height:3px;background:#fff; }
+  .reel-seek input::-moz-range-track { height:var(--seek-height,1px);background:#ffffff55; }
+  .reel-seek input::-moz-range-progress { height:var(--seek-height,1px);background:#fff; }
   .reel-seek input::-webkit-slider-thumb { appearance:none;-webkit-appearance:none;width:10px;height:10px;
-    margin-top:-3.5px;background:#fff;border:0;border-radius:50%; }
-  .reel-seek input::-moz-range-thumb { width:10px;height:10px;border:0;border-radius:50%;background:#fff; }
-  .reel-seek input:disabled { opacity:.35;cursor:default; }
+    margin-top:calc((var(--seek-height,1px) - 10px) / 2);background:#fff;border:0;border-radius:50%;opacity:var(--seek-thumb,0); }
+  .reel-seek input::-moz-range-thumb { width:10px;height:10px;border:0;border-radius:50%;background:#fff;opacity:var(--seek-thumb,0); }
+  .reel-seek input:disabled { opacity:0;cursor:default; }
   .reel-seek output { display:none;position:absolute;bottom:30px;left:50%;transform:translateX(-50%);
     background:#000b;padding:4px 9px;border-radius:5px;font-size:12px;pointer-events:none;white-space:nowrap; }
-  .reel-seek:focus-within output,.reel-seek:hover output { display:block; }
+  .reel-seek input[data-scrubbing],.reel-seek input:focus-visible { --seek-height:3px;--seek-thumb:1;opacity:1; }
+  .reel-seek input[data-scrubbing] + output,.reel-seek input:focus-visible + output { display:block; }
+  @media (hover:hover) {
+    .reel-seek:hover input:not(:disabled) { --seek-height:3px;--seek-thumb:1;opacity:1; }
+    .reel-seek:hover input:not(:disabled) + output { display:block; }
+  }
   #reel-search { width:min(440px,calc(100vw - 48px));box-sizing:border-box;max-height:80dvh;
     border:1px solid #333;border-radius:16px;background:#171717;color:#eee;padding:20px; }
   #reel-search .search-results { margin-top:14px;max-height:48dvh;overflow-y:auto; }
@@ -278,15 +289,11 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
   #feed, .top, #comments-panel, #comments-panel[hidden] { transition:none; }
 }
 
-#creator-browse { border:1px solid #444;background:#17171d;color:#ddd;border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer; }
-#creator-browse[hidden] { display:none; }
 
 /* The standalone Android app uses touch navigation and bottom sheets. */
 .android-only, .android-reel-more { display:none; }
 .android-app { --android-nav-height:calc(62px + env(safe-area-inset-bottom)); }
 .android-app .top { padding:calc(8px + env(safe-area-inset-top)) 14px 8px;gap:8px; }
-.profile-action { display:none; }
-.android-app .bar > .profile-action { display:flex; }
 .android-app #shortcuts, .android-app .feed-key-hints,
 .android-app .feed-panel kbd, .android-app .info .date { display:none; }
 .android-app .feed-menu summary { min-height:28px;padding:8px 0;background:none;border:0;font-size:16px; }
@@ -312,7 +319,6 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .android-app .bar > a { display:none; }
 .android-app .bar .reel-save > span:last-child { display:none; }
 .android-app .android-reel-more { display:flex;font-size:28px;line-height:1; }
-.android-app #creator-browse { position:fixed;top:calc(66px + env(safe-area-inset-top));left:14px;max-width:calc(100vw - 28px);min-height:40px; }
 .android-app #action-status:not(:empty),.android-app #preference-status:not(:empty) {
   bottom:calc(var(--android-nav-height) + 12px);font-size:13px;z-index:11; }
 .android-app .top:has(.feed-menu[open]) { z-index:10; }

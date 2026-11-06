@@ -43,6 +43,7 @@ import com.chaquo.python.android.AndroidPlatform;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
@@ -54,11 +55,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Android owns the window; the existing Python app owns feeds and playback UI. */
-public final class MainActivity extends Activity {
+public final class MainActivity extends Activity implements AppUpdater.Listener {
     private static final ExecutorService BACKEND = Executors.newSingleThreadExecutor();
     private static final Object PYTHON_LOCK = new Object();
     private static final int CHOOSE_IMPORT_FILE = 41;
     private static final int SAVE_FEEDS_FILE = 42;
+    private static final int ALLOW_APP_UPDATES = 44;
+    private static final int INSTALL_APP_UPDATE = 45;
     private static final int MAX_BACKUP_BYTES = 5 * 1024 * 1024;
     private static final Pattern POST_PATH = Pattern.compile("^/(?:reel|reels|p)/([A-Za-z0-9_-]{5,30})/?$");
     private static final Pattern INSTAGRAM_HOST = Pattern.compile("^(?:www\\.|m\\.)?instagram\\.com$", Pattern.CASE_INSENSITIVE);
@@ -74,9 +77,12 @@ public final class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileSelection;
     private boolean choosingBackup;
     private Uri pendingBackupDestination;
+    private AppUpdater updater;
+    private LinearLayout updateBanner;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        updater = AppUpdater.get(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
@@ -225,10 +231,6 @@ public final class MainActivity extends Activity {
                 Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT)
                         .addCategory(Intent.CATEGORY_OPENABLE)
                         .setType("*/*")
-                        .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
-                                "application/json", "text/html", "application/zip",
-                                "application/x-zip-compressed", "application/octet-stream", "text/plain"
-                        })
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 try { startActivityForResult(pick, CHOOSE_IMPORT_FILE); }
                 catch (ActivityNotFoundException | SecurityException error) {
@@ -281,7 +283,9 @@ public final class MainActivity extends Activity {
             }
         });
         web.setDownloadListener((url, userAgent, disposition, mimeType, length) -> saveDownload(Uri.parse(url)));
-        root.addView(web, new LinearLayout.LayoutParams(-1, -1));
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
+        updateBanner = null;
+        updater.render();
         if (paused) web.onPause();
     }
 
@@ -300,6 +304,15 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == ALLOW_APP_UPDATES) {
+            updater.permissionReturned();
+            return;
+        }
+        if (requestCode == INSTALL_APP_UPDATE) {
+            if (resultCode == RESULT_OK) updater.installSucceeded();
+            else updater.installFinished("Update ready · tap Install to retry");
+            return;
+        }
         if (requestCode == SAVE_FEEDS_FILE) {
             if (!choosingBackup) return;
             choosingBackup = false;
@@ -324,6 +337,10 @@ public final class MainActivity extends Activity {
 
     private boolean routeNavigation(Uri uri) {
         if (isLocal(uri)) {
+            if ("/app/update/check".equals(uri.getPath()) && uri.getQuery() == null && uri.getFragment() == null) {
+                updater.check(true);
+                return true;
+            }
             if (uri.getPath() != null && uri.getPath().matches("/share/[A-Za-z0-9_-]{5,30}")) {
                 String code = uri.getLastPathSegment();
                 Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
@@ -420,10 +437,10 @@ public final class MainActivity extends Activity {
                     if (output == null) throw new IOException("Could not open backup destination");
                     bytes.writeTo(output);
                 }
-                message = "Feeds exported";
+                message = "Backup exported";
             } catch (Exception error) {
                 android.util.Log.e("ig", "Feed export failed", error);
-                message = "Could not export feeds. Try again.";
+                message = "Could not export backup. Try again.";
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -547,6 +564,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        updater.detach(this);
         paused = true;
         if (web != null) {
             web.evaluateJavascript("document.querySelectorAll('video').forEach(v=>v.pause())", null);
@@ -559,6 +577,66 @@ public final class MainActivity extends Activity {
         super.onResume();
         paused = false;
         if (web != null) web.onResume();
+        updater.attach(this);
+        updater.check(false);
+    }
+
+    @Override public void onUpdateStatus(String message, String action, boolean canDismiss) {
+        if (isFinishing() || isDestroyed() || web == null) return;
+        if (message.isEmpty()) {
+            if (updateBanner != null) root.removeView(updateBanner);
+            updateBanner = null;
+            return;
+        }
+        if (updateBanner == null) {
+            updateBanner = new LinearLayout(this);
+            updateBanner.setGravity(Gravity.CENTER_VERTICAL);
+            updateBanner.setBackgroundColor(Color.rgb(30, 30, 32));
+            int padding = Math.round(12 * getResources().getDisplayMetrics().density);
+            updateBanner.setPadding(padding, 0, 0, 0);
+            TextView label = new TextView(this);
+            label.setTextColor(Color.WHITE);
+            label.setTextSize(14);
+            label.setMaxLines(2);
+            updateBanner.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            Button button = new Button(this);
+            button.setAllCaps(false);
+            button.setOnClickListener(view -> updater.action());
+            updateBanner.addView(button);
+            Button close = new Button(this);
+            close.setText("×");
+            close.setContentDescription("Dismiss update notice");
+            close.setMinWidth(0);
+            close.setMinimumWidth(0);
+            close.setOnClickListener(view -> updater.dismiss());
+            updateBanner.addView(close, new LinearLayout.LayoutParams(padding * 4, -2));
+            root.addView(updateBanner, new LinearLayout.LayoutParams(-1, -2));
+        }
+        ((TextView) updateBanner.getChildAt(0)).setText(message);
+        Button button = (Button) updateBanner.getChildAt(1);
+        button.setText(action);
+        button.setVisibility(action.isEmpty() ? View.GONE : View.VISIBLE);
+        updateBanner.getChildAt(2).setVisibility(canDismiss ? View.VISIBLE : View.GONE);
+    }
+
+    @Override public void onUpdateInfo(String message) {
+        if (!isFinishing() && !isDestroyed()) Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override public void onUpdateInstall(File apk) {
+        if (isFinishing() || isDestroyed() || paused) return;
+        try {
+            if (!updater.canInstall() && Build.VERSION.SDK_INT >= 26) {
+                updater.awaitingPermission();
+                Toast.makeText(this, "Allow updates from ig, then return here", Toast.LENGTH_LONG).show();
+                startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())), ALLOW_APP_UPDATES);
+            } else {
+                startActivityForResult(AppUpdater.installIntent(this, apk), INSTALL_APP_UPDATE);
+            }
+        } catch (ActivityNotFoundException | SecurityException | IOException error) {
+            updater.installFinished("Couldn’t open Android’s installer · try again");
+        }
     }
 
     @Override public void onBackPressed() {
@@ -571,6 +649,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        updater.detach(this);
         finishFileSelection(null);
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();

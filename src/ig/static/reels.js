@@ -14,6 +14,11 @@ window.addEventListener('storage', event => {
     try { applyPlaybackPreferences(JSON.parse(event.newValue).changes); } catch (_) {}
   }
 });
+window.addEventListener('ig-playback-restored', event => {
+  playbackVersion += 1;
+  applyPlaybackPreferences(event.detail);
+  if (['smooth','snappy'].includes(event.detail.scroll_animation)) scrollAnimation = event.detail.scroll_animation;
+});
 if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
 const countEl = document.getElementById('count');
@@ -241,7 +246,7 @@ async function refreshFeedList(detail) {
   if (!response.ok) throw new Error('Could not refresh feeds');
   const data = await response.json();
   syncFeedList(data.feeds);
-  if (detail.deleted || detail.restored) {
+  if (detail.deleted || detail.restored || (detail.imported && detail.settings_values && 'selected_feeds' in detail.settings_values)) {
     clearTimeout(selectionTimer); selectionTimer = null;
     selectedFeeds = data.selected_feeds;
     chosenFeeds = copyFeeds(selectedFeeds);
@@ -259,6 +264,7 @@ async function refreshFeedList(detail) {
 }
 window.addEventListener('ig-feeds-changed', event => {
   if (event.detail.imported) {
+    for (const code of event.detail.saved_codes || []) showSavedState(code, true);
     const version = ++accountChangeVersion;
     const importedAccounts = new Set(event.detail.feed_accounts);
     const importedBlocks = new Set(event.detail.blocked_accounts);
@@ -469,7 +475,7 @@ function slideHtml(p, i) {
   return `<div class="slide" id="s${i}">
     <img class="poster" loading="lazy" src="${esc(p.image)}" alt="">
     <div class="spin" id="spin${i}" hidden>loading…</div>
-    <span class="pause-indicator" id="pause${i}" role="status" aria-label="Paused" hidden>${icon('pause')}</span>
+    <span class="pause-indicator" id="pause${i}" role="status" aria-label="Paused" hidden>${icon('play')}</span>
     <div class="reel-seek">
       <input id="seek${i}" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Seek within reel"
         onpointerdown="stopReelHold();this.dataset.scrubbing='1'" onpointerup="delete this.dataset.scrubbing"
@@ -478,8 +484,7 @@ function slideHtml(p, i) {
       <output id="seek-time${i}" for="seek${i}"></output>
     </div>
     <div class="info">
-      <a class="user" href="/u/${esc(p.owner)}" target="_blank"
-        rel="noopener">@${esc(p.owner)}</a>
+      <a class="user" href="/u/${esc(p.owner)}" title="View profile (P)">@${esc(p.owner)}</a>
       <span class="date">${fdate(p.taken_at)}</span>
       ${p.caption ? `<button type="button" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption" onclick="toggleCaption(${i})">${esc(p.caption)}</button>` : ''}
       <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
@@ -506,8 +511,6 @@ function slideHtml(p, i) {
              title="add this account to your feed"
              onclick="addAcc('${esc(p.owner)}', this)">
              <span class="em">${icon('plus')}</span><span>add</span></div>`}
-      <button class="ico profile-action" type="button" title="View profile (P)" aria-label="View @${esc(p.owner)}'s profile"
-        onclick="openProfile(${i})"><span class="em">${icon('user')}</span><span>profile</span></button>
       <button class="ico reel-save" type="button" title="Save to Saved reels (S)"
         aria-label="Save this reel" aria-pressed="${Boolean(p.saved)}" onclick="toggleSavedReel(${i})">
         <span class="em">${icon('bookmark')}</span><span>${p.saved ? 'saved' : 'save'}</span></button>
@@ -788,10 +791,36 @@ async function more() {
     }
   }
 }
+let pendingTap = null;
+function cancelPendingTap() {
+  if (pendingTap) clearTimeout(pendingTap.timer);
+  pendingTap = null;
+}
+function showLikeHeart(i) {
+  const slide = document.getElementById('s'+i);
+  if (!slide) return;
+  slide.querySelector('.tap-heart')?.remove();
+  const heart = document.createElement('span'); heart.className = 'tap-heart';
+  heart.setAttribute('aria-hidden','true'); heart.innerHTML = icon('heart');
+  slide.append(heart); setTimeout(() => heart.remove(),700);
+}
 function tap(e) {
   if (e.target.closest('a') || e.target.closest('.wb')) return;
   const v = e.target.closest('.slide')?.querySelector('video');
-  if (v) togglePlayback();
+  if (!v) return;
+  if (e.pointerType !== 'touch' && !e.sourceCapabilities?.firesTouchEvents) { togglePlayback(); return; }
+  const now = performance.now(), index = current;
+  if (pendingTap && pendingTap.index === index && now - pendingTap.at < 300 &&
+      Math.hypot(e.clientX-pendingTap.x,e.clientY-pendingTap.y) < 48) {
+    cancelPendingTap();
+    if (posts[index]?.feedback !== 'like') likeReel(index);
+    showLikeHeart(index); return;
+  }
+  cancelPendingTap();
+  pendingTap = {index,at:now,x:e.clientX,y:e.clientY,timer:setTimeout(() => {
+    pendingTap = null;
+    if (current === index && v.isConnected && !localPage) togglePlayback();
+  },300)};
 }
 // soundBlocked: the saved choice is sound on, but the browser refused to play
 // with sound before the user interacted with this page.
@@ -1065,6 +1094,7 @@ window.addEventListener('pageshow', event => {
 // Settings and other local pages sit over the mounted player. Returning never
 // reconstructs its queue, seeks its video, or closes its comments.
 function showLocalPage(destination, push = true) {
+  cancelPendingTap();
   stopReelHold();
   localPageVersion += 1;
   if (!localPage) {
@@ -1114,7 +1144,7 @@ routeLocalPage = destination => {
     else if (boot.post_code) return false;
     return true;
   }
-  if (destination.origin !== location.origin || !(/^\/(?:settings|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return false;
+  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return false;
   showLocalPage(destination); return true;
 };
 window.addEventListener('message', event => {
@@ -1433,6 +1463,7 @@ function togglePlayback() {
   if (video) p._paused ? video.pause() : playVideo(video);
 }
 function showSlide(i) {
+  cancelPendingTap();
   stopReelHold();
   if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse(false);
   if (i === undefined || isHidden(posts[i])) return;
@@ -1569,7 +1600,6 @@ function leaveCreatorBrowse(play = true) {
   if (!trail) return;
   creatorTrail = null;
   clearTimeout(trail.timer);
-  document.getElementById('creator-browse').hidden = true;
   actionStatus('');
   if (current === trail.index) replaceCreatorSlide(trail.items[0], play);
 }
@@ -1619,11 +1649,6 @@ async function browseCreator(direction) {
     } finally {
       if (request === trail.request) trail.busy = false;
     }
-  }
-  if (creatorTrail === trail) {
-    const button = document.getElementById('creator-browse');
-    button.hidden = false;
-    button.textContent = '@' + trail.owner + ' · ' + (trail.at + 1) + (boot.android ? ' · swipe ← for more · Back to mix' : ' · Back to mix');
   }
 }
 function openProfile(i = current) {
@@ -1788,10 +1813,11 @@ feed.addEventListener('click', event => {
 feed.addEventListener('contextmenu', event => {
   if (reelHold) event.preventDefault();
 });
-window.addEventListener('blur', stopReelHold);
-document.addEventListener('visibilitychange', () => { if (document.hidden) stopReelHold(); });
+window.addEventListener('blur', () => { stopReelHold(); cancelPendingTap(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { stopReelHold(); cancelPendingTap(); } });
 feed.addEventListener('touchstart', e => {
   stopReelHold();
+  if (pendingTap) clearTimeout(pendingTap.timer);
   if (e.target.closest('.reel-seek')) { reelTouch = null; return; }
   if (e.touches.length !== 1 || scrollsItself(e.target)) { reelTouch = null; return; }
   const t = e.touches[0];
@@ -1801,6 +1827,7 @@ feed.addEventListener('touchstart', e => {
   const hold = reelHold = {video,rate:video.playbackRate,active:false};
   hold.timer = setTimeout(() => {
     if (reelHold !== hold || !reelTouch || video.paused || localPage) return;
+    cancelPendingTap();
     hold.active = true; reelTouch.held = true; video.playbackRate = 2;
     hold.badge = document.createElement('span'); hold.badge.className = 'hold-speed';
     hold.badge.textContent = '2×'; video.closest('.slide').append(hold.badge);
@@ -1813,7 +1840,7 @@ feed.addEventListener('touchmove', e => {
   if (!t) { reelTouch = null; return; }
   reelTouch.dx = t.clientX - reelTouch.x;
   reelTouch.dy = t.clientY - reelTouch.y;
-  if (Math.hypot(reelTouch.dx, reelTouch.dy) > 12) stopReelHold();
+  if (Math.hypot(reelTouch.dx, reelTouch.dy) > 12) { stopReelHold(); cancelPendingTap(); }
   if (reelTouch.horizontal) return;
   if (!reelTouch.vertical && Math.abs(reelTouch.dx) > Math.abs(reelTouch.dy)) {
     // A sideways swipe browses the current creator, like Left/Right on a keyboard.
@@ -1844,7 +1871,7 @@ feed.addEventListener('touchend', e => {
   const distance = gesture.y - t.clientY;
   if (Math.abs(distance) >= 48) goRel(Math.sign(distance));
 }, {passive:true});
-feed.addEventListener('touchcancel', () => { stopReelHold(); reelTouch = null; }, {passive:true});
+feed.addEventListener('touchcancel', () => { stopReelHold(); cancelPendingTap(); reelTouch = null; }, {passive:true});
 updateFeedStatus();
 if (boot.android && typeof setupAndroidUI === 'function') setupAndroidUI();
 setMuted(muted);

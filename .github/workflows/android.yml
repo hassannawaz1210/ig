@@ -58,7 +58,15 @@ jobs:
           chmod 600 "$HOME/.android/debug.keystore"
       - name: Build standalone APK and instrumentation tests
         working-directory: android
-        run: gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          export IG_ANDROID_VERSION_CODE=$((1000 + BUILD_NUMBER * 100 + BUILD_ATTEMPT))
+          export IG_ANDROID_VERSION_NAME="0.5.0-preview.$BUILD_NUMBER.$BUILD_ATTEMPT"
+          echo "IG_ANDROID_VERSION_CODE=$IG_ANDROID_VERSION_CODE" >> "$GITHUB_ENV"
+          echo "IG_ANDROID_VERSION_NAME=$IG_ANDROID_VERSION_NAME" >> "$GITHUB_ENV"
+          gradle --no-daemon --stacktrace assembleDebug assembleDebugAndroidTest
       - name: Keep installable APK
         uses: actions/upload-artifact@v4
         with:
@@ -66,6 +74,16 @@ jobs:
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Prepare update metadata
+        env:
+          GH_REPO: ${{ github.repository }}
+          UPDATE_TAG: android-build-${{ github.run_id }}-${{ github.run_attempt }}
+        run: python android/ci/publish_update.py prepare
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ig-android-update
+          path: android/build/update/
+          if-no-files-found: error
       - name: Keep on-device test APK
         uses: actions/upload-artifact@v4
         with:
@@ -73,6 +91,7 @@ jobs:
           path: android/app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -99,3 +118,25 @@ jobs:
             android/build/smoke/
           if-no-files-found: warn
           retention-days: 14
+
+  publish:
+    needs: build-and-test
+    if: github.repository == 'hassannawaz1210/ig' && github.ref == 'refs/heads/android-standalone'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ig-android-update
+          path: android/build/update/
+      - name: Publish after all checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPDATE_TAG: android-build-${{ github.run_id }}-${{ github.run_attempt }}
+          UPDATE_COMMIT: ${{ github.sha }}
+        run: python android/ci/publish_update.py publish

@@ -6,6 +6,10 @@
 <header class="page-header"><a class="back" href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Settings</h1></header>
 <main>
   <p id="settings-status" role="status" aria-live="polite"></p>
+  <section id="app-updates" hidden aria-labelledby="updates-title">
+    <h2 id="updates-title" class="group-title">App</h2>
+    <div class="card"><a class="row link-row" href="/app/update/check"><span class="row-text">Check for updates<small>Updates come directly from GitHub</small></span><span class="chevron" aria-hidden="true">›</span></a></div>
+  </section>
 
   <section aria-labelledby="playback-title">
     <h2 id="playback-title" class="group-title">Playback</h2>
@@ -35,8 +39,8 @@
     <h2 id="transfer-title" class="group-title">Import &amp; export</h2>
     <div class="card">
       <button class="row link-row" type="button" onclick="importFollowing()"><span class="row-text">Import Instagram following<small>Choose your downloaded Instagram following list</small></span><span class="chevron" aria-hidden="true">›</span></button>
-      <a class="row link-row" href="/feeds/export"><span class="row-text">Export feeds<small>Save your feeds and permanent blocks to a file</small></span><span class="chevron" aria-hidden="true">↓</span></a>
-      <button class="row link-row" type="button" onclick="importFeeds()"><span class="row-text">Import feeds<small>Merge a file exported from ig</small></span><span class="chevron" aria-hidden="true">›</span></button>
+      <a class="row link-row" href="/feeds/export"><span class="row-text">Export backup<small>Feeds, saved reels, blocks, and app settings</small></span><span class="chevron" aria-hidden="true">↓</span></a>
+      <button class="row link-row" type="button" onclick="importFeeds()"><span class="row-text">Import backup<small>Merge feeds and saves, and apply exported settings</small></span><span class="chevron" aria-hidden="true">›</span></button>
     </div>
   </section>
 </main>

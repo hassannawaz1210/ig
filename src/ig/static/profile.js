@@ -26,7 +26,7 @@ accountChanged = (username, saved) => {
 };
 const store = [];
 const grid = document.getElementById('grid');
-const btn = document.getElementById('more');
+const moreIndicator = document.getElementById('more');
 const count = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -111,7 +111,7 @@ function lb(i) {
   document.getElementById('lbopen').href = p.url;
   document.getElementById('lbpos').textContent = `${i + 1} / ${store.length}`;
   document.querySelector('#lb .prev').disabled = i === 0;
-  document.querySelector('#lb .next').disabled = i === store.length - 1;
+  document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
   document.getElementById('lbstats').innerHTML =
     `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${fdate(p.taken_at)}</span>`;
   document.getElementById('lbcap').textContent = p.caption || '';
@@ -140,6 +140,7 @@ function lb(i) {
     // Back (phone button or browser) closes the viewer instead of leaving the page.
     history.pushState({viewer:true}, '');
   }
+  if (store.length - i <= 4) loadMorePosts();
 }
 function hideLb() {
   document.querySelectorAll('#lb video').forEach(v => v.pause());
@@ -152,45 +153,118 @@ function closeLb() {
   else hideLb();
 }
 window.addEventListener('popstate', () => { if (!lbEl.hidden) hideLb(); });
-function step(d) { lb(Math.min(store.length-1, Math.max(0, cur+d))); }
+async function step(d) {
+  const from = cur;
+  if (d > 0 && cur === store.length - 1 && hasMorePosts) {
+    await loadMorePosts(true);
+    if (lbEl.hidden || cur !== from) return;
+  }
+  const next = Math.min(store.length - 1, Math.max(0, cur + d));
+  if (next !== cur) lb(next);
+}
 document.addEventListener('keydown', e => {
-  if (document.getElementById('feed-picker') || lbEl.hidden) return;
+  if (document.getElementById('feed-picker') || lbEl.hidden || e.target.closest('input,textarea,select')) return;
   if (e.key === 'Escape') closeLb();
-  if (e.key === 'ArrowLeft') step(-1);
-  if (e.key === 'ArrowRight') step(1);
+  if (['ArrowUp','k','ArrowDown','j'].includes(e.key)) {
+    e.preventDefault(); if (!e.repeat) step(['ArrowUp','k'].includes(e.key) ? -1 : 1);
+  }
 });
 lbEl.addEventListener('click', e => {
   if (e.target === lbEl || e.target.id === 'lbcontent') closeLb();  // tap outside the media
 });
-// Swipe left/right for the next/previous post; swipe down to close.
-// Carousels scroll sideways themselves, so they keep their own swipes.
+// Vertical swipes move between posts. Horizontal swipes stay inside carousels.
 let swipe = null;
+function scrollsProfileDetails(target) {
+  const panel = target.closest('.lbmeta');
+  return target.closest('.lbcap,button,a,input') || (panel && panel.scrollHeight > panel.clientHeight + 1);
+}
 lbEl.addEventListener('touchstart', e => {
-  if (e.touches.length !== 1 || e.target.closest('.slides, .lbcap')) { swipe = null; return; }
+  if (e.touches.length !== 1 || scrollsProfileDetails(e.target)) { swipe = null; return; }
   swipe = {x:e.touches[0].clientX, y:e.touches[0].clientY};
 }, {passive:true});
-lbEl.addEventListener('touchend', e => {
+lbEl.addEventListener('touchmove', e => {
   if (!swipe) return;
+  if (e.touches.length !== 1) { swipe = null; return; }
+  const dx = e.touches[0].clientX - swipe.x, dy = e.touches[0].clientY - swipe.y;
+  if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx) && e.cancelable) e.preventDefault();
+}, {passive:false});
+lbEl.addEventListener('touchend', e => {
+  if (!swipe || e.touches.length) { swipe = null; return; }
   const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
   swipe = null;
-  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
-  else if (dy > 100 && dy > Math.abs(dx) * 1.5) closeLb();
+  if (Math.abs(dy) > 48 && Math.abs(dy) > Math.abs(dx) * 1.5) step(dy < 0 ? 1 : -1);
 }, {passive:true});
+lbEl.addEventListener('touchcancel', () => { swipe = null; }, {passive:true});
+let lastPostWheel = -Infinity;
+lbEl.addEventListener('wheel', e => {
+  if (e.ctrlKey || scrollsProfileDetails(e.target) || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+  e.preventDefault();
+  const now = performance.now();
+  if (now - lastPostWheel > 300) step(Math.sign(e.deltaY));
+  lastPostWheel = now;
+}, {passive:false});
 
-// Pages that show every post at once (Saved reels) have no Load more button.
-if (btn) btn.addEventListener('click', async () => {
-  btn.disabled = true; btn.textContent = 'Loading…';
-  try {
-    const r = await fetch(location.pathname + '/more', {method: 'POST'});
-    const data = await r.json();
-    if (data.error) { btn.textContent = data.error + ' · tap to retry'; btn.disabled = false; return; }
-    incoming.push(...data.posts); render();
-    if (!data.has_more) {
-      btn.outerHTML = '<div class="end">End of posts</div>'; return;
+// Keep profile pages ahead of both the grid and the open-post viewer.
+// Saved reels has no pagination indicator and never makes these requests.
+let hasMorePosts = Boolean(moreIndicator), moreRequest = null, retryPostsAfter = 0, moreFailures = 0, moreRetryTimer = null;
+function nearProfileEnd() {
+  if (document.hidden || !hasMorePosts) return false;
+  const bounds = moreIndicator.getBoundingClientRect();
+  return (!lbEl.hidden && store.length - cur <= 4) ||
+    (lbEl.hidden && bounds.top <= innerHeight + 600 && bounds.bottom >= 0);
+}
+function retryProfilePosts(delay) {
+  clearTimeout(moreRetryTimer);
+  moreRetryTimer = setTimeout(() => { if (nearProfileEnd()) loadMorePosts(); }, delay);
+}
+function loadMorePosts(manual = false) {
+  if (moreRequest) return moreRequest;
+  if (!hasMorePosts) return Promise.resolve();
+  if (!manual && Date.now() < retryPostsAfter) { retryProfilePosts(retryPostsAfter - Date.now()); return Promise.resolve(); }
+  moreIndicator.textContent = 'Loading…';
+  let refillAfter = false;
+  const request = (async () => {
+    try {
+      const response = await fetch(location.pathname + '/more', {method:'POST'});
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || 'Could not load posts');
+      const known = new Set(store.map(post => post.shortcode));
+      const fresh = (data.posts || []).filter(post => {
+        if (known.has(post.shortcode)) return false;
+        known.add(post.shortcode); return true;
+      });
+      incoming.push(...fresh); render();
+      hasMorePosts = data.has_more !== false;
+      refillAfter = hasMorePosts && fresh.length > 0;
+      moreFailures = 0;
+      if (!fresh.length && hasMorePosts) { retryPostsAfter = Date.now() + 3000; retryProfilePosts(3000); }
+      if (!hasMorePosts) {
+        postsObserver?.unobserve(moreIndicator);moreIndicator.hidden = true;
+        const end = document.createElement('div');end.className='end';end.textContent='End of posts';moreIndicator.after(end);
+      } else moreIndicator.textContent = fresh.length ? '' : 'Waiting for more posts…';
+      if (!lbEl.hidden) {
+        document.getElementById('lbpos').textContent = `${cur + 1} / ${store.length}`;
+        document.querySelector('#lb .next').disabled = cur === store.length - 1 && !hasMorePosts;
+      }
+    } catch (error) {
+      const delay = Math.min(30000, 3000 * 2 ** Math.min(moreFailures++,4));
+      retryPostsAfter = Date.now() + delay; retryProfilePosts(delay);
+      moreIndicator.textContent = 'Couldn’t load posts · retrying…';
+      if (!lbEl.hidden) document.getElementById('lbpos').textContent = `${cur + 1} / ${store.length} · retrying…`;
     }
-  } catch (error) {
-    console.warn('Could not load more posts', error);
-    btn.textContent = 'Network error · tap to retry'; btn.disabled = false; return;
-  }
-  btn.disabled = false; btn.textContent = 'Load more';
-});
+  })();
+  moreRequest = request.finally(() => {
+    moreRequest = null;
+    if (refillAfter) requestAnimationFrame(() => {
+      if (nearProfileEnd()) loadMorePosts();
+    });
+  });
+  return moreRequest;
+}
+let postsObserver = null;
+if (moreIndicator) {
+  postsObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) loadMorePosts();
+  }, {rootMargin:'600px'});
+  postsObserver.observe(moreIndicator);
+}

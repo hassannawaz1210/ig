@@ -1,6 +1,7 @@
 import threading
+import random
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from ig.refill import Refill
 from ig import feeds
 from test_profile_cache import TempDirs
@@ -88,6 +89,32 @@ class BackgroundRefillTests(TempDirs):
                 self.refill.collect({}, lambda *args: None)
         self.assertEqual(set(loaded), set(names))
         self.assertEqual(len(set(loaded[:4])), 4)
+
+    def test_cold_workers_vary_without_expanding_concurrency_or_ignoring_wait_order(self):
+        names = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot']
+        starts = []
+        with patch('ig.refill.REELS.cached', return_value=None), \
+             patch.object(self.refill.executor, 'submit', return_value=MagicMock()):
+            for seed in (1, 2, 3):
+                self.refill.pending.clear()
+                self.refill.last_scheduled.clear()
+                with patch('ig.refill.random.shuffle', side_effect=random.Random(seed).shuffle):
+                    self.refill.schedule({'served': set()}, names, set(names), states={})
+                starts.append(tuple(self.refill.pending))
+                self.assertEqual(len(self.refill.pending), 2)
+            self.assertGreater(len(set(starts)), 1)
+            self.assertTrue(any(set(start) != set(names[:2]) for start in starts))
+            # Never scheduled creators still precede previously loaded sources,
+            # regardless of how the initial tie was randomized.
+            self.refill.pending.clear()
+            self.refill.last_scheduled = {name: 100 for name in names[2:]}
+            self.refill.schedule({'served': set()}, names, set(names), states={})
+            self.assertEqual(set(self.refill.pending), set(names[:2]))
+            self.refill.pending.clear()
+            self.refill.last_scheduled.clear()
+            states = {'alpha': {'posts': [{'shortcode': 'ready', 'is_video': True}], 'has_more': True}}
+            self.refill.schedule({'served': set()}, names, set(names), states=states)
+            self.assertNotIn('alpha', self.refill.pending, 'empty sources retain priority over buffered ones')
 
     def test_reported_latency_measures_work_not_time_until_collect(self):
         clock = [100.]

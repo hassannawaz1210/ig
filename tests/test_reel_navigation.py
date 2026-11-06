@@ -59,6 +59,8 @@ class FakeReelsServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/u/test_profile':
+            return self.reply(200, views.viewer_html('Test profile', '', fake_posts(100)).encode(), 'text/html; charset=utf-8')
         if self.path == '/settings/data':
             return self.reply(200, json.dumps({'feeds':{name:[] for name in self.feed_names},
                 'scroll_animation':'snappy', **self.playback}).encode(), 'application/json')
@@ -92,7 +94,9 @@ class FakeReelsServer(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
-        if self.path == '/settings/playback':
+        if self.path == '/u/test_profile/more':
+            data = {'posts':fake_posts(3,99), 'has_more':False}
+        elif self.path == '/settings/playback':
             self.playback.update({key:value for key,value in json.loads(body).items()
                                   if key in ('sound','auto_scroll')})
             data = self.playback
@@ -119,6 +123,9 @@ class FakeReelsServer(BaseHTTPRequestHandler):
                     'accounts': [a.lstrip('@') for a in request['accounts'].split()]}
         elif self.path == '/reels/media':
             data = {'error': 'no video in this test'}
+        elif self.path == '/feedback':
+            action = json.loads(body)['action']
+            data = {'feedback': None if action == 'clear' else action}
         else:
             data = {'feedback': None}
         self.reply(200, json.dumps(data).encode(), 'application/json')

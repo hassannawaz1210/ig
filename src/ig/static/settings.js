@@ -1,9 +1,13 @@
 const boot = JSON.parse(document.getElementById('boot').textContent);
 if (boot.android) document.body.classList.add('android-app');
+const appUpdates = document.getElementById('app-updates');
+if (appUpdates) appUpdates.hidden = !boot.android;
 let settingsData = {feeds:{},scroll_animation:boot.scroll_animation || 'snappy'};
 let loadVersion = 0, scrollVersion = 0, scrollSaving = false, autoScrollSaving = false;
 let scrollWrite = Promise.resolve();
-beforeLocalNavigation = async () => { await Promise.all([playbackWrite, scrollWrite]); };
+// Failed changes already restore the previous control value. Wait for writes,
+// but do not trap navigation after a failed, reverted settings change.
+beforeLocalNavigation = async () => { await Promise.allSettled([playbackWrite, scrollWrite]); };
 const autoScrollInput = document.getElementById('auto-scroll-on');
 const status = document.getElementById('settings-status');
 const statusHider = autoHideStatus(status);

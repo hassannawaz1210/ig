@@ -53,7 +53,7 @@ document.addEventListener('click', async event => {
       link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
   const destination = new URL(link.href, location.href);
   if (destination.origin !== location.origin ||
-      !(/^\/(?:settings|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return;
+      !(/^\/(?:settings(?:\/feeds)?|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return;
   event.preventDefault();
   if (localNavigationPending) return;
   localNavigationPending = true;
@@ -148,19 +148,23 @@ function importFeeds() {
   if (menu) menu.open = false;
   const dialog = document.createElement('dialog');
   dialog.id = 'feed-picker'; dialog.setAttribute('aria-labelledby', 'feed-picker-title');
+  // Document providers can label JSON as generic or vendor-specific content.
+  // Let users select the file; the preview endpoint validates its contents.
   dialog.innerHTML = feedPickerStyles() + `<form>
-    <h2 id="feed-picker-title">Import feeds</h2>
-    <label>ig export<input type="file" name="backup" accept=".json,application/json"></label>
-    <p class="fp-note">Choose a file made with Export feeds in ig. Feeds with the same name are merged; permanent blocks are kept.</p>
+    <h2 id="feed-picker-title">Import backup</h2>
+    <label>ig export<input type="file" name="backup"></label>
+    <p class="fp-note">Choose an ig backup. Feeds and saved reels are merged; permanent blocks are kept.</p>
     <p class="fp-preview" hidden></p>
     <p class="fp-names" hidden style="max-height:140px;overflow:auto;overflow-wrap:anywhere"></p>
+    <p class="fp-settings" hidden></p>
     <p class="fp-status" role="status"></p>
-    <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Merge feeds</button></div>
+    <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Import backup</button></div>
   </form>`;
   const form = dialog.querySelector('form'), file = form.elements.backup;
   const submit = form.querySelector('[type=submit]'), cancel = form.querySelector('[type=button]');
   const status = form.querySelector('.fp-status'), preview = form.querySelector('.fp-preview');
   const names = form.querySelector('.fp-names');
+  const settings = form.querySelector('.fp-settings');
   const controller = new AbortController();
   let selected = null, saving = false, completed = false;
   dialog.addEventListener('close', () => {controller.abort(); dialog.remove();}, {once:true});
@@ -175,13 +179,19 @@ function importFeeds() {
   file.onchange = async () => {
     const chosen = file.files[0];
     if (!chosen) return;
-    selected = null; submit.disabled = true; preview.hidden = true; names.hidden = true;
+    selected = null; submit.disabled = true; preview.hidden = true; names.hidden = true; settings.hidden = true;
     if (chosen.size > 5 * 1024 * 1024) { status.textContent = 'Choose an ig export smaller than 5 MB.'; return; }
     file.disabled = true; status.textContent = 'Reading feeds…';
     try {
       const data = await postFile('/feeds/import/preview', chosen, controller.signal);
       preview.textContent = `${data.feeds} feed${data.feeds === 1 ? '' : 's'} · ${data.accounts} account${data.accounts === 1 ? '' : 's'} · ${data.blocked} permanent block${data.blocked === 1 ? '' : 's'}`;
+      const saved = data.saved_reels ?? 0;
+      preview.textContent += ` · ${saved} saved reel${saved === 1 ? '' : 's'}`;
       names.textContent = data.names.map(name => name.replaceAll('_', ' ')).join(' · ');
+      const labels = {sound:'sound',auto_scroll:'auto-scroll',scroll_animation:'reel transitions',selected_feeds:'selected feeds'};
+      const applied = Array.isArray(data.settings) ? data.settings : [];
+      settings.textContent = applied.length ? 'Replace current settings: ' + applied.map(key => labels[key] || key).join(', ') + '.' : '';
+      settings.hidden = !applied.length;
       preview.hidden = false; names.hidden = !data.feeds; selected = chosen;
       status.textContent = ''; submit.disabled = false;
     } catch (error) { if (error.name !== 'AbortError') status.textContent = error.message; }
@@ -191,11 +201,24 @@ function importFeeds() {
     event.preventDefault();
     if (!selected || saving || completed || submit.disabled) return;
     saving = true; submit.disabled = true; cancel.disabled = true; file.disabled = true;
-    status.textContent = 'Merging feeds…';
+    status.textContent = 'Importing backup…';
     try {
+      await beforeLocalNavigation();
       const data = await postFile('/feeds/import', selected);
+      if (data.settings_values) {
+        window.dispatchEvent(new CustomEvent('ig-playback-restored',{detail:data.settings_values}));
+        try {
+          const changes = {};
+          for (const key of ['sound','auto_scroll']) if (typeof data.settings_values[key] === 'boolean') changes[key] = data.settings_values[key];
+          if (Object.keys(changes).length) localStorage.setItem('ig-playback-change',JSON.stringify({changes,at:Date.now()}));
+          if (data.settings_values.scroll_animation) localStorage.setItem('ig-scroll-animation',data.settings_values.scroll_animation);
+        } catch (_) {}
+      }
       completed = true; notifyFeedImport(data);
       status.textContent = `${data.feeds} feed${data.feeds === 1 ? '' : 's'} merged · ${data.added} account${data.added === 1 ? '' : 's'} added · ${data.blocked} block${data.blocked === 1 ? '' : 's'} added`;
+      const saved = data.saved_reels_added ?? 0;
+      status.textContent += ` · ${saved} saved reel${saved === 1 ? '' : 's'} added`;
+      if (data.settings_applied?.length) status.textContent += ' · Settings applied';
       submit.hidden = true; cancel.textContent = 'Done';
     } catch (error) { status.textContent = error.message; }
     finally {saving = false; cancel.disabled = false; file.disabled = completed; submit.disabled = completed;}

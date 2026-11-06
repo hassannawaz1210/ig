@@ -65,9 +65,9 @@ a { color:inherit; }
 
 @media (hover:hover) { .card:hover { filter:brightness(1.12); } }
 
-#more { display:block; margin:0 auto calc(60px + env(safe-area-inset-bottom)); padding:12px 34px; font-size:15px;
-  border:0; border-radius:24px; background:#3737e6; color:#fff; cursor:pointer; }
-#more:disabled { background:#333344; color:#8a8aa0; cursor:wait; }
+#more { min-height:1px;margin:0 auto calc(40px + env(safe-area-inset-bottom));text-align:center;
+  font-size:13px;color:var(--dim); }
+#more:not(:empty) { padding:12px; }
 .end { text-align:center; color:var(--dim); padding:0 0 calc(60px + env(safe-area-inset-bottom)); }
 
 /* Viewer */
@@ -92,7 +92,7 @@ a { color:inherit; }
 .lbbtns a .icon { width:16px; height:16px; }
 .lb .nav { position:absolute; top:50%; transform:translateY(-50%); width:48px; height:72px; font-size:34px;
   background:#0006; border:0; border-radius:10px; color:#ddd; cursor:pointer; }
-.lb .prev { left:12px; } .lb .next { right:12px; }
+.lb .prev { right:12px;top:calc(50% - 42px); } .lb .next { right:12px;top:calc(50% + 42px); }
 .lb .nav:disabled { visibility:hidden; }
 
 /* Phones */
@@ -108,3 +108,23 @@ a { color:inherit; }
   .lb .nav { display:none; }  /* swipe instead */
 }
 @media (hover:none) { .lb .nav { display:none; } }
+
+/* Landscape phones need the height for the picture, not stacked page chrome. */
+@media (max-height:500px) and (orientation:landscape) and (pointer:coarse) {
+  .lb { --viewer-side:min(200px,28vw); display:grid;
+    grid-template-columns:minmax(0,1fr) var(--viewer-side); grid-template-rows:minmax(0,1fr);
+    padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right); }
+  .lbtop { position:absolute; top:env(safe-area-inset-top); right:env(safe-area-inset-right);
+    width:var(--viewer-side); height:48px; padding:2px 6px; z-index:1; background:#000; }
+  .lbpos { font-size:12px; padding-left:4px; }
+  #lbcontent { grid-column:1; grid-row:1; width:100%; height:100%; min-width:0; min-height:0; }
+  #lbcontent > img, #lbcontent > video { width:100%; height:100%; max-width:100%; max-height:100%; object-fit:contain; }
+  .slides { min-width:0; max-width:none; }
+  .lbmeta { grid-column:2; grid-row:1; align-self:stretch; min-height:0; width:100%; max-width:none;
+    margin:0; padding:52px 12px 12px; overflow-y:auto; overscroll-behavior:contain; }
+  .lbstats { font-size:12px; gap:4px 10px; }
+  .lbcap { font-size:13px; line-height:1.4; max-height:none; overflow:visible; }
+  .lbbtns { margin-top:12px; }
+  .lbbtns a { padding:8px 10px; font-size:12px; }
+  .lb .nav { display:none; }
+}

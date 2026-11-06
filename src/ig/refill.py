@@ -67,7 +67,10 @@ class Refill:
                 unseen = sum(p.get('is_video') and p['shortcode'] not in pool['served'] for p in state['posts'])
                 if unseen < 12:
                     candidates.append((0 if unseen == 0 else 1, name, True))
-        # One discovery source may run alongside saved-source replenishment.
+        # Cold candidates arrive alphabetically. Vary equal-priority workers so
+        # a fresh session does not always load the same first two creators.
+        # Priority and oldest-last-scheduled fairness still win over this tie-break.
+        random.shuffle(candidates)
         candidates.sort(key=lambda entry: (entry[0], self.last_scheduled.get(entry[1], 0)))
         # When the queue is healthy, reserve one of the existing two workers
         # for discovery. A fixed request cadence bounds background exploration.

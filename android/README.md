@@ -41,6 +41,22 @@ CI restores a private preview signing key so successive published APKs can be
 installed as updates while keeping feeds. Local builds use your own Android debug
 key. Keep using the same signing key when building updates.
 
+## Updates
+
+Install the [latest APK](https://github.com/hassannawaz1210/ig/releases/download/android-updates/ig-android.apk)
+once. The app checks for updates on launch at most daily, or immediately through
+**Settings → Check for updates**. Updates download from this repository and open
+Android's installer after checking the file hash, package, version, and signing
+certificate. Android may ask you to allow installations from ig. Installing over
+the existing app keeps its local database; do not uninstall first.
+
+The Android workflow publishes only after the emulator and Python/browser checks
+pass. Each build gets its own release asset. The `android-updates` release holds
+the latest download and `update.json`, which points to that version's asset.
+CI assigns increasing version codes automatically. Local builds can override
+`IG_ANDROID_VERSION_CODE` and `IG_ANDROID_VERSION_NAME`; a differently signed
+local build cannot update an official preview.
+
 ## Runtime
 
 The shell starts Python on a background thread, starts one authenticated
@@ -50,8 +66,9 @@ External links open in the user's browser. Android's Share menu accepts Instagra
 reel links. Back closes the current sheet/dialog before navigating back.
 
 The feed menu supports importing Instagram's following export (ZIP, JSON, or
-HTML). **Export feeds** saves an ig JSON file through Android's system file
-picker; **Import feeds** merges that file on Android or desktop. Feeds and
+HTML). **Export backup** saves feeds, saved reels, permanent blocks, and playback
+settings through Android's system file picker; **Import backup** merges feeds
+and saves and restores the exported settings on Android or desktop. Feeds and
 permanent blocks are included, while history and saved reels are not. Existing
 feeds are kept when importing. No storage permission is needed.
 

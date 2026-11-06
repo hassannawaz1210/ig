@@ -1,5 +1,6 @@
 """Reels-only pagination, separate from the photo/profile grid."""
 import logging
+import random
 import threading
 import time
 from collections import OrderedDict
@@ -61,6 +62,12 @@ class ReelStore(instagram.ProfileStore):
             if item["shortcode"] not in seen:
                 pending.append(item)
                 seen.add(item["shortcode"])
+        # Ranking can only choose hydrated posts. Vary which clips from this
+        # already-fetched page get the first bounded detail requests, instead of
+        # always presenting Instagram's same first three after a fresh install.
+        # The remaining order is cached and resumed, with no extra page requests.
+        if len(pending) > self.DETAILS_PER_STEP:
+            random.shuffle(pending)
         state["pending"] = pending
         cursor = page.get("cursor")
         state["cursor"] = cursor

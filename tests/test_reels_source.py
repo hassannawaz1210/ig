@@ -1,4 +1,5 @@
 import json
+import random
 from unittest.mock import patch, MagicMock
 from urllib.parse import parse_qs
 
@@ -46,20 +47,45 @@ class ReelSourceTests(TempDirs):
             self.assertEqual(media.call_count,3)
             self.assertEqual(state['posts'][0]['caption'],'gym memes')
             self.assertEqual(state['posts'][0]['play_count'],123)
-            self.assertEqual(store.media('one')['video_dash_manifest'],'manifest')
+            self.assertEqual(store.media(state['posts'][0]['shortcode'])['video_dash_manifest'],'manifest')
             self.assertEqual(media.call_count,3, 'playback reuses fetched details')
             resumed = ReelStore()
             resumed.more('creator')
             self.assertEqual(tabs.call_count,1, 'pending listings survive restart')
             resumed.more('creator')
-            self.assertEqual([p['shortcode'] for p in resumed.get('creator')['posts']],
-                             ['one','two','three','four','five'])
+            self.assertCountEqual([p['shortcode'] for p in resumed.get('creator')['posts']],
+                                  ['one','two','three','four','five'])
             self.assertFalse(resumed.get('creator')['has_more'])
             self.assertEqual(tabs.call_args.kwargs['after'],'next')
         self.assertFalse(instagram.ProfileCache().path.exists())
         raw = store.cache.load('creator',store.cache.FRESH_FOR)
         self.assertNotIn('session',raw)
         self.assertNotIn('video', raw['posts'][0])
+
+    def test_fresh_listing_varies_first_details_without_extra_requests_or_lost_clips(self):
+        codes = ['clip' + str(i) for i in range(12)]
+        first_batches = []
+        for seed in (1, 2, 3):
+            store = ReelStore()
+            rng = random.Random(seed)
+            with patch('ig.reels.random.shuffle', side_effect=rng.shuffle), \
+                 patch.object(instagram, 'reels_tab', return_value=listing(codes)) as tabs, \
+                 patch.object(instagram, 'media_info', side_effect=detail) as media:
+                state = store.fetch('creator')
+                first_batches.append(tuple(p['shortcode'] for p in state['posts']))
+                self.assertEqual(media.call_count, 3)
+                self.assertEqual(len(state['pending']), 9)
+                pending = [p['shortcode'] for p in state['pending']]
+                resumed = ReelStore()
+                cached = resumed.get('creator')
+                self.assertEqual([p['shortcode'] for p in cached['pending']], pending)
+                while cached['has_more']:
+                    resumed.more('creator')
+                self.assertCountEqual([p['shortcode'] for p in cached['posts']], codes)
+                self.assertEqual(media.call_count, len(codes))
+                tabs.assert_called_once()
+        self.assertEqual(len(set(first_batches)), 3)
+        self.assertTrue(any(set(batch) != set(codes[:3]) for batch in first_batches))
 
     def test_rate_limit_keeps_pending_work_and_does_not_fall_back_to_grid(self):
         store = ReelStore()

@@ -7,9 +7,11 @@ Like individual reels to shape recommendations, save favorites, or block
 accounts you don't want to see. There's keyboard navigation, comments, video
 downloads, automatic song recognition, and phone access over Wi-Fi.
 
-An experimental standalone Android app is being built on this branch. It reuses
-the Python backend and adds a touch-first interface. See [Android setup](android/README.md)
-for build instructions and current limitations.
+The standalone [Android app](https://github.com/hassannawaz1210/ig/releases/download/android-updates/ig-android.apk)
+runs on your phone without a desktop server. It checks GitHub for updates and
+also has **Settings → Check for updates**. Tap Update and confirm Android's
+installer; your feeds and settings stay in place. No app store is needed.
+See [Android setup](android/README.md) for build instructions and current limitations.
 
 ## Getting started
 
@@ -76,7 +78,7 @@ link to your clipboard.
 Search finds accounts in your feeds and opens exact @handles or Instagram links.
 It does not use Instagram's login-only global keyword search. On touch screens,
 hold a playing reel for 2× speed and release to restore its previous speed.
-Paused reels show a pause icon. Drag the bottom progress bar to jump forward or
+Paused reels show a play icon. Drag the bottom progress bar to jump forward or
 backward without changing whether the reel is playing or paused.
 
 Already follow accounts on Instagram? Choose **Settings → Import Instagram
@@ -92,14 +94,14 @@ up to 25 MB; for a larger archive, extract just the following file first.
 The export is processed locally and only account handles are saved. Private
 accounts still cannot be viewed without logging in, which ig does not support.
 
-To move your setup to another device, choose **Settings → Export feeds**.
-Then choose **Settings → Import feeds** on the other device and select that JSON file.
-Review it and press **Merge feeds**: matching feed names are combined, duplicate
-accounts are skipped, and permanent blocklists are combined. Your existing feeds
-and current feed selection stay intact. This file contains feeds and permanent
-blocks; it does not include viewing history, learned preferences, saved reels,
-or temporary session blocks. On Android, choose where to save the export using
-the system file picker.
+To move your setup to another device, choose **Settings → Export backup**.
+Then choose **Settings → Import backup** on the other device and select the JSON file.
+Review it before importing: feeds, permanent blocks, and saved reels are merged
+with what you already have. Sound, auto-scroll, reel transitions, and selected
+feeds are restored from the backup. Older feed-only backups still work and leave
+your settings unchanged. Backups contain saved reel metadata, not video files;
+viewing history, learned preferences, and temporary session blocks are excluded.
+On Android, choose where to save the export using the system file picker.
 
 You can also add accounts from the terminal:
 

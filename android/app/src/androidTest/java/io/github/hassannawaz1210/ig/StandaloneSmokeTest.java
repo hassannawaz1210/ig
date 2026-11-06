@@ -297,7 +297,14 @@ public class StandaloneSmokeTest {
                 SystemClock.sleep(100);
             } while (SystemClock.elapsedRealtime() < deadline);
             assertNotNull("Authenticated feed backup was not saved to selected document", backup);
-            assertTrue("Feed backup did not contain feeds", new JSONObject(backup).has("feeds"));
+            JSONObject exported = new JSONObject(backup);
+            assertEquals("ig-feeds", exported.getString("format"));
+            assertEquals(2, exported.getInt("version"));
+            assertNotNull(exported.getJSONObject("feeds"));
+            assertNotNull(exported.getJSONArray("saved_reels"));
+            JSONObject settings = exported.getJSONObject("settings");
+            assertTrue(settings.has("sound") && settings.has("auto_scroll")
+                    && settings.has("scroll_animation") && settings.has("selected_feeds"));
             assertEquals("Save document picker was not opened", 1, monitor.getHits());
             assertEquals("Export navigated away from Settings", originalPath, evaluate(scenario, "location.pathname"));
         } finally {
@@ -310,7 +317,8 @@ public class StandaloneSmokeTest {
     public void skipLinkHandlingPrompt() {
         InstrumentationRegistry.getInstrumentation().getTargetContext()
                 .getSharedPreferences("ig", Context.MODE_PRIVATE).edit()
-                .putBoolean("linkHandlingPromptShown", true).commit();
+                .putBoolean("linkHandlingPromptShown", true)
+                .putBoolean("disableUpdateChecks", true).commit();
     }
 
     private static boolean appHandles(String url) {

@@ -480,7 +480,7 @@ const KEYS = {
     await sleep(200);
     assert.equal(await evaluate('current'),originalSlot.index,'horizontal browse keeps mixed-feed position');
     assert.equal(await evaluate('posts[current].shortcode'),'branch001');
-    assert.equal(await evaluate("document.getElementById('creator-browse').hidden"),false);
+    assert.equal(await evaluate("document.getElementById('creator-browse')"),null,'no creator-browsing banner');
     await send('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowLeft',code:'ArrowLeft',windowsVirtualKeyCode:37});
     await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowLeft',code:'ArrowLeft',windowsVirtualKeyCode:37});
     assert.equal(await evaluate('posts[current].shortcode'),originalSlot.code);
@@ -545,7 +545,8 @@ const KEYS = {
     assert.equal(mobile.shortcuts,'none','Android has no keyboard-shortcut button');
     assert.equal(mobile.more,'flex','Android reel actions have a visible touch control');
     assert.ok(mobile.rail.some(c=>c.includes('account-action')),'add creator sits in the reel rail');
-    assert.ok(mobile.rail.some(c=>c.includes('profile-action')),'view profile sits in the reel rail');
+    assert.ok(!mobile.rail.some(c=>c.includes('profile-action')),'profile has no redundant rail button');
+    assert.equal(await evaluate(`document.querySelector('#s'+current+' .user').hasAttribute('target')`),false,'username opens profile within the app');
     assert.deepEqual(mobile.navItems,['Watch','Saved','Settings'],'feeds are chosen from the top menu only');
     assert.equal(mobile.autoScrollButton,false,'auto-scroll lives in Settings');
     assert.equal(mobile.navBottom,844,'bottom navigation fits the viewport');
@@ -698,21 +699,24 @@ const KEYS = {
           if (!(options.body instanceof File)) throw new Error('Preview requires raw backup file');
           window.previewedBackup = options.body;
           return new Response(JSON.stringify(backupPreviewError ? {error:'Not an ig feed export'} :
-            {feeds:2,names:['edits','imported'],accounts:3,blocked:1}),{status:backupPreviewError?400:200});
+            {feeds:2,names:['edits','imported'],accounts:3,blocked:1,
+              ...(window.backupVersion2 ? {saved_reels:3,settings:['sound','auto_scroll']} : {})}),{status:backupPreviewError?400:200});
         }
         if (url === '/feeds/import') {
           if (options.body !== previewedBackup) throw new Error('Merge requires exactly the previewed file');
           if (backupMergeError) return new Response(JSON.stringify({error:'Could not merge. Try again.'}),{status:500});
           backupMerges++;
           return new Response(JSON.stringify({feeds:2,added:1,blocked:1,
-            feed_accounts:['creator0','creator1','alpha'],blocked_accounts:['creator0']}));
+            feed_accounts:['creator0','creator1','alpha'],blocked_accounts:['creator0'],
+            ...(window.backupVersion2 ? {saved_reels_added:2,settings_applied:['sound','auto_scroll'],
+              settings_values:{sound:false,auto_scroll:false}} : {})}));
         }
         return previousFetch(url,options);
       };
-      window.pickBackupFile = () => {
+      window.pickBackupFile = (type = 'application/json') => {
         const input = document.querySelector('#feed-picker input[type=file]');
         const files = new DataTransfer();
-        files.items.add(new File(['{}'],'ig-feeds.json',{type:'application/json'}));
+        files.items.add(new File(['{}'],'ig-feeds.json',{type}));
         input.files=files.files; input.dispatchEvent(new Event('change'));
       };
     })()`);
@@ -720,13 +724,18 @@ const KEYS = {
     assert.equal(await evaluate("document.querySelector('.feed-tools').textContent.trim()"),'Open reel link');
     for (const android of [false,true]) {
       await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
-      await evaluate(`document.body.classList.toggle('android-app',${android}); importFeeds()`);
+      await evaluate(`document.body.classList.toggle('android-app',${android}); window.backupVersion2=${android}; importFeeds()`);
+      assert.equal(await evaluate("document.querySelector('#feed-picker input[type=file]').hasAttribute('accept')"),false,
+        'export files remain selectable when a document provider reports a different MIME type');
       assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true);
       await evaluate('backupPreviewError=true; pickBackupFile()'); await sleep(100);
       assert.equal(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),'Not an ig feed export');
       assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').disabled"),true);
-      await evaluate('backupPreviewError=false; pickBackupFile()'); await sleep(100);
+      await evaluate("backupPreviewError=false; pickBackupFile('application/x-json')"); await sleep(100);
       assert.match(await evaluate("document.querySelector('#feed-picker .fp-preview').textContent"),/2 feeds.*3 accounts.*1 permanent block/);
+      assert.match(await evaluate("document.querySelector('#feed-picker .fp-preview').textContent"),android ? /3 saved reels/ : /0 saved reels/);
+      assert.equal(await evaluate("document.querySelector('#feed-picker .fp-settings').hidden"),!android,'only supplied settings are replaced');
+      if(android) assert.match(await evaluate("document.querySelector('#feed-picker .fp-settings').textContent"),/Replace current settings: sound, auto-scroll/);
       assert.equal(await evaluate('backupMerges'),android?1:0,'preview does not merge feeds');
       const bounds=await evaluate(`(() => {const r=document.getElementById('feed-picker').getBoundingClientRect();
         return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};})()`);
@@ -743,6 +752,7 @@ const KEYS = {
       assert.equal(await evaluate("blockedAccounts.has('creator0') && feeded.has('creator0') && feeded.has('creator1')"),true,'blocked feed memberships stay blocked after merge');
       assert.equal(await evaluate("posts.filter(p=>p.owner==='creator0').every(isHidden)"),true,'newly blocked creators disappear immediately');
       assert.match(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),/2 feeds merged.*1 account added.*1 block added/);
+      assert.match(await evaluate("document.querySelector('#feed-picker .fp-status').textContent"),android ? /2 saved reels added.*Settings applied/ : /0 saved reels added/);
       assert.equal(await evaluate("document.querySelector('#feed-picker button[type=submit]').hidden"),true);
       await evaluate("document.querySelector('#feed-picker button[type=button]').click()"); await sleep(50);
     }
@@ -860,6 +870,14 @@ const KEYS = {
       setVideo(post,current,true);const video=document.querySelector('#s'+current+' video');
       if(video.readyState<1)await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
       video.loop=true;video.currentTime=.25;await video.play();
+      video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
+      video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
+      await new Promise(resolve=>setTimeout(resolve,350));
+      if(video.paused || posts[current].feedback!=='like')throw new Error('Double tap must like without pausing');
+      video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
+      video.dispatchEvent(new PointerEvent('click',{bubbles:true,pointerType:'touch',clientX:150,clientY:400}));
+      await new Promise(resolve=>setTimeout(resolve,350));
+      if(posts[current].feedback!=='like')throw new Error('Double tap must not unlike');
       togglePlayback();
       if(document.getElementById('pause'+current).hidden)throw new Error('Paused icon missing');
       const seek=document.getElementById('seek'+current);
@@ -932,6 +950,32 @@ const KEYS = {
     await evaluate(`document.activeElement.blur()`);
     await sleep(1200);
     assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'','then hides once focus leaves');
-    console.log('Reel navigation, feed selection, creation, account entry, imports and shortcut layout passed');
+    await send('Page.navigate',{url:new URL('/u/test_profile',url).href});
+    for(let n=0;!(await evaluate(`typeof lb==='function' && document.querySelector('.card')`));n++) {
+      assert.ok(n<50,'profile did not load');await sleep(100);
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
+    await evaluate('lb(0)');
+    assert.equal(await evaluate(`document.querySelector('button#more')`),null,'profile has no Load more button');
+    await touch('touchStart',[[180,500]]);await touch('touchMove',[[180,300]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cur'),1,'profile swipe up advances one post');
+    await touch('touchStart',[[180,300]]);await touch('touchMove',[[180,500]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cur'),0,'profile swipe down goes back');
+    assert.equal(await evaluate('lbEl.hidden'),false,'swipe down does not close profile viewer');
+    await touch('touchStart',[[260,400]]);await touch('touchMove',[[80,400]]);await touch('touchEnd',[]);
+    assert.equal(await evaluate('cur'),0,'sideways swipe does not change posts');
+    await key('j');assert.equal(await evaluate('cur'),1,'J advances profile post');
+    await key('k');assert.equal(await evaluate('cur'),0,'K goes back in profile');
+    await evaluate('lb(99);step(1)');
+    assert.equal(await evaluate('cur'),100,'profile viewer loads past the old end');
+    assert.equal(await evaluate('store.length'),102,'profile pagination excludes duplicate posts');
+    await send('Emulation.setDeviceMetricsOverride',{width:780,height:360,deviceScaleFactor:1,mobile:true});
+    await sleep(100);
+    const profileLandscape = await evaluate(`(() => {const media=document.getElementById('lbcontent').getBoundingClientRect();const details=document.querySelector('.lbmeta').getBoundingClientRect();return {height:media.height,width:media.width,details:details.width,right:details.right}})()`);
+    assert.ok(profileLandscape.height>=350 && profileLandscape.width>=570,'landscape gives media the available height');
+    assert.ok(profileLandscape.details<=200 && profileLandscape.right<=780,'landscape details fit beside the media');
+    fs.writeFileSync('/tmp/ig-profile-landscape.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    console.log('Reel navigation, profile vertical gestures, feeds, imports and playback passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

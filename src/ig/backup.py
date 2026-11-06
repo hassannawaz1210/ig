@@ -1,9 +1,14 @@
-"""Portable, versioned copies of local feeds and permanent account blocks."""
+"""Portable feeds, saved reel metadata, permanent blocks, and app settings."""
 import json
+import math
+import re
 
-from . import config
+from . import config, recommendations
 
 MAX_BYTES = 5 * 1024 * 1024
+CODE_RE = re.compile(r'^[A-Za-z0-9_-]{5,30}$')
+SAVED_FIELDS = ('shortcode', 'owner', 'caption', 'taken_at', 'like_count', 'comment_count', 'saved_at')
+SETTING_KEYS = {'sound', 'auto_scroll', 'scroll_animation', 'selected_feeds'}
 
 
 class TooLarge(ValueError):
@@ -18,16 +23,60 @@ def _handles(values):
     return list(dict.fromkeys(value.lower() for value in values))
 
 
+def _saved_reels(values):
+    if not isinstance(values, list):
+        raise ValueError('Saved reels must be a list.')
+    reels = {}
+    for value in values:
+        if not isinstance(value, dict) or set(value) - set(SAVED_FIELDS):
+            raise ValueError('The backup contains unsupported saved reel fields.')
+        code, owner = value.get('shortcode'), value.get('owner', '')
+        if not isinstance(code, str) or not CODE_RE.fullmatch(code):
+            raise ValueError('The backup contains an invalid saved reel shortcode.')
+        if not isinstance(owner, str) or (owner and not config.USER_RE.fullmatch(owner)):
+            raise ValueError('The backup contains an invalid saved reel owner.')
+        caption = value.get('caption')
+        if caption is not None and not isinstance(caption, str):
+            raise ValueError('Saved reel captions must be text.')
+        for field in ('taken_at', 'like_count', 'comment_count'):
+            number = value.get(field)
+            if number is not None and (type(number) is not int or not 0 <= number < 2**63):
+                raise ValueError('Saved reel counts and dates must be non-negative integers.')
+        saved_at = value.get('saved_at')
+        if type(saved_at) not in (int, float) or not 0 <= saved_at < 2**63 or not math.isfinite(saved_at):
+            raise ValueError('Saved reels need a valid saved_at timestamp.')
+        reels.setdefault(code, {**{field: value.get(field) for field in SAVED_FIELDS},
+                                'owner': owner.lower()})
+    return list(reels.values())
+
+
+def _settings(value):
+    if not isinstance(value, dict) or set(value) - SETTING_KEYS:
+        raise ValueError('The backup contains unsupported app settings.')
+    for key in ('sound', 'auto_scroll'):
+        if key in value and type(value[key]) is not bool:
+            raise ValueError('Sound and auto-scroll must be true or false.')
+    if 'scroll_animation' in value and value['scroll_animation'] not in ('smooth', 'snappy'):
+        raise ValueError('Choose smooth or snappy scrolling.')
+    selection = value.get('selected_feeds')
+    if selection is not None:
+        if not isinstance(selection, list) or any(not isinstance(name, str) or
+                not config.FEED_RE.fullmatch(name) for name in selection):
+            raise ValueError('Selected feeds must be a list of feed names or null.')
+        value = {**value, 'selected_feeds': list(dict.fromkeys(selection))}
+    return dict(value)
+
+
 def parse(data):
     if len(data) > MAX_BYTES:
-        raise TooLarge('Feed backups must be 5 MB or smaller.')
+        raise TooLarge('Backups must be 5 MB or smaller.')
     try:
         document = json.loads(data)
     except (ValueError, UnicodeError, RecursionError) as error:
-        raise ValueError('Choose a valid ig feed backup JSON file.') from error
+        raise ValueError('Choose a valid ig backup JSON file.') from error
     if not isinstance(document, dict) or document.get('format') != 'ig-feeds':
-        raise ValueError('This is not an ig feed backup.')
-    if type(document.get('version')) is not int or document['version'] != 1:
+        raise ValueError('This is not an ig backup.')
+    if type(document.get('version')) is not int or document['version'] not in (1, 2):
         raise ValueError('This backup version is not supported.')
     feeds = document.get('feeds')
     if not isinstance(feeds, dict):
@@ -37,29 +86,82 @@ def parse(data):
         if not isinstance(name, str) or not config.FEED_RE.fullmatch(name) or name != name.lower():
             raise ValueError('The backup contains an invalid feed name.')
         normalized[name] = _handles(accounts)
-    blocked = _handles(document.get('blocked'))
-    return {'format': 'ig-feeds', 'version': 1, 'feeds': normalized, 'blocked': blocked}
+    result = {'format': 'ig-feeds', 'version': document['version'],
+              'feeds': normalized, 'blocked': _handles(document.get('blocked'))}
+    if document['version'] == 2:
+        result['saved_reels'] = _saved_reels(document.get('saved_reels', []))
+        result['settings'] = _settings(document.get('settings', {}))
+    return result
 
 
 def summary(document):
     return {'feeds': len(document['feeds']),
             'accounts': sum(len(accounts) for accounts in document['feeds'].values()),
-            'blocked': len(document['blocked']), 'names': list(document['feeds'])}
+            'blocked': len(document['blocked']), 'names': list(document['feeds']),
+            'saved_reels': len(document.get('saved_reels', [])),
+            'settings': list(document.get('settings', {}))}
+
+
+def _attach_saved_reels(db):
+    db.execute('ATTACH DATABASE ? AS saved_data',
+               (str(config.CONFIG_DIR / 'recommendations.sqlite3'),))
 
 
 def export():
+    # Complete schema upgrades before attaching; the snapshot itself uses one
+    # connection and reads only explicitly portable fields from both databases.
+    with recommendations.database():
+        pass
     with config.database(readonly=True) as db:
-        document = {'format': 'ig-feeds', 'version': 1, 'feeds': config._read_feeds(db),
-                    'blocked': [row[0] for row in db.execute('SELECT username FROM blocked_accounts ORDER BY username')]}
-    data = json.dumps(document, ensure_ascii=False, separators=(',', ':')).encode() + b'\n'
+        _attach_saved_reels(db)
+        feeds = config._read_feeds(db)
+        preferences = dict(db.execute('SELECT key, value FROM text_preferences'))
+        selection = json.loads(preferences['selected_feeds'])
+        if selection is not None:
+            selection = [name for name in selection if name in feeds]
+        settings = {**config._playback_preferences(db),
+                    'scroll_animation': preferences.get('scroll_animation', 'snappy'),
+                    'selected_feeds': selection}
+        saved = [dict(zip(SAVED_FIELDS, row)) for row in db.execute(
+            'SELECT code, owner, caption, taken_at, like_count, comment_count, saved_at '
+            'FROM saved_data.saved_reels ORDER BY saved_at DESC, code')]
+        document = {'format': 'ig-feeds', 'version': 2, 'feeds': feeds,
+                    'blocked': [row[0] for row in db.execute('SELECT username FROM blocked_accounts ORDER BY username')],
+                    'saved_reels': saved, 'settings': settings}
+    data = json.dumps(document, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode() + b'\n'
     if len(data) > MAX_BYTES:
-        raise TooLarge('Your feeds exceed the 5 MB backup limit. No backup was created.')
+        raise TooLarge('Your data exceeds the 5 MB backup limit. No backup was created.')
+    parse(data)  # Never offer a file this version of ig cannot import.
     return data
 
 
+def _merge_saved_reels(db, saved):
+    before = db.total_changes
+    db.executemany('INSERT OR IGNORE INTO saved_data.saved_reels '
+        '(code, owner, caption, url, taken_at, like_count, comment_count, image, saved_at) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)',
+        [(reel['shortcode'], reel['owner'], reel['caption'],
+          'https://www.instagram.com/reel/' + reel['shortcode'] + '/',
+          reel['taken_at'], reel['like_count'], reel['comment_count'], reel['saved_at']) for reel in saved])
+    return db.total_changes - before
+
+
+def _merge_settings(db, settings):
+    db.executemany('INSERT INTO text_preferences(key, value) VALUES (?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        [(key, value if key == 'scroll_animation' else json.dumps(value)) for key, value in settings.items()])
+
+
 def merge(document):
-    """Merge a validated document in one transaction; keep all existing settings."""
+    """Merge a validated backup in one transaction; existing saved records win."""
+    saved = document.get('saved_reels', []) if document['version'] == 2 else []
+    settings = document.get('settings', {}) if document['version'] == 2 else {}
+    if saved:
+        with recommendations.database():
+            pass
     with config.database() as db:
+        if saved:
+            _attach_saved_reels(db)
         feeds = config._read_feeds(db)
         added = 0
         for name, accounts in document['feeds'].items():
@@ -68,11 +170,18 @@ def merge(document):
             additions = [account for account in accounts if account not in known]
             existing.extend(additions)
             added += len(additions)
+        selection = settings.get('selected_feeds')
+        if selection is not None and any(name not in feeds for name in selection):
+            raise ValueError('The selected feeds are missing from this backup and your profile.')
         blocks = {row[0] for row in db.execute('SELECT username FROM blocked_accounts')}
         new_blocks = [account for account in document['blocked'] if account not in blocks]
         config._write_feeds(db, feeds)
         db.executemany('INSERT INTO blocked_accounts VALUES (?)', [(account,) for account in new_blocks])
+        saved_added = _merge_saved_reels(db, saved) if saved else 0
+        _merge_settings(db, settings)
         feed_accounts = list(dict.fromkeys(account for accounts in feeds.values() for account in accounts))
         blocked_accounts = sorted(blocks | set(new_blocks))
     return {'feeds': len(document['feeds']), 'added': added, 'blocked': len(new_blocks),
+            'saved_reels_added': saved_added, 'settings_applied': list(settings), 'settings_values': settings,
+            'saved_codes': [reel['shortcode'] for reel in saved],
             'feed_accounts': feed_accounts, 'blocked_accounts': blocked_accounts}
