@@ -144,6 +144,8 @@ async function launch() {
     assert.equal((await card({message:'ig is up to date',action:'',dismissible:false})).kind,'done');
     assert.ok(await evaluate("(() => { const c=document.getElementById('ig-update-card').getBoundingClientRect(); return c.bottom<=innerHeight && c.left>=0 && c.right<=innerWidth; })()"),'card stays on screen');
     assert.equal(await evaluate("document.body.classList.contains('update-card-open')"),true,'Settings leaves room for the card');
+    await card({message:'Checking for updates…',action:'',dismissible:true});
+    assert.equal(await evaluate("document.querySelectorAll('.ig-update-spinner, .busy').length"),1,'only one loader while checking');
     assert.equal(await card(null),null,'empty notice hides the card');
     assert.equal(await evaluate("document.body.classList.contains('update-card-open')"),false);
     assert.equal(await evaluate("document.getElementById('update-state').hidden"),true);

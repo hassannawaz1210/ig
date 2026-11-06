@@ -33,7 +33,6 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -80,6 +79,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     private AppUpdater updater;
     // Latest update notice as JSON for the page; re-sent after each page load.
     private String updateNotice = "null";
+    private boolean replaceStartingPage;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -152,7 +152,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
                         pendingBackupDestination = null;
                         writeFeedsBackup(destination);
                     }
-                    createWebView();
+                    if (web == null) createWebView();  // normally the startup screen's WebView
                     CookieManager cookies = CookieManager.getInstance();
                     cookies.setAcceptCookie(true);
                     cookies.setAcceptThirdPartyCookies(web, false);
@@ -172,12 +172,27 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         });
     }
 
+    /**
+     * While Python starts, show the app's layout (assets/starting.html) in the
+     * WebView that will then load the real page. Creating it now also prepares
+     * WebView in parallel with the backend instead of after it.
+     */
     private void showLoading() {
-        root.removeAllViews();
-        root.setGravity(Gravity.CENTER);
-        root.addView(new ProgressBar(this));
-        TextView label = label("Opening ig…");
-        root.addView(label);
+        createWebView();
+        replaceStartingPage = true;
+        web.loadDataWithBaseURL(null, startingPage(), "text/html", "utf-8", null);
+    }
+
+    private String startingPage() {
+        try (InputStream input = getAssets().open("starting.html")) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            for (int read; (read = input.read(buffer)) > 0; ) bytes.write(buffer, 0, read);
+            return bytes.toString("UTF-8");
+        } catch (IOException error) {
+            android.util.Log.w("ig", "Could not read the startup screen", error);
+            return "<body style=\"margin:0;background:#000;color:#ccc;font:15px system-ui;display:grid;place-items:center;height:100vh\">Starting ig…</body>";
+        }
     }
 
     private TextView label(String text) {
@@ -224,8 +239,11 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
                 return routeNavigation(request.getUrl());
             }
             @Override public void onPageFinished(WebView view, String url) {
+                if (url == null || !isLocal(Uri.parse(url))) return;
+                // Back should not return to the startup screen.
+                if (replaceStartingPage) { replaceStartingPage = false; view.clearHistory(); }
                 // A new page has no update card yet; show the current notice again.
-                if (url != null && isLocal(Uri.parse(url))) sendUpdateNotice();
+                sendUpdateNotice();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame() && isLocal(request.getUrl()))

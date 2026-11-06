@@ -12,14 +12,12 @@ const checkUpdates = document.getElementById('check-updates');
 checkUpdates.hidden = !boot.android;
 // The app's update card lives in the top page (common.js); mirror its state here.
 function showUpdateState(notice) {
-  const state = document.getElementById('update-state'), indicator = document.getElementById('update-indicator');
+  // Text only: the floating card already shows the spinner and progress.
+  const state = document.getElementById('update-state');
   state.hidden = !notice?.message;
   // The card floats over this page too (from the top page); leave room for it.
   document.body.classList.toggle('update-card-open', !!notice?.message);
   state.textContent = notice?.message || '';
-  const busy = !!notice && !notice.action && /…$/.test(notice.message);
-  indicator.className = 'update-indicator' + (busy ? ' busy' : '');
-  indicator.textContent = busy ? '' : '›';
 }
 {
   try {

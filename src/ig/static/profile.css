@@ -51,6 +51,8 @@ a { color:inherit; }
 .grid[data-layout="grid"] .overlay { display:flex; position:absolute; left:0; right:0; bottom:0; gap:10px;
   padding:16px 8px 6px; font-size:12px; font-weight:600; background:linear-gradient(transparent,#000a); pointer-events:none; }
 .grid[data-layout="grid"] .overlay span { display:inline-flex; align-items:center; gap:3px; }
+.grid[data-layout="grid"] .overlay { overflow:hidden; white-space:nowrap; }
+.grid[data-layout="grid"] .overlay .age { margin-left:auto; font-weight:500; color:#e6e6ea; }
 
 /* Cards: picture with stats and caption below */
 .grid[data-layout="cards"] { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }
@@ -103,6 +105,8 @@ a { color:inherit; }
   .grid { padding:0 12px 28px; }
   .grid[data-layout="grid"] { grid-template-columns:repeat(3,1fr); gap:2px; padding:0 0 28px; }
   .grid[data-layout="grid"] .card { border-radius:0; }
+  /* Small tiles fit likes and age; views stay in Cards, List and the viewer. */
+  .grid[data-layout="grid"] .overlay .plays { display:none; }
   .grid[data-layout="cards"] { grid-template-columns:1fr; gap:12px; }
   .grid[data-layout="list"] .imgwrap { width:96px; }
   .lb .nav { display:none; }  /* swipe instead */

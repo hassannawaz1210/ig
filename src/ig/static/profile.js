@@ -34,6 +34,18 @@ const fmt = n => (n??0).toLocaleString();
 const short = n => n == null ? '' : Intl.NumberFormat(undefined, {notation:'compact', maximumFractionDigits:1}).format(n);
 const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
+// How old a post is, short for thumbnails ("3d", "2w", "1y") or written out.
+const AGE_UNITS = [['y', 'year', 31536000], ['mo', 'month', 2592000], ['w', 'week', 604800],
+                   ['d', 'day', 86400], ['h', 'hour', 3600], ['m', 'minute', 60]];
+function postAge(t, {short = false} = {}, now = Date.now()) {
+  if (!t) return '';
+  const seconds = Math.max(0, Math.round(now / 1000 - t));
+  for (const [abbr, unit, size] of AGE_UNITS) {
+    const count = Math.floor(seconds / size);
+    if (count >= 1) return short ? count + abbr : `${count} ${unit}${count === 1 ? '' : 's'} ago`;
+  }
+  return short ? 'now' : 'just now';
+}
 
 // Layout choice (grid, cards or list), remembered in this browser.
 const LAYOUTS = ['grid', 'cards', 'list'];
@@ -64,14 +76,15 @@ function showMissingImage(img) {
 function card(p, i) {
   const badge = p.is_video ? '▶'
               : p.is_carousel ? `⧉ ${p.carousel_count || ''}` : '';
-  const plays = p.play_count ? `<span>${icon('play') || '▶'} ${short(p.play_count)}</span>` : '';
+  const plays = p.play_count ? `<span class="plays">${icon('play') || '▶'} ${short(p.play_count)}</span>` : '';
   return `<div class="card" role="button" tabindex="0" onclick="lb(${i})" onkeydown="if(event.key==='Enter')lb(${i})">
     <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
       onerror="showMissingImage(this)">` : '<div class="missing">no preview</div>'}
       ${badge ? `<div class="badge">${badge}</div>` : ''}
-      <div class="overlay"><span>${icon('heart')} ${short(p.like_count)}</span>${plays}</div></div>
+      <div class="overlay"><span>${icon('heart')} ${short(p.like_count)}</span>${plays}
+        ${p.taken_at ? `<span class="age" title="${esc(fdate(p.taken_at))}">${postAge(p.taken_at, {short:true})}</span>` : ''}</div></div>
     <div class="meta"><div class="stats"><span>${icon('heart')} ${fmt(p.like_count)}</span>
-      <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${fdate(p.taken_at)}</span></div>
+      <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,240))}</div></div></div>`;
 }
 function render() {
@@ -113,7 +126,7 @@ function lb(i) {
   document.querySelector('#lb .prev').disabled = i === 0;
   document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
   document.getElementById('lbstats').innerHTML =
-    `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${fdate(p.taken_at)}</span>`;
+    `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
   document.getElementById('lbcap').textContent = p.caption || '';
   const box = document.getElementById('lbcontent');
   if (p._rich) {
