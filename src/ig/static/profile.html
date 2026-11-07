@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>{{title}}</title>
-<link rel="stylesheet" href="/static/profile.css"></head>
+<link rel="stylesheet" href="/static/profile.css"><link rel="stylesheet" href="/static/zoom.css"></head>
 <body>
 <header class="page-header">
   <a class="back" href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a>
@@ -11,6 +11,8 @@
   </div>
   {{add_button}}
 </header>
+{{profile_header}}
+<main class="profile-posts">
 <div class="toolbar">
   <div class="layouts" role="radiogroup" aria-label="Layout">
     <button type="button" role="radio" data-layout="grid" title="Grid" aria-label="Grid"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
@@ -20,16 +22,25 @@
 </div>
 <div class="grid" id="grid" data-layout="grid"></div>
 {{more_button}}
+</main>
 
 <div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Post">
   <div class="lbtop">
     <span class="lbpos" id="lbpos"></span>
-    <button class="x" type="button" onclick="closeLb()" title="Close (Esc)" aria-label="Close">✕</button>
+    <button class="x" type="button" onclick="closeLb()" title="Close (Esc)" aria-label="Close">{{icon:close}}</button>
   </div>
   <button class="nav prev" type="button" onclick="step(-1)" title="Previous (↑ / K)" aria-label="Previous">⌃</button>
   <div id="lbcontent"></div>
   <button class="nav next" type="button" onclick="step(1)" title="Next (↓ / J)" aria-label="Next">⌄</button>
   <div class="lbmeta">
+    <div class="lbactions" aria-label="Post actions">
+      <button id="lb-like" type="button" onclick="likeProfilePost()" aria-label="Like">{{icon:heart}}</button>
+      <button id="lb-comments-toggle" type="button" onclick="toggleProfileComments()" aria-label="Comments" aria-expanded="false">{{icon:comment}}</button>
+      <button id="lb-share" type="button" onclick="shareProfilePost()" aria-label="Share">{{icon:share}}</button>
+      <button id="lb-download" type="button" onclick="downloadProfilePost(this)" aria-label="Download">{{icon:download}}</button>
+      <button id="lb-zoom" type="button" onclick="zoomProfilePost()" aria-label="Zoom">{{icon:search}}</button>
+      <button id="lb-save" type="button" onclick="saveProfilePost()" aria-label="Save reel">{{icon:bookmark}}</button>
+    </div>
     <div class="lbstats" id="lbstats"></div>
     <div class="lbcap" id="lbcap"></div>
     <div class="lbbtns">
@@ -38,8 +49,14 @@
   </div>
 </div>
 
+<aside id="profile-comments" hidden role="dialog" aria-label="Comments">
+  <header><h2>Comments</h2><button type="button" onclick="closeProfileComments()" aria-label="Close comments">{{icon:close}}</button></header>
+  <div id="profile-comments-body" tabindex="0"></div>
+</aside>
+<div id="profile-action-status" role="status" aria-live="polite"></div>
 <script id="boot" type="application/json">{{boot}}</script>
 <script src="/static/icons.js"></script>
 <script src="/static/common.js"></script>
+<script src="/static/zoom.js"></script>
 <script src="/static/profile.js"></script>
 </body></html>

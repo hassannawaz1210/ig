@@ -112,11 +112,13 @@ public class StandaloneSmokeTest {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         AtomicReference<Intent> shared = new AtomicReference<>();
         CountDownLatch opened = new CountDownLatch(1);
+        CountDownLatch photoOpened = new CountDownLatch(1);
         Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {
             @Override public Instrumentation.ActivityResult onStartActivity(Intent intent) {
                 if (!Intent.ACTION_CHOOSER.equals(intent.getAction())) return null;
                 shared.set(intent.getParcelableExtra(Intent.EXTRA_INTENT));
                 opened.countDown();
+                if (shared.get() != null && "https://www.instagram.com/p/DSmBF6-k8rM/".equals(shared.get().getStringExtra(Intent.EXTRA_TEXT))) photoOpened.countDown();
                 return new Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null);
             }
         };
@@ -128,6 +130,9 @@ public class StandaloneSmokeTest {
             assertEquals(Intent.ACTION_SEND, shared.get().getAction());
             assertEquals("text/plain", shared.get().getType());
             assertEquals("https://www.instagram.com/reel/DSmBF6-k8rM/", shared.get().getStringExtra(Intent.EXTRA_TEXT));
+            evaluate(scenario, "location.href='/share/post/DSmBF6-k8rM'");
+            assertTrue("Photo share chooser did not open", photoOpened.await(5, TimeUnit.SECONDS));
+            assertEquals("https://www.instagram.com/p/DSmBF6-k8rM/", shared.get().getStringExtra(Intent.EXTRA_TEXT));
             assertEquals("true", evaluate(scenario, "location.href===beforeShareUrl && document.getElementById('feed')===beforeShareFeed"));
         } finally { instrumentation.removeMonitor(monitor); }
     }

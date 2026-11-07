@@ -381,11 +381,11 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
                     default: return true;
                 }
             }
-            if (uri.getPath() != null && uri.getPath().matches("/share/[A-Za-z0-9_-]{5,30}")) {
+            if (uri.getPath() != null && uri.getPath().matches("/share/(post/)?[A-Za-z0-9_-]{5,30}")) {
                 String code = uri.getLastPathSegment();
                 Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                        .putExtra(Intent.EXTRA_TEXT, "https://www.instagram.com/reel/" + code + "/");
-                try { startActivity(Intent.createChooser(share, "Share reel")); }
+                        .putExtra(Intent.EXTRA_TEXT, "https://www.instagram.com/" + (uri.getPath().startsWith("/share/post/") ? "p/" : "reel/") + code + "/");
+                try { startActivity(Intent.createChooser(share, "Share post")); }
                 catch (ActivityNotFoundException | SecurityException error) {
                     Toast.makeText(this, "Could not open sharing", Toast.LENGTH_SHORT).show();
                 }
@@ -418,16 +418,21 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
             return;
         }
         if (!isLocal(uri) || path == null || !path.matches("/download/[A-Za-z0-9_-]{5,30}")) return;
-        String filename = path.substring("/download/".length()) + ".mp4";
+        String format = uri.getQueryParameter("format");
+        if (format == null || !format.matches("jpg|png|webp|avif")) format = "mp4";
+        String slide = uri.getQueryParameter("slide");
+        String suffix = slide != null && slide.matches("[0-9]{1,2}") ? "-" + (Integer.parseInt(slide) + 1) : "";
+        String filename = path.substring("/download/".length()) + suffix + "." + format;
+        String mime = format.equals("mp4") ? "video/mp4" : "image/" + (format.equals("jpg") ? "jpeg" : format);
         try {
             DownloadManager.Request request = new DownloadManager.Request(uri)
                     .addRequestHeader("Cookie", "ig_android=" + token)
                     .setTitle(filename)
-                    .setMimeType("video/mp4")
+                    .setMimeType(mime)
                     .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                     .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, filename);
             ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
-            Toast.makeText(this, "Downloading reel", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Downloading post", Toast.LENGTH_SHORT).show();
         } catch (RuntimeException error) {
             Toast.makeText(this, "Could not start download", Toast.LENGTH_LONG).show();
         }
@@ -677,7 +682,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
 
     @Override public void onBackPressed() {
         if (web == null) { super.onBackPressed(); return; }
-        web.evaluateJavascript("(()=>{if(typeof exitCleanView==='function'&&exitCleanView())return true;if(typeof handleLocalBack==='function'&&handleLocalBack())return true;const d=document.querySelector('dialog[open]');if(d){d.close();return true;}const c=document.getElementById('comments-panel');if(c&&!c.hidden){closeComments();return true;}const f=document.getElementById('feed-menu');if(f&&f.open){f.open=false;return true;}return false;})()", handled -> {
+        web.evaluateJavascript("(()=>{if(typeof exitCleanView==='function'&&exitCleanView())return true;if(typeof handleLocalBack==='function'&&handleLocalBack())return true;if(typeof handleProfileBack==='function'&&handleProfileBack())return true;const d=document.querySelector('dialog[open]');if(d){d.close();return true;}const c=document.getElementById('comments-panel');if(c&&!c.hidden){closeComments();return true;}const f=document.getElementById('feed-menu');if(f&&f.open){f.open=false;return true;}return false;})()", handled -> {
             if ("true".equals(handled)) return;
             if (web != null && web.canGoBack()) web.goBack();
             else MainActivity.super.onBackPressed();

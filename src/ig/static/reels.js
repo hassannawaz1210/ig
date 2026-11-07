@@ -1504,6 +1504,7 @@ function togglePlayback() {
   if (video) p._paused ? video.pause() : playVideo(video);
 }
 function showSlide(i) {
+  if (typeof reelZoom !== 'undefined') reelZoom?.reset();
   cancelPendingTap();
   stopReelHold();
   if (creatorTrail && i !== creatorTrail.index) leaveCreatorBrowse();
@@ -1842,6 +1843,7 @@ feed.addEventListener('scroll', noteScroll, {passive:true});
 // from pauses between scroll events: slow dragging and momentum can both pause.
 // Cancel native vertical panning and commit one move when the finger lifts.
 // Clean view is deliberately per page: navigation overlays leave the player intact.
+const reelZoom = window.createMediaZoom?.();
 let cleanView = false, cleanViewHintShown = false, cleanSeekTimer = null;
 function setCleanView(enabled) {
   cleanView = Boolean(enabled);
@@ -1885,6 +1887,10 @@ document.addEventListener('touchstart', event => {
     if (cleanSeekTouch?.range) delete cleanSeekTouch.range.dataset.scrubbing;
     if (!cleanGesture) {
       const points = [...event.touches];
+      if (points.length === 2 && points.every(t => cleanVideoTarget(t.target))) {
+        const slide = points[0].target.closest('.slide');
+        reelZoom?.begin(slide.querySelector('video') || slide.querySelector('img.poster'), points);
+      }
       cleanGesture = {at:cleanFirstTouch?.at ?? performance.now(), valid:!cleanSeekTouch && !cleanFirstTouch?.moved && points.length === 2 && points.every(t => cleanVideoTarget(t.target)),
         points:new Map(points.map(t => [t.identifier,{x:t.clientX,y:t.clientY}]))};
     } else cleanGesture.valid = false;
@@ -1917,6 +1923,7 @@ document.addEventListener('touchmove', event => {
     return;
   }
   if (!cleanGesture) return;
+  reelZoom?.move(event.touches);
   for (const touch of event.touches) {
     const start = cleanGesture.points.get(touch.identifier);
     if (!start || Math.hypot(touch.clientX-start.x,touch.clientY-start.y) > 12) cleanGesture.valid = false;
@@ -1934,6 +1941,7 @@ document.addEventListener('touchend', event => {
   consumeCleanGesture(event);
   if (!event.touches.length) {
     const toggle = cleanGesture.valid && performance.now()-cleanGesture.at <= 300;
+    reelZoom?.end();
     cleanGesture = null; cleanSeekTouch = false;
     if (toggle) toggleCleanView();
   }
@@ -1943,6 +1951,7 @@ document.addEventListener('touchcancel', event => {
   resetCleanGesture();
 }, {capture:true,passive:false});
 function resetCleanGesture() {
+  reelZoom?.reset();
   if (cleanSeekTouch?.range) delete cleanSeekTouch.range.dataset.scrubbing;
   cleanGesture = null; cleanFirstTouch = null; cleanSeekTouch = false;
 }
@@ -1954,6 +1963,23 @@ feed.addEventListener('pointermove', event => {
   if (slide && event.clientY >= slide.getBoundingClientRect().bottom-48) revealCleanSeek();
 });
 feed.addEventListener('input', event => { if (event.target.closest('.reel-seek')) revealCleanSeek(); });
+feed.addEventListener('wheel', event => {
+  if (!cleanVideoTarget(event.target)) return;
+  const slide = event.target.closest('.slide');
+  reelZoom?.wheel(slide.querySelector('video') || slide.querySelector('img.poster'), event);
+}, {capture:true,passive:false});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && reelZoom?.isZoomed()) {
+    event.preventDefault(); event.stopImmediatePropagation(); reelZoom.reset();
+  }
+}, true);
+function zoomCurrentReel() {
+  const slide = document.getElementById('s'+current);
+  if (!slide) return;
+  if (reelZoom?.isZoomed()) reelZoom.reset();
+  else reelZoom?.zoom(slide.querySelector('video') || slide.querySelector('img.poster'));
+}
+
 let reelTouch = null;
 let reelHold = null, ignoreHoldClickUntil = 0;
 function stopReelHold() {

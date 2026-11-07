@@ -20,7 +20,8 @@
     color:white;z-index:3;pointer-events:none; }
   .pause-indicator[hidden] { display:none; }
   .pause-indicator .icon { width:36px;height:36px; }
-  .slide video { touch-action:manipulation; }
+  .slide video, .slide img.poster { touch-action:none; }
+  .slide { overflow:hidden; }
   .tap-heart { position:absolute;left:50%;top:50%;z-index:5;pointer-events:none;animation:like-heart .7s ease-out both; }
   .tap-heart .icon { width:84px;height:84px;fill:#fff;stroke:#fff;filter:drop-shadow(0 2px 8px #0008); }
   @keyframes like-heart { 0% {transform:translate(-50%,-50%) scale(.4);opacity:0}

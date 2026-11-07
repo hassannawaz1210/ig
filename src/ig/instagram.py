@@ -550,7 +550,7 @@ class ProfileCache:
     FALLBACK_FOR = 24 * 60 * 60
     KEEP_FOR = 7 * 24 * 60 * 60
     MAX_PROFILES = 1000
-    STORED_KEYS = ("user_id", "username", "biography", "posts", "cursor", "has_more", "fetched_at")
+    STORED_KEYS = ("user_id", "username", "biography", "profile", "posts", "cursor", "has_more", "fetched_at")
 
     @property
     def path(self):
@@ -648,6 +648,16 @@ class ProfileStore:
             "csrf": s.cookies.get("csrftoken", ""),
             "user_id": user.get("id"), "username": user.get("username", username),
             "biography": user.get("biography") or "",
+            "profile": {
+                "full_name": user.get("full_name") or "",
+                "avatar": user.get("profile_pic_url") or "",
+                "biography": user.get("biography") or "",
+                "followers": user.get("follower_count"),
+                "following": user.get("following_count"),
+                "post_count": user.get("all_media_count"),
+                "verified": bool(user.get("is_verified")),
+                "external_url": user.get("external_url") or "",
+            },
             "posts": [slim(e["node"]) for e in conn.get("edges") or []],
             "cursor": (conn.get("page_info") or {}).get("end_cursor"),
             "has_more": (conn.get("page_info") or {}).get("has_next_page", False),

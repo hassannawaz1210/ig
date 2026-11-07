@@ -486,6 +486,7 @@ function showReelActions(index = current) {
   if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));
   action('Download video', 'download', () => downloadReel(index, document.getElementById('s'+index)?.querySelector('.download')));
   action('Block for this session', 'less', () => { if (current !== index) showSlide(index); blockCurrent(true); });
+  action('Zoom', 'search', () => zoomCurrentReel());
   action('Remove from feeds', 'trash', () => confirmRemoveCreator(post.owner, document.getElementById('s'+index)?.querySelector('.account-action')));
   dialog.append(actions); dialog.showModal();
 }

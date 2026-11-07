@@ -151,8 +151,14 @@ class Handler(BaseHTTPRequestHandler):
     def _allowed(self) -> bool:
         return self.access is None or self.access.allow(self)
 
-    def _download(self, code):
+    def _download(self, code, slide=None):
         try:
+            if slide is not None:
+                data = media_info(code)
+                items = data.get('slides') or []
+                if slide >= len(items):
+                    return self._send(404, b'Post item not found', 'text/plain')
+                return self._download_progressive(f'{code}-{slide + 1}', items[slide])
             # Saved files get the same best-quality stream as playback.
             path = dash.cached(code)
             if path is None:
@@ -173,9 +179,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(502, b"Download failed. Please try again.", "text/plain")
 
     def _download_progressive(self, code, data):
-        url = data.get("video")
+        is_image = not data.get('video')
+        url = data.get('video') or data.get('image')
         if not url:
-            return self._send(404, b"No video available for this post", "text/plain")
+            return self._send(404, b'No downloadable media for this post', 'text/plain')
         # Resolve only Instagram media URLs, never arbitrary URLs from the client.
         parsed = urlsplit(url)
         host = parsed.hostname or ""
@@ -190,8 +197,15 @@ class Handler(BaseHTTPRequestHandler):
                 if response.status_code != 200:
                     log.warning("Video download for %s returned HTTP %s", code, response.status_code)
                     return self._send(502, b"Could not fetch video. Try again.", "text/plain")
+                mime = response.headers.get('Content-Type', '').split(';')[0].lower()
+                image_types = {'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/avif': 'avif'}
+                if is_image and mime not in image_types:
+                    return self._send(502, b'Unexpected image format', 'text/plain')
+                extension = image_types[mime] if is_image else 'mp4'
                 for chunk in response.iter_content():
                     file.write(chunk)
+                    if is_image and file.tell() > 50 * 1024 * 1024:
+                        return self._send(502, b'Image is too large to download', 'text/plain')
             finally:
                 response.close()
             size = file.tell()
@@ -199,9 +213,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(502, b"Video was empty. Try again.", "text/plain")
             file.seek(0)
             self.send_response(200)
-            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Type", mime if is_image else "video/mp4")
             self.send_header("Content-Length", str(size))
-            self.send_header("Content-Disposition", f'attachment; filename="{code}.mp4"')
+            self.send_header("Content-Disposition", f'attachment; filename="{code}.{extension}"')
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             shutil.copyfileobj(file, self.wfile)
@@ -313,10 +327,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, b"not found", "text/plain")
             return self._send(200, *found)
         if self.path.startswith("/download/"):
-            code = self.path.removeprefix("/download/")
+            code = urlsplit(self.path).path.removeprefix("/download/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
                 return self._send(400, b"invalid post code", "text/plain")
-            return self._download(code)
+            values = parse_qs(urlsplit(self.path).query).get('slide')
+            if values and (len(values) != 1 or not re.fullmatch(r'[0-9]{1,2}', values[0])):
+                return self._send(400, b'invalid carousel item', 'text/plain')
+            return self._download(code, int(values[0]) if values else None)
         if self.path.startswith("/video/"):
             code = self.path.removeprefix("/video/")
             if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
@@ -364,7 +381,7 @@ class Handler(BaseHTTPRequestHandler):
                 state = load_profile(username)
                 html = viewer_html(f"@{username}",
                                    "Posts",
-                                   state["posts"], username)
+                                   state["posts"], username, profile=state.get("profile") or {"biography": state.get("biography", "")})
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
                 return self._fail(error, context=f"Opening @{username}")
@@ -380,6 +397,8 @@ class Handler(BaseHTTPRequestHandler):
         data = media_info(code)
         data.setdefault('shortcode', code)
         recommendations.remember_reels([data])
+        data['saved'] = code in recommendations.saved_codes([code])
+        data['feedback'] = recommendations.feedback_for([code]).get(code)
         manifest = data.pop('video_dash_manifest', None)
         if not config.ANDROID and manifest and dash.plan(manifest):
             # Play the locally assembled best-quality stream instead of the

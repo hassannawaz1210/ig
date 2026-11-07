@@ -117,10 +117,29 @@ function richHtml(p) {
   return `<img src="${esc(p.image)}" alt="">`;
 }
 const lbEl = document.getElementById('lb');
+let profileMediaVersion = 0;
+function ensureProfileMedia(post) {
+  if (post._rich) return Promise.resolve(post);
+  if (post._mediaRequest) return post._mediaRequest;
+  post._mediaRequest = fetch(location.pathname + '/media', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({code:post.shortcode}),
+  }).then(async response => {
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || 'Could not load media');
+    Object.assign(post, data, {_rich:true});
+    return post;
+  }).finally(() => { post._mediaRequest = null; });
+  return post._mediaRequest;
+}
+
 function lb(i) {
   if (!store[i]) return;
+  profileZoom?.reset();
   document.querySelectorAll('#lb video').forEach(v => v.pause());
   cur = i; const p = store[i];
+  const version = ++profileMediaVersion;
+  profileNotice('');
+  updateProfileActions(p);
   document.getElementById('lbopen').href = p.url;
   document.getElementById('lbpos').textContent = `${i + 1} / ${store.length}`;
   document.querySelector('#lb .prev').disabled = i === 0;
@@ -133,16 +152,14 @@ function lb(i) {
     box.innerHTML = richHtml(p);
   } else if (p.is_video || p.is_carousel) {
     box.innerHTML = '<div class="loading">Loading…</div>';
-    fetch(location.pathname + '/media', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code: p.shortcode}),
-    }).then(r => r.json()).then(d => {
-      if (d.error) { if (cur === i) box.innerHTML = `<div class="loading">${esc(d.error)}</div>`; return; }
-      Object.assign(p, d, {_rich: true});
-      if (!lbEl.hidden && cur === i) box.innerHTML = richHtml(p);
+    ensureProfileMedia(p).then(() => {
+      if (!lbEl.hidden && cur === i && version === profileMediaVersion) {
+        box.innerHTML = richHtml(p);
+        updateProfileActions(p);
+      }
     }).catch(error => {
       console.warn('Could not load media for ' + p.shortcode, error);
-      if (cur === i) box.innerHTML = '<div class="loading">Could not load media · try again</div>';
+      if (cur === i && version === profileMediaVersion) box.innerHTML = '<button class="loading" type="button" onclick="lb(cur)">Could not load media · Retry</button>';
     });
   } else {
     box.innerHTML = `<img src="${esc(p.image)}" alt="">`;
@@ -154,16 +171,27 @@ function lb(i) {
     history.pushState({viewer:true}, '');
   }
   if (store.length - i <= 4) loadMorePosts();
+  if (profileCommentsOpen()) showProfileComments(p);
 }
 function hideLb() {
+  profileZoom?.reset();
+  ++profileMediaVersion;
+  closeProfileComments();
   document.querySelectorAll('#lb video').forEach(v => v.pause());
   lbEl.hidden = true;
   document.body.style.overflow = '';
 }
 function closeLb() {
   if (lbEl.hidden) return;
+  if (profileZoom?.isZoomed()) {profileZoom.reset(); return;}
+  if (profileCommentsOpen()) { closeProfileComments(); return; }
   if (history.state?.viewer) history.back();  // popstate hides it
   else hideLb();
+}
+function handleProfileBack() {
+  if (lbEl.hidden) return false;
+  closeLb();
+  return true;
 }
 window.addEventListener('popstate', () => { if (!lbEl.hidden) hideLb(); });
 async function step(d) {
@@ -177,7 +205,10 @@ async function step(d) {
 }
 document.addEventListener('keydown', e => {
   if (document.getElementById('feed-picker') || lbEl.hidden || e.target.closest('input,textarea,select')) return;
-  if (e.key === 'Escape') closeLb();
+  if (e.key === 'Escape') { e.preventDefault(); closeLb(); return; }
+  if (e.key.toLowerCase() === 'c') { e.preventDefault(); if (!e.repeat) toggleProfileComments(); return; }
+  if (e.key.toLowerCase() === 's') { e.preventDefault(); if (!e.repeat) saveProfilePost(); return; }
+  if (e.key.toLowerCase() === 'd') { e.preventDefault(); if (!e.repeat) downloadProfilePost(document.getElementById('lb-download')); return; }
   if (['ArrowUp','k','ArrowDown','j'].includes(e.key)) {
     e.preventDefault(); if (!e.repeat) step(['ArrowUp','k'].includes(e.key) ? -1 : 1);
   }
@@ -187,9 +218,24 @@ lbEl.addEventListener('click', e => {
 });
 // Vertical swipes move between posts. Horizontal swipes stay inside carousels.
 let swipe = null;
+const profileZoom = window.installMediaZoom?.(document.getElementById('lbcontent'), {
+  getMedia: target => target.closest?.('img,video'),
+  onGesture: () => {swipe = null;},
+});
+function zoomProfilePost() {
+  if (!profileZoom) return;
+  if (profileZoom.isZoomed()) {profileZoom.reset(); return;}
+  const carousel = document.querySelector('#lbcontent .slides');
+  const media = carousel ? carousel.children[Math.round(carousel.scrollLeft / (carousel.clientWidth || 1))]
+    : document.querySelector('#lbcontent img, #lbcontent video');
+  if (media) profileZoom.zoom(media);
+}
+document.getElementById('lbcontent').addEventListener('scroll', event => {
+  if (event.target.classList?.contains('slides')) profileZoom?.reset();
+}, true);
 function scrollsProfileDetails(target) {
   const panel = target.closest('.lbmeta');
-  return target.closest('.lbcap,button,a,input') || (panel && panel.scrollHeight > panel.clientHeight + 1);
+  return target.closest('.lbcap,#profile-comments,button,a,input') || (panel && panel.scrollHeight > panel.clientHeight + 1);
 }
 lbEl.addEventListener('touchstart', e => {
   if (e.touches.length !== 1 || scrollsProfileDetails(e.target)) { swipe = null; return; }
@@ -281,3 +327,197 @@ if (moreIndicator) {
   }, {rootMargin:'600px'});
   postsObserver.observe(moreIndicator);
 }
+
+
+// Actions stay bound to the selected post, including while requests finish.
+let profileNoticeTimer = null;
+function profileNotice(message) {
+  const status = document.getElementById('profile-action-status');
+  if (!status) return;
+  clearTimeout(profileNoticeTimer);
+  status.textContent = message; status.hidden = !message;
+  if (message) profileNoticeTimer = setTimeout(() => {status.hidden = true;}, 4000);
+}
+function profileActionMessage(post, message) {
+  if (!lbEl.hidden && store[cur] === post) profileNotice(message);
+}
+function updateProfileActions(post = store[cur]) {
+  if (!post) return;
+  const button = (id, symbol, label, pressed) => {
+    const element = document.getElementById(id);
+    if (!element) return null;
+    element.innerHTML = icon(symbol);
+    element.title = label; element.setAttribute('aria-label', label);
+    if (pressed !== undefined) element.setAttribute('aria-pressed', String(pressed));
+    return element;
+  };
+  button('lb-like', 'heart', post.feedback === 'like' ? 'Remove local like' : 'Like in ig', post.feedback === 'like');
+  button('lb-comments-toggle', 'comment', 'Comments (C)');
+  button('lb-share', 'share', 'Share post');
+  const save = button('lb-save', 'bookmark', post.saved ? 'Unsave reel (S)' : 'Save reel (S)', Boolean(post.saved));
+  if (save) {save.hidden = !post.is_video || post.is_carousel; save.disabled = Boolean(post._saveBusy);}
+  const download = button('lb-download', 'download', post.is_carousel ? 'Download current item (D)' : 'Download (D)');
+  if (download) download.disabled = Boolean(post._downloadBusy || (post.is_carousel && !post._rich));
+}
+async function likeProfilePost() {
+  const post = store[cur];
+  if (!post || post._feedbackBusy) return;
+  post._feedbackBusy = true;
+  try {
+    await ensureProfileMedia(post);
+    const response = await fetch('/feedback', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:post.shortcode, action:post.feedback === 'like' ? 'clear' : 'like'})});
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error('Could not save your like');
+    post.feedback = data.feedback;
+    if (store[cur] === post) updateProfileActions(post);
+    profileActionMessage(post, post.feedback === 'like' ? 'Liked in ig' : 'Like removed');
+  } catch (error) { profileActionMessage(post, error.message || 'Could not save your like'); }
+  finally { post._feedbackBusy = false; }
+}
+async function saveProfilePost() {
+  const post = store[cur];
+  if (!post || !post.is_video || post.is_carousel || post._saveBusy) return;
+  post._saveBusy = true; updateProfileActions(post);
+  try {
+    await ensureProfileMedia(post);
+    const response = await fetch('/saved-reels', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:post.shortcode, saved:!post.saved})});
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error('Could not update saved reels');
+    post.saved = data.saved === true;
+    profileActionMessage(post, post.saved ? 'Reel saved' : 'Reel unsaved');
+  } catch (error) { profileActionMessage(post, error.message || 'Could not update saved reels'); }
+  finally { post._saveBusy = false; if (store[cur] === post) updateProfileActions(post); }
+}
+async function shareProfilePost() {
+  const post = store[cur];
+  if (!post || post._shareBusy) return;
+  const isReel = post.is_video && !post.is_carousel;
+  const url = 'https://www.instagram.com/' + (isReel ? 'reel/' : 'p/') + encodeURIComponent(post.shortcode) + '/';
+  if (boot.android) {window.location.href = '/share/' + (isReel ? '' : 'post/') + encodeURIComponent(post.shortcode); return;}
+  post._shareBusy = true;
+  try {
+    if (navigator.share) {
+      try {await navigator.share({url}); return;}
+      catch (error) {if (error.name === 'AbortError') return;}
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url);
+    } catch (_) {
+      const input = document.createElement('textarea');
+      input.value = url; input.readOnly = true; input.style.cssText = 'position:fixed;left:-9999px';
+      document.body.append(input);
+      try {input.select(); if (!document.execCommand('copy')) throw new Error('Could not copy link');}
+      finally {input.remove();}
+    }
+    profileActionMessage(post, 'Post link copied');
+  } catch (error) {profileActionMessage(post, error.message || 'Could not share post');}
+  finally {post._shareBusy = false;}
+}
+async function downloadProfilePost() {
+  const post = store[cur];
+  if (!post || post._downloadBusy) return;
+  if (post.is_carousel && !post._rich) {profileNotice('Wait for the post to load, then download'); return;}
+  const carousel = document.querySelector('#lbcontent .slides');
+  const slide = post.is_carousel ? Math.max(0, Math.round((carousel?.scrollLeft || 0) / (carousel?.clientWidth || 1))) : null;
+  const item = slide === null ? post : post.slides?.[slide];
+  const image = item?.image || '';
+  const format = item?.video || (slide === null && post.is_video) ? null :
+    (/\.(png|webp|avif)(?:[?#]|$)/i.exec(image)?.[1]?.toLowerCase() || 'jpg');
+  const query = new URLSearchParams();
+  if (slide !== null) query.set('slide', String(slide));
+  if (format) query.set('format', format);
+  const path = '/download/' + encodeURIComponent(post.shortcode) + (query.size ? '?' + query : '');
+  if (boot.android) {window.location.href = path; return;}
+  post._downloadBusy = true; updateProfileActions(post);
+  try {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error('Could not download · try again');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const extension = blob.type.startsWith('video/') ? 'mp4' : blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : blob.type.includes('avif') ? 'avif' : 'jpg';
+    link.href = url; link.download = post.shortcode + (slide === null ? '' : '-' + (slide + 1)) + '.' + extension;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    profileActionMessage(post, 'Download ready');
+  } catch (error) {profileActionMessage(post, error.message || 'Could not download · try again');}
+  finally {post._downloadBusy = false; if (store[cur] === post) updateProfileActions(post);}
+}
+function profileCommentsOpen() {return document.getElementById('profile-comments')?.hidden === false;}
+function closeProfileComments() {
+  const panel = document.getElementById('profile-comments');
+  if (panel) panel.hidden = true;
+  lbEl.classList.remove('comments-open');
+  document.getElementById('lb-comments-toggle')?.setAttribute('aria-expanded', 'false');
+}
+function toggleProfileComments() {
+  if (profileCommentsOpen()) closeProfileComments();
+  else if (store[cur]) showProfileComments(store[cur]);
+}
+function showProfileComments(post) {
+  const panel = document.getElementById('profile-comments');
+  if (!panel) return;
+  const changed = panel.dataset.code !== post.shortcode;
+  panel.hidden = false; panel.dataset.code = post.shortcode;
+  lbEl.classList.add('comments-open');
+  document.getElementById('lb-comments-toggle')?.setAttribute('aria-expanded', 'true');
+  if (changed) document.getElementById('profile-comments-body').scrollTop = 0;
+  renderProfileComments(post);
+  if (!post._profileComments && !post._profileCommentsBusy) loadProfileComments(post);
+}
+function profileCommentsVisible(post) {
+  return !lbEl.hidden && profileCommentsOpen() && document.getElementById('profile-comments').dataset.code === post.shortcode;
+}
+function renderProfileComments(post) {
+  if (!profileCommentsVisible(post)) return;
+  const body = document.getElementById('profile-comments-body'), top = body.scrollTop;
+  body.innerHTML = (post._profileComments || []).map(comment => `<article class="comment-row">
+    <a href="/u/${encodeURIComponent(comment.username)}">@${esc(comment.username)}</a>
+    ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
+    <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('');
+  if (post._profileCommentsBusy) body.insertAdjacentHTML('beforeend', '<p class="comments-status" role="status">Loading…</p>');
+  else if (post._profileCommentsError || post._profileCommentCursor) {
+    const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'comments-more';
+    retry.textContent = post._profileCommentsError ? 'Couldn’t load comments · Retry' : 'More comments';
+    retry.onclick = () => loadProfileComments(post); body.append(retry);
+  } else if (!post._profileComments?.length) {
+    body.textContent = post.comment_count > 0 ? 'Instagram returned no public comments.' : 'No comments yet.';
+  }
+  body.scrollTop = top;
+}
+async function loadProfileComments(post = store[cur]) {
+  if (!post || post._profileCommentsBusy || (post._profileComments && !post._profileCommentCursor && !post._profileCommentsError)) return;
+  const after = post._profileCommentCursor || null;
+  post._profileCommentsBusy = true; post._profileCommentsError = false;
+  renderProfileComments(post);
+  let added = 0;
+  try {
+    const response = await fetch('/comments/' + encodeURIComponent(post.shortcode) + (after ? '?after=' + encodeURIComponent(after) : ''),
+      {method:'POST', signal:AbortSignal.timeout(45000)});
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error('Could not load comments');
+    post._profileComments ||= []; post._profileCommentKeys ||= new Set(); post._profileCommentCursors ||= new Set();
+    if (after) post._profileCommentCursors.add(after);
+    for (const comment of data.comments || []) {
+      const key = comment.id ? 'id:' + comment.id : JSON.stringify([comment.username, comment.text, comment.created_at]);
+      if (post._profileCommentKeys.has(key)) continue;
+      post._profileCommentKeys.add(key); post._profileComments.push(comment); added++;
+    }
+    const next = data.next_cursor || null;
+    post._profileCommentCursor = post._profileCommentCursors.has(next) ? null : next;
+    post._profileCommentAutoPaused = added === 0;
+  } catch (_) {post._profileCommentsError = true;}
+  finally {post._profileCommentsBusy = false; renderProfileComments(post);}
+  const body = document.getElementById('profile-comments-body');
+  if (added && post._profileCommentCursor && profileCommentsVisible(post) && body.scrollHeight <= body.clientHeight) {
+    setTimeout(() => {if (profileCommentsVisible(post)) loadProfileComments(post);}, 0);
+  }
+}
+document.getElementById('profile-comments-body')?.addEventListener('scroll', event => {
+  const body = event.target, post = store[cur];
+  if (!post || !profileCommentsVisible(post) || post._profileCommentsError || post._profileCommentAutoPaused || !post._profileCommentCursor) return;
+  if (body.scrollHeight - body.scrollTop - body.clientHeight < 140) loadProfileComments(post);
+});

@@ -132,3 +132,93 @@ a { color:inherit; }
   .lbbtns a { padding:8px 10px; font-size:12px; }
   .lb .nav { display:none; }
 }
+
+/* Profile identity and a quiet, three-column photo grid. */
+:root { --bg:#000; --card:#121212; --line:#262626; --soft:#a8a8a8; --dim:#8e8e8e; }
+.page-header { max-width:975px; margin:auto; background:#000f; padding-bottom:14px; border-bottom:1px solid var(--line); }
+.page-header h1 { font-size:19px; font-weight:650; }
+.page-header p { font-size:12px; }
+.profile-summary { max-width:850px; margin:32px auto; padding:0 24px; display:grid;
+  grid-template-columns:180px minmax(0,1fr); column-gap:48px; row-gap:20px; }
+.profile-avatar { width:150px; height:150px; position:relative; border-radius:50%; overflow:hidden;
+  display:grid; place-items:center; background:#222; align-self:center; grid-row:1 / 4; }
+.profile-avatar span { font-size:48px; color:#aaa; }
+.profile-avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.profile-counts { display:flex; margin:0; align-items:center; gap:38px; }
+.profile-counts div { display:flex; gap:6px; flex-direction:row-reverse; align-items:baseline; }
+.profile-counts dt { font-size:14px; color:#ddd; }
+.profile-counts dd { margin:0; font-size:16px; font-weight:650; }
+.profile-bio { min-width:0; font-size:14px; line-height:1.45; }
+.profile-bio strong { font-weight:650; }
+.profile-bio p { white-space:pre-wrap; margin:4px 0; overflow-wrap:anywhere; }
+.profile-link { color:#c4dff5; display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:none; }
+.verified { display:inline-grid; place-items:center; border-radius:50%; background:#3897f0; width:15px; height:15px; margin-left:6px; }
+.verified .icon { width:11px; height:11px; stroke-width:3; }
+.profile-actions { display:flex; }
+#addacc { border-radius:8px; min-height:38px; padding:8px 28px; font-size:14px; }
+.profile-posts { max-width:975px; margin:0 auto; }
+.toolbar { padding:0; border-top:1px solid var(--line); margin:0 24px; justify-content:center; }
+.layouts { background:none; border-radius:0; gap:48px; padding:0; }
+.layouts button { width:70px; height:52px; border-radius:0; border-top:2px solid transparent; }
+.layouts button[aria-checked="true"] { background:none; border-color:#eee; }
+.grid[data-layout="grid"] { grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; }
+.grid[data-layout="grid"] .card { border-radius:0; }
+.grid[data-layout="grid"] .imgwrap { aspect-ratio:3/4; }
+.grid[data-layout="grid"] .overlay { opacity:0; transition:opacity .12s; }
+.grid[data-layout="grid"] .card:hover .overlay,.grid[data-layout="grid"] .card:focus .overlay { opacity:1; }
+.grid[data-layout="grid"] .badge { background:none; text-shadow:0 1px 4px #000; }
+.lbactions { display:flex; align-items:center; gap:8px; margin:0 -6px 8px; }
+.lbactions button { border:0; background:none; color:#eee; padding:8px; min-width:40px; min-height:40px; cursor:pointer; display:grid; place-items:center; }
+.lbactions button:disabled { opacity:.4; cursor:wait; }
+.lbactions button[aria-pressed="true"] .icon { fill:currentColor; }
+#lb-like[aria-pressed="true"] { color:#ff4055; }
+#lb-save { margin-left:auto; }
+.lb .x { display:grid; place-items:center; }
+.lbcap { max-height:12vh; }
+.lbbtns a { border:0; padding:0; color:var(--soft); font-size:12px; border-radius:0; }
+#profile-action-status { position:fixed; z-index:100; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+  max-width:calc(100vw - 32px); border-radius:8px; background:#262626; color:#fff; font-size:14px; padding:12px 18px; pointer-events:none; }
+#profile-action-status:empty { display:none; }
+#profile-comments { position:fixed; z-index:60; right:0; top:0; bottom:0; width:360px; max-width:100%; background:#121212;
+  border-left:1px solid var(--line); display:flex; flex-direction:column; padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
+#profile-comments header { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); }
+#profile-comments h2 { font-size:16px; margin:0; flex:1; }
+#profile-comments header button { width:40px; height:40px; display:grid; place-items:center; background:none; border:0; color:inherit; cursor:pointer; }
+#profile-comments-body { padding:8px 20px 20px; overflow:auto; flex:1; min-height:0; overscroll-behavior:contain; }
+.comment-row { padding:14px 0; font-size:14px; line-height:1.4; overflow-wrap:anywhere; }
+.comment-row a { font-weight:600; text-decoration:none; }
+.comment-row p { margin:6px 0; white-space:pre-wrap; }
+.comment-row small,.comment-creator { color:var(--soft); font-size:12px; }
+.comment-creator { margin-left:8px; }
+.comments-status { color:var(--soft); font-size:14px; }
+.comments-more { display:block; padding:12px; background:none; color:#ddd; border:0; cursor:pointer; }
+@media (min-width:769px) {
+  .lb.comments-open { right:360px; }
+}
+@media (max-width:640px) {
+  .page-header { padding:calc(8px + env(safe-area-inset-top)) 12px 8px; border-bottom:0; }
+  .page-header p { display:none; }
+  .profile-summary { margin:14px 0 20px; padding:0 16px; grid-template-columns:86px minmax(0,1fr); column-gap:20px; row-gap:16px; }
+  .profile-avatar { width:86px; height:86px; grid-row:1; }
+  .profile-avatar span { font-size:32px; }
+  .profile-counts { gap:0; justify-content:space-between; }
+  .profile-counts div { flex-direction:column-reverse; gap:3px; align-items:center; }
+  .profile-counts dd { font-size:16px; }
+  .profile-counts dt { font-size:12px; }
+  .profile-bio,.profile-actions { grid-column:1/-1; }
+  .profile-actions #addacc { width:100%; justify-content:center; }
+  .toolbar { margin:0; }
+  .layouts { width:100%; gap:0; }
+  .layouts button { flex:1; height:48px; }
+  .grid[data-layout="grid"] { padding:0 0 28px; }
+  .grid[data-layout="grid"] .overlay { display:none; }
+  .lbmeta { padding:6px 14px 12px; }
+  .lbactions { gap:4px; margin-bottom:4px; }
+}
+@media (max-width:768px) {
+  #profile-comments { top:auto; height:min(65dvh,650px); width:100%; border-left:0; border-top:1px solid #333; border-radius:18px 18px 0 0; padding-top:0; }
+  #profile-comments header { padding-top:16px; }
+}
+
+.page-header:has(+ .profile-summary) .hleft p { display:none; }
+#lbcontent > img, #lbcontent > video { max-width:100%; }

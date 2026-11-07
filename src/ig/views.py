@@ -50,7 +50,7 @@ def static_file(name: str) -> tuple[bytes, str] | None:
 
 
 def viewer_html(title: str, subtitle: str, posts: list[dict],
-                username: str = "", paged: bool = True, empty_message: str = "") -> str:
+                username: str = "", paged: bool = True, empty_message: str = "", profile: dict | None = None) -> str:
     """The post grid page. paged=False shows every post at once, without a
     pagination indicator; empty_message is shown when there are no posts."""
     add_button = ""
@@ -60,7 +60,35 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                       f'onclick="toggleAcc({escape(json.dumps(username), quote=True)}, this)">'
                       + (icon("check") + " in feed" if saved else icon("plus") + " add to feed")
                       + "</button>")
-    return render("profile.html", title=escape(title), subtitle=escape(subtitle),
+    profile = profile or {}
+    def stat(value):
+        if not isinstance(value, int) or value < 0:
+            return '—'
+        if value >= 1_000_000:
+            return f'{value / 1_000_000:.1f}'.rstrip('0').rstrip('.') + 'M'
+        if value >= 10_000:
+            return f'{value / 1_000:.1f}'.rstrip('0').rstrip('.') + 'K'
+        return f'{value:,}'
+    profile_header = ''
+    if username:
+        avatar = profile.get('avatar') or ''
+        avatar_html = (f'<img src="{escape(avatar, quote=True)}" alt="" referrerpolicy="no-referrer" '
+                       'onerror="this.hidden=true">') if avatar.startswith(('https://', 'http://')) else ''
+        link = profile.get('external_url') or ''
+        website = (f'<a class="profile-link" href="{escape(link, quote=True)}" target="_blank" rel="noopener noreferrer">'
+                   f'{escape(link.removeprefix("https://").removeprefix("http://").rstrip("/"))}</a>') if link.startswith(('https://', 'http://')) else ''
+        profile_header = (f'<section class="profile-summary" aria-label="Profile">'
+            f'<div class="profile-avatar"><span>{escape(username[:1].upper())}</span>{avatar_html}</div>'
+            '<dl class="profile-counts">'
+            + ''.join(f'<div><dt>{label}</dt><dd>{stat(profile.get(key))}</dd></div>'
+                      for key, label in [('post_count','posts'),('followers','followers'),('following','following')])
+            + '</dl><div class="profile-bio">'
+            f'<strong>{escape(profile.get("full_name") or username)}</strong>'
+            + ('<span class="verified" aria-label="Verified">' + icon('check') + '</span>' if profile.get('verified') else '')
+            + f'<p>{escape(profile.get("biography") or "")}</p>{website}</div>'
+            f'<div class="profile-actions">{add_button}</div></section>')
+        add_button = ''
+    return render("profile.html", title=escape(title), subtitle=escape(subtitle), profile_header=profile_header,
                   add_button=add_button,
                   more_button='<div id="more" role="status" aria-live="polite"></div>' if paged else "",
                   boot=_page_data({"posts": posts, "username": username,
