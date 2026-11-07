@@ -111,13 +111,65 @@ function richHtml(p) {
         : `<img src="${esc(s.image)}" alt="">`).join('') + '</div>';
   }
   if (p.video) {
-    return `<video controls autoplay loop playsinline
+    return `<video controls muted loop playsinline
       poster="${esc(p.poster || p.image)}" src="${esc(p.video)}"></video>`;
   }
   return `<img src="${esc(p.image)}" alt="">`;
 }
 const lbEl = document.getElementById('lb');
 let profileMediaVersion = 0;
+let profileSound = (typeof initialPlaybackPreferences === 'function' ? initialPlaybackPreferences(boot) : boot).sound === true;
+let profilePlayingVideo = null;
+const profileMuteState = new WeakMap();
+const profileBoundVideos = new WeakSet();
+function muteProfileVideo(video, muted) {
+  profileMuteState.set(video, muted);
+  video.muted = muted;
+}
+function syncProfilePlayback() {
+  const box = document.getElementById('lbcontent');
+  const carousel = box.querySelector('.slides');
+  const item = carousel ? carousel.children[Math.round(carousel.scrollLeft / (carousel.clientWidth || 1))] : box.querySelector('video');
+  const video = !lbEl.hidden && !document.hidden && item?.tagName === 'VIDEO' ? item : null;
+  box.querySelectorAll('video').forEach(other => { if (other !== video) other.pause(); });
+  if (profilePlayingVideo === video) return; // scrolling must not undo a manual pause
+  profilePlayingVideo?.pause();
+  profilePlayingVideo = video;
+  if (!video) return;
+  if (!profileBoundVideos.has(video)) {
+    profileBoundVideos.add(video);
+    video.addEventListener('volumechange', () => {
+      if (profileMuteState.get(video) === video.muted) return;
+      profileMuteState.set(video, video.muted);
+      profileSound = !video.muted;
+      if (typeof savePlaybackPreferences === 'function') savePlaybackPreferences({sound:profileSound})
+        .catch(error => console.warn('Could not remember sound preference', error));
+    });
+  }
+  muteProfileVideo(video, !profileSound);
+  const currentVideo = () => profilePlayingVideo === video && !lbEl.hidden && !document.hidden;
+  const started = () => { if (!currentVideo()) video.pause(); };
+  Promise.resolve(video.play()).then(started).catch(error => {
+    if (!currentVideo() || error.name !== 'NotAllowedError' || video.muted) return;
+    // Browser autoplay policy may require silence. Keep the user's saved choice.
+    muteProfileVideo(video, true);
+    Promise.resolve(video.play()).then(started).catch(() => {});
+  });
+}
+let profileResumeOnVisible = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    profileResumeOnVisible = Boolean(profilePlayingVideo && !profilePlayingVideo.paused);
+    profilePlayingVideo?.pause();
+  } else if (profileResumeOnVisible) {
+    profileResumeOnVisible = false;
+    profilePlayingVideo = null;
+    syncProfilePlayback();
+  }
+});
+window.addEventListener('pagehide', () => { profilePlayingVideo?.pause(); profilePlayingVideo = null; });
+window.addEventListener('pageshow', () => { if (!lbEl.hidden) syncProfilePlayback(); });
+
 function ensureProfileMedia(post) {
   if (post._rich) return Promise.resolve(post);
   if (post._mediaRequest) return post._mediaRequest;
@@ -135,6 +187,7 @@ function ensureProfileMedia(post) {
 function lb(i) {
   if (!store[i]) return;
   profileZoom?.reset();
+  profilePlayingVideo = null;
   document.querySelectorAll('#lb video').forEach(v => v.pause());
   cur = i; const p = store[i];
   const version = ++profileMediaVersion;
@@ -155,6 +208,7 @@ function lb(i) {
     ensureProfileMedia(p).then(() => {
       if (!lbEl.hidden && cur === i && version === profileMediaVersion) {
         box.innerHTML = richHtml(p);
+        syncProfilePlayback();
         updateProfileActions(p);
       }
     }).catch(error => {
@@ -170,6 +224,7 @@ function lb(i) {
     // Back (phone button or browser) closes the viewer instead of leaving the page.
     history.pushState({viewer:true}, '');
   }
+  syncProfilePlayback();
   if (store.length - i <= 4) loadMorePosts();
   if (profileCommentsOpen()) showProfileComments(p);
 }
@@ -179,6 +234,7 @@ function hideLb() {
   closeProfileComments();
   document.querySelectorAll('#lb video').forEach(v => v.pause());
   lbEl.hidden = true;
+  syncProfilePlayback();
   document.body.style.overflow = '';
 }
 function closeLb() {
@@ -231,7 +287,7 @@ function zoomProfilePost() {
   if (media) profileZoom.zoom(media);
 }
 document.getElementById('lbcontent').addEventListener('scroll', event => {
-  if (event.target.classList?.contains('slides')) profileZoom?.reset();
+  if (event.target.classList?.contains('slides')) { profileZoom?.reset(); syncProfilePlayback(); }
 }, true);
 function scrollsProfileDetails(target) {
   const panel = target.closest('.lbmeta');

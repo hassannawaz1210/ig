@@ -92,7 +92,8 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                   add_button=add_button,
                   more_button='<div id="more" role="status" aria-live="polite"></div>' if paged else "",
                   boot=_page_data({"posts": posts, "username": username,
-                                   "empty_message": empty_message, "android": config.ANDROID}))
+                                   "empty_message": empty_message, "android": config.ANDROID,
+                                   **config.playback_preferences(include_missing=True)}))
 
 
 def reels_html(code: str | None = None) -> str:

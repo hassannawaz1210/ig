@@ -76,3 +76,37 @@ const response = data=>({ok:true,json:async()=>data});
   assert.equal(back.run('handleProfileBack()'),false,'closed viewer leaves normal navigation alone');
   console.log('Profile actions, stale comments, pagination, retries, saves and Android downloads passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+
+(async () => {
+  const p = page();
+  const makeVideo = () => ({tagName:'VIDEO',muted:false,paused:true,plays:0,pauses:0,listeners:{},
+    addEventListener(name,fn){this.listeners[name]=fn;},
+    play(){this.plays++;this.paused=false;return Promise.resolve();},pause(){this.pauses++;this.paused=true;}});
+  const first=makeVideo(),second=makeVideo(),photo={tagName:'IMG'};
+  const box=p.element('lbcontent');let carousel=null,single=first;
+  box.querySelector=selector=>selector==='.slides'?carousel:single;
+  box.querySelectorAll=()=>carousel?[first,second]:[single].filter(Boolean);
+  p.run('lbEl.hidden=false; profileSound=true; syncProfilePlayback()');
+  await new Promise(setImmediate);
+  assert.equal(first.plays,1,'single profile video starts without pressing play');
+  assert.equal(first.muted,false,'saved sound preference applies');
+  first.pause();p.run('syncProfilePlayback()');
+  assert.equal(first.plays,1,'repeated sync does not undo manual pause');
+  carousel={children:[first,photo,second],scrollLeft:100,clientWidth:100};
+  p.run('syncProfilePlayback()');assert.equal(first.paused,true,'photo slide pauses previous video');
+  carousel.scrollLeft=200;p.run('syncProfilePlayback()');await new Promise(setImmediate);
+  assert.equal(second.plays,1,'swiping onto carousel video starts it');
+  assert.equal(first.paused,true,'offscreen video stays paused');
+  p.run('hideLb()');assert.equal(second.paused,true,'closing viewer stops playback');
+
+  const fallback=page(),v=makeVideo();let attempts=0,writes=0;
+  v.play=function(){this.plays++;if(attempts++===0)return Promise.reject(Object.assign(new Error('blocked'),{name:'NotAllowedError'}));this.paused=false;return Promise.resolve();};
+  const fallbackBox=fallback.element('lbcontent');fallbackBox.querySelector=s=>s==='.slides'?null:v;fallbackBox.querySelectorAll=()=>[v];
+  fallback.ctx.savePlaybackPreferences=()=>{writes++;return Promise.resolve();};
+  fallback.run('lbEl.hidden=false; profileSound=true; syncProfilePlayback()');await new Promise(setImmediate);
+  assert.equal(v.plays,2,'blocked audible autoplay retries muted');assert.equal(v.muted,true);
+  v.listeners.volumechange();assert.equal(writes,0,'autoplay fallback never overwrites saved sound');
+  assert.equal(fallback.run('profileSound'),true);
+  v.muted=false;v.listeners.volumechange();assert.equal(writes,1,'native sound control saves user choice');
+  console.log('Profile autoplay, carousel selection, manual pause and muted fallback passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});
