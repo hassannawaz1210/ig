@@ -271,3 +271,13 @@ a { color:inherit; }
   background:linear-gradient(135deg, #3a2a6b, #8a2f6b 55%, #c4602f); }
 .sound-art .icon { width:46%; height:46%; color:#fff; }
 .sound-summary .sound-count { color:var(--soft); }
+
+/* Who posted it, on pages that mix creators (sound pages, Saved reels). */
+.tile-owner { position:absolute; left:6px; bottom:30px; max-width:calc(100% - 12px); padding:2px 7px; border-radius:999px;
+  background:#000a; color:#fff; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  pointer-events:none; display:none; }
+.grid[data-layout="grid"] .tile-owner { display:block; }
+.meta .owner { display:block; margin-bottom:4px; color:#fff; font-weight:600; text-decoration:none; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.lbstats .lb-owner { flex-basis:100%; color:#fff; font-weight:650; font-size:15px; text-decoration:none; }
+.lbstats .lb-owner:hover, .meta .owner:hover { text-decoration:underline; }

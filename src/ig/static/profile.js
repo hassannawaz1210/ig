@@ -110,7 +110,12 @@ function showMissingImage(img) {
   placeholder.textContent = 'no preview';
   img.replaceWith(placeholder);
 }
+// Sound pages and Saved reels mix creators, so each post names who posted it
+// (a profile's own posts don't need it).
+const showOwner = !boot.username;
+const ownerName = p => showOwner && typeof p.owner === 'string' && /^[A-Za-z0-9._]{1,30}$/.test(p.owner) ? p.owner : '';
 function card(p, i) {
+  const owner = ownerName(p);
   const badge = p.is_video ? '▶'
               : p.is_carousel ? `⧉ ${p.carousel_count || ''}` : '';
   const plays = p.play_count ? `<span class="plays">${icon('play') || '▶'} ${short(p.play_count)}</span>` : '';
@@ -118,9 +123,10 @@ function card(p, i) {
     <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
       onerror="showMissingImage(this)">` : `<div class="missing" data-fill="${i}">${p.is_carousel ? '' : 'no preview'}</div>`}
       ${badge ? `<div class="badge">${badge}</div>` : ''}
+      ${owner ? `<div class="tile-owner">@${esc(owner)}</div>` : ''}
       <div class="overlay"><span>${icon('heart')} ${short(p.like_count)}</span>${plays}
         ${p.taken_at ? `<span class="age" title="${esc(fdate(p.taken_at))}">${postAge(p.taken_at, {short:true})}</span>` : ''}</div></div>
-    <div class="meta"><div class="stats"><span>${icon('heart')} ${fmt(p.like_count)}</span>
+    <div class="meta">${owner ? `<a class="owner" href="/u/${encodeURIComponent(owner.toLowerCase())}" onclick="event.stopPropagation()">@${esc(owner)}</a>` : ''}<div class="stats"><span>${icon('heart')} ${fmt(p.like_count)}</span>
       <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,240))}</div></div></div>`;
 }
@@ -291,7 +297,9 @@ function lb(i) {
   document.getElementById('lbpos').textContent = `${i + 1} / ${store.length}`;
   document.querySelector('#lb .prev').disabled = i === 0;
   document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
+  const owner = ownerName(p);
   document.getElementById('lbstats').innerHTML =
+    (owner ? `<a class="lb-owner" href="/u/${encodeURIComponent(owner.toLowerCase())}">@${esc(owner)}</a>` : '') +
     `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
   document.getElementById('lbcap').innerHTML = mentions(p.caption || '');  // @usernames link to profiles
   const box = document.getElementById('lbcontent');

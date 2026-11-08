@@ -38,10 +38,14 @@ class CarouselHandler(Handler):
         if self.path == '/test-profile':
             html = views.viewer_html('@someone', 'posts', POSTS, username='someone')
             return self._send(200, html.encode(), 'text/html; charset=utf-8')
+        if self.path == '/test-sound':   # posts by different creators, no profile owner
+            posts = [POSTS[0], {**POSTS[1], 'owner': 'other.creator'}]
+            html = views.viewer_html('Song', '2 reels', posts, sound={'id': '561481164338977', 'title': 'Band | Song', 'total': ''})
+            return self._send(200, html.encode(), 'text/html; charset=utf-8')
         return super().do_GET()
 
     def do_POST(self):
-        if self.path == '/test-profile/media':
+        if self.path in ('/test-profile/media', '/test-sound/media'):
             code = json.loads(self.rfile.read(int(self.headers.get('Content-Length') or 0)) or b'{}').get('code')
             if code in MEDIA:
                 return self._send(200, json.dumps(MEDIA[code]).encode(), 'application/json')

@@ -58,7 +58,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.ok(await evaluate("!!document.querySelector('#lbcontent img')"), 'photo shows at once');
     await waitFor("!document.querySelector('#lbcontent .preview-wait')", 'loading finished');
     assert.ok(await evaluate("!!document.querySelector('#lbcontent > img')"), 'preview kept when the full photo fails');
-    console.log('Profile carousel swipe, counter, dots and previews passed');
+    // A sound page mixes creators: each post names who posted it.
+    await send('Page.navigate', {url: url.replace('/test-profile', '/test-sound')});
+    await waitFor("document.querySelectorAll('.tile-owner').length === 2", 'creators on the sound page');
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('.tile-owner')].map(e => e.textContent)"), ['@someone', '@other.creator']);
+    await evaluate('lb(1)');
+    assert.deepEqual(await evaluate("(a => [a.textContent, a.getAttribute('href')])(document.querySelector('#lbstats .lb-owner'))"),
+      ['@other.creator', '/u/other.creator'], 'the post viewer links the creator');
+    console.log('Profile carousel swipe, counter, dots and previews passed; sound pages name creators');
   } finally {
     socket.close(); browser.kill('SIGKILL');
     await fs.promises.rm(profile, {recursive: true, force: true, maxRetries: 10, retryDelay: 50});
