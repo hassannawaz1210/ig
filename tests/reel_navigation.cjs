@@ -673,6 +673,50 @@ const KEYS = {
       browseCreator=real; return calls;
     })()`);
     assert.deepEqual(swipes,[1,-1],'swipe left shows more from the creator, right goes back, small moves do nothing');
+    // Smooth mode: the reel follows the finger and the next one slides in;
+    // a long drag moves on, a short slow one springs back. Snappy: no follow.
+    const dragging = await evaluate(`(async () => {
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      const fire = (type, y, slide) => {
+        const t = new Touch({identifier: 7, target: slide, clientX: 200, clientY: y});
+        feed.dispatchEvent(new TouchEvent(type, {touches: type === 'touchend' ? [] : [t], changedTouches: [t], bubbles: true, cancelable: true}));
+      };
+      const nextOf = i => visibleIndices()[visibleIndices().indexOf(i) + 1];
+      const result = {}, previousMode = scrollAnimation;
+      setScrollAnimation('smooth');
+      showSlide(visibleIndices()[1]); await wait(400);
+      let start = current, slide = document.getElementById('s' + start);
+      fire('touchstart', 600, slide); fire('touchmove', 590, slide); fire('touchmove', 380, slide);
+      await wait(50);
+      result.follow = {current: current === start, offset: Math.round(slideOffset(start)), next: Math.round(slideOffset(nextOf(start)))};
+      fire('touchend', 380, slide); await wait(450);
+      result.commit = {moved: current === nextOf(start), aligned: Math.abs(slideOffset(current)) < 2};
+      start = current; slide = document.getElementById('s' + start);
+      fire('touchstart', 600, slide); fire('touchmove', 590, slide); await wait(150);
+      fire('touchmove', 565, slide); await wait(150); fire('touchmove', 565, slide); await wait(150);
+      fire('touchend', 565, slide); await wait(400);
+      result.springBack = {stayed: current === start, aligned: Math.abs(slideOffset(start)) < 2};
+      setScrollAnimation('snappy');
+      fire('touchstart', 600, slide); fire('touchmove', 590, slide); fire('touchmove', 380, slide);
+      await wait(50);
+      result.snappy = {still: Math.abs(slideOffset(start)) < 2, cls: document.body.classList.contains('snappy-scroll')};
+      fire('touchend', 380, slide); await wait(100);
+      result.snappy.moved = current === nextOf(start);
+      setScrollAnimation('smooth');
+      result.smoothCls = document.body.classList.contains('snappy-scroll');
+      setScrollAnimation(previousMode);
+      return result;
+    })()`);
+    assert.equal(dragging.follow.current, true, 'dragging does not change the reel yet');
+    assert.ok(dragging.follow.offset <= -150 && dragging.follow.offset >= -230, 'reel follows the finger: ' + JSON.stringify(dragging.follow));
+    assert.ok(dragging.follow.next > 0 && dragging.follow.next < 844, 'the next reel slides into view: ' + JSON.stringify(dragging.follow));
+    assert.deepEqual(dragging.commit, {moved: true, aligned: true}, 'a long drag moves to the next reel');
+    assert.deepEqual(dragging.springBack, {stayed: true, aligned: true}, 'a short slow drag springs back');
+    assert.deepEqual(dragging.snappy, {still: true, cls: true, moved: true}, 'Snappy keeps the reel still while dragging and moves on release');
+    assert.equal(dragging.smoothCls, false);
+    assert.equal(await evaluate(`(() => { setScrollAnimation('snappy'); const c = document.createElement('div'); c.className = 'cap full';
+      document.querySelector('.info').append(c); const v = getComputedStyle(c).overscrollBehaviorY; c.remove(); setScrollAnimation('smooth'); return v; })()`),
+      'contain', 'Snappy: an expanded caption does not drag the feed along');
     await evaluate("openFeedMenu()");
     await sleep(100);
     const picker = await evaluate(`(() => {
@@ -864,7 +908,8 @@ const KEYS = {
       await evaluate("document.querySelector('#feed-picker button[type=button]').click()"); await sleep(50);
     }
     const motionIndices = await evaluate(`(() => {
-      const indices=visibleIndices(); showSlide(indices[0]); scrollAnimation='smooth';
+      // Jump to the first reel instantly, then check one smooth move from there.
+      const indices=visibleIndices(); setScrollAnimation('snappy'); showSlide(indices[0]); setScrollAnimation('smooth');
       goRel(1); return indices.slice(0,4);
     })()`);
     await sleep(80);

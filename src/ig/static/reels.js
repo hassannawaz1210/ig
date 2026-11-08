@@ -5,11 +5,19 @@ const playbackBoot = initialPlaybackPreferences(boot);
 let desiredSound = playbackBoot.sound === true;
 let localPage = null;
 let localPageVersion = 0;
-let scrollAnimation = boot.scroll_animation === 'snappy' ? 'snappy' : 'smooth';
+let scrollAnimation = 'smooth';
+// Smooth: reels follow your finger while dragging. Snappy: they move only when
+// you let go, and dragging an expanded caption must not scroll the feed either
+// (reels.css stops the caption passing its scroll on in Snappy mode).
+function setScrollAnimation(mode) {
+  if (!['smooth', 'snappy'].includes(mode)) return;
+  scrollAnimation = mode;
+  document.body?.classList.toggle('snappy-scroll', mode === 'snappy');
+}
+setScrollAnimation(boot.scroll_animation === 'snappy' ? 'snappy' : 'smooth');
 let scrollTarget = null;
 window.addEventListener('storage', event => {
-  if (event.key === 'ig-scroll-animation' && ['smooth', 'snappy'].includes(event.newValue))
-    scrollAnimation = event.newValue;
+  if (event.key === 'ig-scroll-animation') setScrollAnimation(event.newValue);
   if (event.key === 'ig-playback-change' && event.newValue) {
     try { applyPlaybackPreferences(JSON.parse(event.newValue).changes); } catch (_) {}
   }
@@ -17,7 +25,7 @@ window.addEventListener('storage', event => {
 window.addEventListener('ig-playback-restored', event => {
   playbackVersion += 1;
   applyPlaybackPreferences(event.detail);
-  if (['smooth','snappy'].includes(event.detail.scroll_animation)) scrollAnimation = event.detail.scroll_animation;
+  setScrollAnimation(event.detail.scroll_animation);
 });
 if (boot.android) document.body.classList.add('android-app');
 const feed = document.getElementById('feed');
@@ -1079,7 +1087,7 @@ async function refreshFeedAccounts() {
     if (!response.ok) throw new Error(data.error || 'HTTP ' + response.status);
     if (playbackAtStart === playbackVersion) {
       applyPlaybackPreferences(data);
-      if (['smooth','snappy'].includes(data.scroll_animation)) scrollAnimation = data.scroll_animation;
+      setScrollAnimation(data.scroll_animation);
     }
     if (version !== accountChangeVersion) return;  // a newer local change wins
     feeded = new Set(Object.values(data.feeds || {}).flat());
@@ -1982,6 +1990,76 @@ function zoomCurrentReel() {
 
 let reelTouch = null;
 let reelHold = null, ignoreHoldClickUntil = 0;
+// Smooth mode: the reel follows your finger and the next (or previous) reel
+// slides in, like Instagram. On release it moves on after a long enough or
+// quick enough drag, or springs back. While dragging, scrollTarget marks the
+// feed as ours, so noteScroll and the observer leave it alone.
+const DRAG_COMMIT_SHARE = 0.2;    // of the screen height
+const DRAG_FLICK_SPEED = 0.45;    // px per ms
+const DRAG_FLICK_MIN = 24;        // px a flick must still travel
+function slideTop(i) { return feed.scrollTop + slideOffset(i); }
+function beginReelDrag() {
+  if (current < 0 || isHidden(posts[current]) || !document.getElementById('s'+current)) return null;
+  if (scrollTarget?.frame) cancelAnimationFrame(scrollTarget.frame);
+  const indices = visibleIndices(), at = indices.indexOf(current);
+  const prev = indices[at - 1], next = indices[at + 1];
+  const base = slideTop(current);
+  const drag = {start: feed.scrollTop, base, prev, next,
+    min: prev === undefined ? base : slideTop(prev), max: next === undefined ? base : slideTop(next),
+    samples: [], position: feed.scrollTop, drag: true};
+  scrollTarget = drag;
+  feed.style.scrollSnapType = 'none';
+  return drag;
+}
+function dragReel(drag, dy) {
+  let top = drag.start - dy;
+  // Past the first or last reel, resist instead of moving freely.
+  if (top < drag.min) top = drag.min - Math.min(feed.clientHeight * 0.15, (drag.min - top) * 0.3);
+  if (top > drag.max) top = drag.max + Math.min(feed.clientHeight * 0.15, (top - drag.max) * 0.3);
+  drag.position = top;
+  feed.scrollTop = top;
+  const now = performance.now();
+  drag.samples.push({t: now, top});
+  while (drag.samples.length > 2 && now - drag.samples[0].t > 100) drag.samples.shift();
+}
+function settleReel() {
+  const target = document.getElementById('s'+current);
+  if (!target) { scrollTarget = null; feed.style.scrollSnapType = ''; return; }
+  const from = feed.scrollTop, to = from + slideOffset(current);
+  const pending = {index: current, started: performance.now(), frame: 0, position: from};
+  scrollTarget = pending;
+  feed.style.scrollSnapType = 'none';
+  const frame = now => {
+    if (scrollTarget !== pending) return;
+    const progress = Math.min(1, (now - pending.started) / 220);
+    pending.position = from + (to - from) * (1 - Math.pow(1 - progress, 3));
+    feed.scrollTop = pending.position;
+    if (progress < 1) pending.frame = requestAnimationFrame(frame);
+    else {
+      target.scrollIntoView({behavior:'instant', block:'start'});
+      scrollTarget = null;
+      feed.style.scrollSnapType = '';
+      lastScrollTop = feed.scrollTop;
+    }
+  };
+  pending.frame = requestAnimationFrame(frame);
+}
+function endReelDrag(drag) {
+  if (scrollTarget !== drag) return;  // something else took over (e.g. a key press)
+  const moved = feed.scrollTop - drag.base;
+  const first = drag.samples[0], last = drag.samples.at(-1);
+  const speed = first && last && last.t > first.t ? (last.top - first.top) / (last.t - first.t) : 0;
+  const dir = Math.sign(moved);
+  const far = Math.abs(moved) >= feed.clientHeight * DRAG_COMMIT_SHARE;
+  const flick = Math.abs(speed) >= DRAG_FLICK_SPEED && Math.sign(speed) === dir && Math.abs(moved) >= DRAG_FLICK_MIN;
+  scrollTarget = null;
+  if (dir && (far || flick)) {
+    const before = current;
+    goRel(dir);  // animates on from where the finger left the feed
+    if (current !== before) return;
+  }
+  settleReel();
+}
 function stopReelHold() {
   if (!reelHold) return;
   clearTimeout(reelHold.timer);
@@ -2037,6 +2115,10 @@ feed.addEventListener('touchmove', e => {
   if (e.cancelable) {
     e.preventDefault();
     reelTouch.vertical = true;
+    if (scrollAnimation === 'smooth' && !reelTouch.held) {
+      if (reelTouch.drag === undefined) reelTouch.drag = beginReelDrag();
+      if (reelTouch.drag) dragReel(reelTouch.drag, reelTouch.dy);
+    }
   } else {
     reelTouch = null; // The browser already owns this gesture; don't also navigate.
   }
@@ -2045,6 +2127,7 @@ feed.addEventListener('touchend', e => {
   const gesture = reelTouch;
   stopReelHold();
   reelTouch = null;
+  if (gesture?.drag) { endReelDrag(gesture.drag); return; }
   if (gesture?.held) return;
   if (!gesture || e.touches.length || !(gesture.vertical || gesture.horizontal)) return;
   const t = [...e.changedTouches].find(t => t.identifier === gesture.id);
@@ -2058,7 +2141,11 @@ feed.addEventListener('touchend', e => {
   const distance = gesture.y - t.clientY;
   if (Math.abs(distance) >= 48) goRel(Math.sign(distance));
 }, {passive:true});
-feed.addEventListener('touchcancel', () => { stopReelHold(); cancelPendingTap(); reelTouch = null; }, {passive:true});
+feed.addEventListener('touchcancel', () => {
+  const drag = reelTouch?.drag;
+  stopReelHold(); cancelPendingTap(); reelTouch = null;
+  if (drag && scrollTarget === drag) { scrollTarget = null; settleReel(); }
+}, {passive:true});
 updateFeedStatus();
 if (boot.android && typeof setupAndroidUI === 'function') setupAndroidUI();
 setMuted(muted);

@@ -91,6 +91,8 @@
     border:0;padding:0;background:transparent;cursor:pointer;text-shadow:0 1px 5px #000; }
   .cap.full { display:block;max-height:25dvh;overflow-y:auto;white-space:pre-wrap;
     padding:10px;background:#17171de6;border-radius:10px;text-shadow:none; }
+  /* Snappy mode: reaching the end of a long caption doesn't drag the feed along. */
+  .snappy-scroll .cap.full { overscroll-behavior:contain; }
   .cap:focus-visible { outline:2px solid #c4b5fd;outline-offset:3px; }
   .song { display:flex;align-items:center;gap:8px;margin-top:10px;color:#c4b5fd;font-size:12px;
            height:18px;line-height:18px;min-width:0; }
