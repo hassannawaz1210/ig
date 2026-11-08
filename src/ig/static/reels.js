@@ -1985,12 +1985,6 @@ document.addEventListener('keydown', event => {
     event.preventDefault(); event.stopImmediatePropagation(); reelZoom.reset();
   }
 }, true);
-function zoomCurrentReel() {
-  const slide = document.getElementById('s'+current);
-  if (!slide) return;
-  if (reelZoom?.isZoomed()) reelZoom.reset();
-  else reelZoom?.zoom(slide.querySelector('video') || slide.querySelector('img.poster'));
-}
 
 let reelTouch = null;
 let reelHold = null, ignoreHoldClickUntil = 0;

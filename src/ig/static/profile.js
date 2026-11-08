@@ -385,14 +385,6 @@ const profileZoom = window.installMediaZoom?.(document.getElementById('lbcontent
   getMedia: target => target.closest?.('img,video'),
   onGesture: () => {swipe = null;},
 });
-function zoomProfilePost() {
-  if (!profileZoom) return;
-  if (profileZoom.isZoomed()) {profileZoom.reset(); return;}
-  const carousel = document.querySelector('#lbcontent .slides');
-  const media = carousel ? carousel.children[Math.round(carousel.scrollLeft / (carousel.clientWidth || 1))]
-    : document.querySelector('#lbcontent img, #lbcontent video');
-  if (media) profileZoom.zoom(media);
-}
 document.getElementById('lbcontent').addEventListener('scroll', event => {
   if (event.target.classList?.contains('slides')) { profileZoom?.reset(); syncProfilePlayback(); updateSlideDots(); }
 }, true);
