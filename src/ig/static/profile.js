@@ -116,16 +116,26 @@ const showOwner = !boot.username;
 const ownerName = p => showOwner && typeof p.owner === 'string' && /^[A-Za-z0-9._]{1,30}$/.test(p.owner) ? p.owner : '';
 // Views (Instagram's play count) exist for reels only; photos show none.
 const viewCount = p => Number.isInteger(p.play_count) && p.play_count >= 0 ? p.play_count : null;
+// Instagram's profile grid no longer carries likes, comments or dates; they
+// arrive later (the reels tab, or the post's own page). Unknown counts show
+// nothing rather than a misleading 0.
+const known = n => Number.isInteger(n) && n >= 0;
+// Redraw a post's tile and, if it is open, the viewer's numbers.
+function refreshPostCounts(i) {
+  const p = store[i], tile = grid.querySelector(`.card[data-index="${i}"]`);
+  if (tile) { tile.outerHTML = card(p, i); fillMissingPreviews(); }
+  if (!lbEl.hidden && cur === i) document.getElementById('lbstats').innerHTML = statsHtml(p);
+}
 function showViews(i) {
   const p = store[i], views = viewCount(p);
   if (views == null) return;
-  for (const el of document.querySelectorAll(`[data-views="${i}"]`)) { el.hidden = false; el.innerHTML = `${icon('eye')} ${short(views)}`; }
-  if (!lbEl.hidden && cur === i) document.getElementById('lbstats').innerHTML = statsHtml(p);
+  refreshPostCounts(i);
 }
 function statsHtml(p) {
   const owner = ownerName(p), views = viewCount(p);
   return (owner ? `<a class="lb-owner" href="/u/${encodeURIComponent(owner.toLowerCase())}">@${esc(owner)}</a>` : '') +
-    `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span>` +
+    (known(p.like_count) ? `<span>${icon('heart')} ${fmt(p.like_count)}</span>` : '') +
+    (known(p.comment_count) ? `<span>${icon('comment')} ${fmt(p.comment_count)}</span>` : '') +
     (views == null ? '' : `<span title="${fmt(views)} views">${icon('eye')} ${short(views)}</span>`) +
     `<span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
 }
@@ -147,7 +157,11 @@ async function loadViews() {
     viewPages.cursor = data.cursor; viewPages.hasMore = data.has_more === true && Boolean(data.cursor);
     viewPages.seen += data.count || 0;
     store.forEach((p, i) => {
-      if (viewCount(p) == null && Number.isInteger(data.views?.[p.shortcode])) { p.play_count = data.views[p.shortcode]; showViews(i); }
+      let changed = false;
+      for (const [field, source] of [['play_count', data.views], ['like_count', data.likes], ['comment_count', data.comments]]) {
+        if (!known(p[field]) && known(source?.[p.shortcode])) { p[field] = source[p.shortcode]; changed = true; }
+      }
+      if (changed) refreshPostCounts(i);
     });
   } catch (error) {
     console.warn('Could not load view counts', error);
@@ -161,15 +175,15 @@ function card(p, i) {
   const badge = p.is_video ? '▶'
               : p.is_carousel ? `⧉ ${p.carousel_count || ''}` : '';
   const plays = `<span class="plays" data-views="${i}" title="Views"${viewCount(p) == null ? ' hidden' : ''}>${icon('eye')} ${short(viewCount(p))}</span>`;
-  return `<div class="card" role="button" tabindex="0" onclick="lb(${i})" onkeydown="if(event.key==='Enter')lb(${i})">
+  return `<div class="card" data-index="${i}" role="button" tabindex="0" onclick="lb(${i})" onkeydown="if(event.key==='Enter')lb(${i})">
     <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
       onerror="showMissingImage(this)">` : `<div class="missing" data-fill="${i}">${p.is_carousel ? '' : 'no preview'}</div>`}
       ${badge ? `<div class="badge">${badge}</div>` : ''}
       ${owner ? `<div class="tile-owner">@${esc(owner)}</div>` : ''}
-      <div class="overlay"><span class="likes">${icon('heart')} ${short(p.like_count)}</span>${plays}
+      <div class="overlay">${known(p.like_count) ? `<span class="likes">${icon('heart')} ${short(p.like_count)}</span>` : ''}${plays}
         ${p.taken_at ? `<span class="age" title="${esc(fdate(p.taken_at))}">${postAge(p.taken_at, {short:true})}</span>` : ''}</div></div>
-    <div class="meta">${owner ? `<a class="owner" href="/u/${encodeURIComponent(owner.toLowerCase())}" onclick="event.stopPropagation()">@${esc(owner)}</a>` : ''}<div class="stats"><span>${icon('heart')} ${fmt(p.like_count)}</span>
-      <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="plays" data-views="${i}" title="Views"${viewCount(p) == null ? ' hidden' : ''}>${icon('eye')} ${short(viewCount(p))}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
+    <div class="meta">${owner ? `<a class="owner" href="/u/${encodeURIComponent(owner.toLowerCase())}" onclick="event.stopPropagation()">@${esc(owner)}</a>` : ''}<div class="stats">${known(p.like_count) ? `<span>${icon('heart')} ${fmt(p.like_count)}</span>` : ''}
+      ${known(p.comment_count) ? `<span>${icon('comment')} ${fmt(p.comment_count)}</span>` : ''}<span class="plays" data-views="${i}" title="Views"${viewCount(p) == null ? ' hidden' : ''}>${icon('eye')} ${short(viewCount(p))}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,240))}</div></div></div>`;
 }
 // Some older multi-image posts arrive without a preview image. When such a
@@ -321,7 +335,10 @@ function ensureProfileMedia(post) {
   }).then(async response => {
     const data = await response.json();
     if (!response.ok || data.error) throw new Error(data.error || 'Could not load media');
-    Object.assign(post, data, {_rich:true});
+    for (const [key, value] of Object.entries(data)) if (value !== null && value !== undefined) post[key] = value;
+    post._rich = true;
+    const index = store.indexOf(post);
+    if (index >= 0) refreshPostCounts(index);
     return post;
   }).finally(() => { post._mediaRequest = null; });
   return post._mediaRequest;
@@ -676,17 +693,22 @@ function profileCommentsVisible(post) {
 function renderProfileComments(post) {
   if (!profileCommentsVisible(post)) return;
   const body = document.getElementById('profile-comments-body'), top = body.scrollTop;
-  body.innerHTML = (post._profileComments || []).map(comment => `<article class="comment-row">
-    <a href="/u/${encodeURIComponent(comment.username)}">@${esc(comment.username)}</a>
-    ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-    <p>${mentions(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('');
-  if (post._profileCommentsBusy) body.insertAdjacentHTML('beforeend', '<p class="comments-status" role="status">Loading…</p>');
+  // Rows look like Instagram's (comments.js; plain text where it isn't loaded).
+  const row = comment => typeof commentHtml === 'function' ? commentHtml(comment)
+    : `<article class="comment-row"><b>${esc(comment.username)}</b> ${esc(comment.text)}</article>`;
+  body.innerHTML = (post._profileComments || []).map(row).join('');
+  if (post._profileCommentsBusy) {
+    if (!post._profileComments?.length && typeof commentPlaceholders === 'function') body.innerHTML = commentPlaceholders();
+    else body.insertAdjacentHTML('beforeend', '<p class="comments-status" role="status">Loading…</p>');
+  }
   else if (post._profileCommentsError || post._profileCommentCursor) {
     const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'comments-more';
     retry.textContent = post._profileCommentsError ? 'Couldn’t load comments · Retry' : 'More comments';
     retry.onclick = () => loadProfileComments(post); body.append(retry);
   } else if (!post._profileComments?.length) {
-    body.textContent = post.comment_count > 0 ? 'Instagram returned no public comments.' : 'No comments yet.';
+    const [title, detail] = post.comment_count > 0 ? ['No public comments', 'Instagram returned none.'] : ['No comments yet', 'Start the conversation.'];
+    if (typeof commentsEmptyHtml === 'function') body.innerHTML = commentsEmptyHtml(title, detail);
+    else body.textContent = title + '.';
   }
   body.scrollTop = top;
 }

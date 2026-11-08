@@ -87,12 +87,14 @@ class ProfileViewsTests(RelatedRouteTests):
     def test_views_come_from_the_reels_tab_page_by_page(self):
         from ig import server
         server.VIEW_CONTEXTS.clear()
-        page = {'reels': [{'shortcode': 'AAAAAAAAAAA', 'play_count': 2816256}, {'shortcode': 'BBBBBBBBBBB', 'play_count': None}],
+        page = {'reels': [{'shortcode': 'AAAAAAAAAAA', 'play_count': 2816256, 'like_count': 3, 'comment_count': 5},
+                          {'shortcode': 'BBBBBBBBBBB', 'play_count': None, 'like_count': None, 'comment_count': -1}],
                 'cursor': 'next=1', 'has_more': True}
         with patch.object(instagram, 'reels_tab', return_value=page) as tab:
             status, body = self.get('/u/Star/views')[:2]
-            self.assertEqual((status, json.loads(body)), (200, {'views': {'AAAAAAAAAAA': 2816256}, 'count': 2,
-                                                                 'cursor': 'next=1', 'has_more': True}))
+            self.assertEqual((status, json.loads(body)), (200, {
+                'views': {'AAAAAAAAAAA': 2816256}, 'likes': {'AAAAAAAAAAA': 3}, 'comments': {'AAAAAAAAAAA': 5},
+                'count': 2, 'cursor': 'next=1', 'has_more': True}))
             self.get('/u/star/views?after=next%3D1')
         self.assertEqual(tab.call_args.kwargs['after'], 'next=1')
         self.assertIs(tab.call_args_list[0].kwargs['context'], tab.call_args_list[1].kwargs['context'],

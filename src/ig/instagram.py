@@ -441,6 +441,13 @@ def _fetch_comments(code: str, first: int = 20, after: str | None = None) -> dic
         username = user.get("username")
         if not username:
             continue
+        picture = user.get("profile_pic_url")
+        replies = node.get("child_comment_count")
+        giphy = node.get("giphy_media_info") if isinstance(node.get("giphy_media_info"), dict) else {}
+        # Logged out, images.fixed_height is a tiny placeholder from Instagram's
+        # static files; the real animated GIF is the first-party proxied copy.
+        gif = ((giphy.get("first_party_cdn_proxied_images") or {}).get("fixed_height") or {}).get("url") \
+            or ((giphy.get("images") or {}).get("fixed_height") or {}).get("url")
         comments.append({
             "id": str(node.get("pk") or node.get("id") or ""),
             "username": username,
@@ -448,7 +455,17 @@ def _fetch_comments(code: str, first: int = 20, after: str | None = None) -> dic
             "like_count": node.get("comment_like_count") or 0,
             "created_at": node.get("created_at"),
             "is_owner": username == owner,
+            "is_verified": user.get("is_verified") is True,
+            # Shown like Instagram: the commenter's picture and how many replies there are.
+            "profile_pic_url": picture if isinstance(picture, str) and picture.startswith("https://") else None,
+            "reply_count": replies if isinstance(replies, int) and replies > 0 else 0,
+            # GIF comments (Instagram's GIPHY picker) carry no text, only this image.
+            "gif": gif if isinstance(gif, str) and gif.startswith("https://") else None,
         })
+        # A photo (or sticker) comment: logged-out data carries no field for the
+        # picture, so the page says so instead of showing a blank row.
+        comments[-1]["photo_hidden"] = not comments[-1]["text"].strip() and not comments[-1]["gif"]
+
     page_info = connection.get("page_info") or {}
     has_more = bool(page_info.get("has_next_page"))
     return {"shortcode": media.get("code") or code, "owner": owner, "comments": comments,

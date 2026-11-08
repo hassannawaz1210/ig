@@ -62,7 +62,7 @@ document.addEventListener('click', async event => {
       link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
   const destination = new URL(link.href, location.href);
   if (destination.origin !== location.origin ||
-      !(/^\/(?:settings(?:\/feeds)?|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel|sound)\//.test(destination.pathname))) return;
+      !(/^\/(?:settings(?:\/feeds)?|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel|sound|topic)\//.test(destination.pathname))) return;
   event.preventDefault();
   if (localNavigationPending) return;
   localNavigationPending = true;

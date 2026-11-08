@@ -7,6 +7,7 @@ import re
 from functools import lru_cache
 from html import escape
 from pathlib import Path
+from urllib.parse import quote
 
 from .icons import icon, icons_js
 from . import config
@@ -88,9 +89,23 @@ def _sound_summary(sound: dict) -> str:
               'target="_blank" rel="noopener">Open on Instagram</a></div></div></section>')
 
 
+def _topic_summary(topic: dict) -> str:
+    """Header for a topic page: its name, post count and a link to Instagram's page."""
+    name = topic.get('name') or 'Topic'
+    slug = quote(str(topic.get('slug') or ''), safe='-')
+    count = topic.get('count_label')
+    return ('<section class="profile-summary sound-summary topic-summary" aria-label="Topic">'
+            f'<div class="profile-avatar sound-art" aria-hidden="true">{icon("search")}</div>'
+            '<div class="profile-bio">'
+            f'<strong>{escape(name)}</strong>'
+            + (f'<p class="sound-count">{escape(count)} on Instagram</p>' if count else '')
+            + f'<div class="profile-links"><a href="https://www.instagram.com/popular/{escape(slug, quote=True)}/" '
+              'target="_blank" rel="noopener">Open on Instagram</a></div></div></section>')
+
+
 def viewer_html(title: str, subtitle: str, posts: list[dict],
                 username: str = "", paged: bool = True, empty_message: str = "", profile: dict | None = None,
-                sound: dict | None = None) -> str:
+                sound: dict | None = None, topic: dict | None = None) -> str:
     """The post grid page. paged=False shows every post at once, without a
     pagination indicator; empty_message is shown when there are no posts."""
     add_button = ""
@@ -106,6 +121,8 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
         add_button = ''
     elif sound:
         profile_header = _sound_summary(sound)
+    elif topic:
+        profile_header = _topic_summary(topic)
     return render("profile.html", title=escape(title), subtitle=escape(subtitle), profile_header=profile_header,
                   add_button=add_button,
                   more_button='<div id="more" role="status" aria-live="polite"></div>' if paged else "",

@@ -1,0 +1,73 @@
+{
+  "_note": "Synthetic copy of the popular_search_home_sections data on instagram.com/explore/ (checked 2026-11-09). Names, users and links are made up; the nesting and field names match the real page.",
+  "popular_search_home_sections": [
+    {"section": "TRENDING_NOW", "display_title": "Trending now", "id": "PolarisPopularSearchHomeSection:trending_now",
+     "entries_connection": {"page_info": {"end_cursor": "3", "has_next_page": true}, "edges": [
+      {"cursor": "0", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 1, "keyword": {
+        "keyword_text": "dana white", "media_count": 3215313,
+        "thumbnail_url": "https://scontent.cdninstagram.com/v/t51.0-15/trend1.jpg?stp=dst-jpg",
+        "featured_reel_media": {"__typename": "XIGPolarisVideoMedia", "code": "AAAAAAAAAAA", "video_versions": [{"url": "https://video.test/a.mp4"}], "id": "POLARIS_1"},
+        "page_url": "/popular/dana-white/"}}},
+      {"cursor": "1", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 2, "keyword": {
+        "keyword_text": "festivaloflights", "media_count": 18,
+        "thumbnail_url": "http://scontent.cdninstagram.com/v/plain-http.jpg",
+        "page_url": "/popular/festivaloflights/"}}},
+      {"cursor": "2", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 3, "keyword": {
+        "keyword_text": "Diwali", "media_count": 113870191,
+        "thumbnail_url": "https://evil.example/cdninstagram.com/x.jpg",
+        "page_url": "/popular/diwali/"}}},
+      {"cursor": "3", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 4, "keyword": {
+        "keyword_text": "skims", "media_count": 1971308, "page_url": "/popular/skims/"}}},
+      {"cursor": "4", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 5}},
+      {"cursor": "5", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 6, "keyword": {
+        "keyword_text": "<script>", "media_count": 5, "page_url": "/popular/script/"}}},
+      {"cursor": "6", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 7, "keyword": {
+        "keyword_text": "dana white", "media_count": 3215313, "page_url": "/popular/dana-white/"}}}
+     ]}},
+    {"section": "ENTERTAINMENT", "display_title": "Pop culture moments", "id": "PolarisPopularSearchHomeSection:entertainment",
+     "entries_connection": {"edges": [
+      {"cursor": "0", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 1, "keyword": {
+        "keyword_text": "ronaldo retirement", "media_count": 1175,
+        "thumbnail_url": "https://instagram.fxyz1-1.fna.fbcdn.net/v/t51.0-15/ronaldo.jpg",
+        "page_url": "/popular/ronaldo-retirement/"}}},
+      {"cursor": "1", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 2, "keyword": {
+        "keyword_text": "jetcrash", "media_count": null, "page_url": "/popular/jetcrash/"}}},
+      {"cursor": "2", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 3, "keyword": {
+        "keyword_text": "edc  Orlando", "media_count": 2065817, "page_url": "/popular/edc-orlando-2026/"}}}
+     ]}},
+    {"section": "CELEBRITIES", "display_title": "Profiles to look out for", "id": "PolarisPopularSearchHomeSection:celebrities",
+     "entries_connection": {"edges": [
+      {"cursor": "0", "node": {"__typename": "PolarisPopularSearchHomeProfileEntry", "rank": 1, "user": {
+        "pk": "1", "username": "Example.Creator", "full_name": "Example  Creator", "follower_count": 12969679,
+        "profile_picture_for_dimensions": {"uri": "https://scontent.cdninstagram.com/v/t51.0-19/creator.jpg"},
+        "is_verified": true, "id": "11"}}},
+      {"cursor": "1", "node": {"__typename": "PolarisPopularSearchHomeProfileEntry", "rank": 2, "user": {
+        "pk": "2", "username": "second_creator", "follower_count": 565818,
+        "profile_picture_for_dimensions": {"uri": "javascript:alert(1)"}, "id": "12"}}},
+      {"cursor": "2", "node": {"__typename": "PolarisPopularSearchHomeProfileEntry", "rank": 3, "user": {
+        "pk": "3", "username": "bad name!", "full_name": "Bad", "follower_count": 10}}},
+      {"cursor": "3", "node": {"__typename": "PolarisPopularSearchHomeProfileEntry", "rank": 4, "user": {
+        "pk": "4", "username": "no_count", "full_name": null}}},
+      {"cursor": "4", "node": {"__typename": "PolarisPopularSearchHomeProfileEntry", "rank": 5, "user": {
+        "pk": "1", "username": "example.creator", "full_name": "Duplicate", "follower_count": 1}}}
+     ]}},
+    {"section": "BROWSE_CATEGORIES", "display_title": "Find what you're into", "id": "PolarisPopularSearchHomeSection:browse_categories",
+     "entries_connection": {"edges": [
+      {"cursor": "0", "node": {"__typename": "PolarisPopularSearchHomeBrowseCategoryEntry", "rank": 1, "display_name": "Cute animals",
+        "keyword": {"keyword_text": "cute animals", "thumbnail_url": "https://scontent.cdninstagram.com/v/t51.0-15/cute.jpg"}}},
+      {"cursor": "1", "node": {"__typename": "PolarisPopularSearchHomeBrowseCategoryEntry", "rank": 2, "display_name": "Motorsports and Cycling",
+        "keyword": {"keyword_text": "cycling"}}}
+     ]}},
+    {"section": "LEARN_SOMETHING_NEW", "display_title": "Learn something new", "id": "PolarisPopularSearchHomeSection:learn_something_new",
+     "entries_connection": {"edges": [
+      {"cursor": "0", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 1, "keyword": {
+        "keyword_text": "edit", "media_count": 454301433, "page_url": "/popular/edit/"}}},
+      {"cursor": "1", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 2, "keyword": {
+        "keyword_text": "calisthenics", "media_count": 79159779, "page_url": "/popular/calisthenics/"}}},
+      {"cursor": "2", "node": {"__typename": "PolarisPopularSearchHomeKeywordEntry", "rank": 3, "keyword": {
+        "keyword_text": "makeup tutorial", "media_count": 329320844, "page_url": "/popular/makeup-tutorial/"}}}
+     ]}},
+    {"section": "EMPTY", "display_title": "Nothing usable", "entries_connection": {"edges": [{"node": null}, "x"]}},
+    "not a section"
+  ]
+}

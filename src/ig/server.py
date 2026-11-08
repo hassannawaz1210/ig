@@ -23,7 +23,7 @@ from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError, PROFILES, STATE)
 from .reels import REELS, media_info
 from . import dash
-from .topics import TOPICS
+from .topics import TOPICS, DIRECTORY, topic_slug, readable_name
 from .suggestions import SUGGESTIONS
 from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, static_file, status_html
 from . import stats
@@ -79,9 +79,13 @@ def profile_views(username: str, after: str | None = None) -> dict:
         VIEW_CONTEXTS[username] = context
         while len(VIEW_CONTEXTS) > MAX_VIEW_CONTEXTS:
             VIEW_CONTEXTS.popitem(last=False)
-    views = {reel["shortcode"]: reel["play_count"] for reel in data["reels"]
-             if isinstance(reel.get("play_count"), int) and reel["play_count"] >= 0}
-    return {"views": views, "count": len(data["reels"]), "cursor": data["cursor"], "has_more": data["has_more"]}
+    def counts(field):
+        return {reel["shortcode"]: reel[field] for reel in data["reels"]
+                if isinstance(reel.get(field), int) and reel[field] >= 0}
+    # The profile grid itself no longer carries likes or comments either, so
+    # the reels tab fills those in for reels too.
+    return {"views": counts("play_count"), "likes": counts("like_count"), "comments": counts("comment_count"),
+            "count": len(data["reels"]), "cursor": data["cursor"], "has_more": data["has_more"]}
 
 
 def saved_reel_details(code: str) -> dict:
@@ -387,6 +391,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=True, context='Exporting feeds')
+        if urlsplit(self.path).path in ('/topics/trending', '/topics/search', '/feeds/topics/suggest'):
+            return self._topics_json()
+        topic_match = re.fullmatch(r"/topic/([^/?#]{1,200})/?", self.path)
+        if topic_match:
+            return self._topic_page(unquote(topic_match.group(1)))
         if self.path.startswith("/static/"):
             found = static_file(self.path.removeprefix("/static/"))
             if found is None:
@@ -491,6 +500,56 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         return self._send(404, b"not found", "text/plain")
+
+    def _topics_json(self):
+        """GET /topics/trending, /topics/search?q= and /feeds/topics/suggest?feed=."""
+        parts = urlsplit(self.path)
+        query = parse_qs(parts.query)
+        context = parts.path
+        try:
+            if parts.path == '/topics/trending':
+                result = DIRECTORY.trending()
+                context = 'Loading trending topics'
+            elif parts.path == '/topics/search':
+                text = (query.get('q') or [''])[0]
+                if len(text) > 100:
+                    return self._send(400, b'{"error":"Search for at most 100 characters."}', 'application/json')
+                result = {'topics': DIRECTORY.search(text)}
+                context = 'Searching topics'
+            else:
+                feed = (query.get('feed') or [''])[0]
+                if not FEED_RE.fullmatch(feed):
+                    return self._send(400, b'{"error":"Choose a feed."}', 'application/json')
+                context = f'Suggesting topics for the {feed} feed'
+                try:
+                    result = {'suggestions': DIRECTORY.suggest(feed)}
+                except KeyError:
+                    return self._send(404, b'{"error":"Feed not found"}', 'application/json')
+            return self._send(200, json.dumps(result).encode(), 'application/json')
+        except Exception as error:
+            return self._fail(error, as_json=True, context=context)
+
+    def _topic_page(self, slug: str):
+        """GET /topic/<slug>: a topic's popular reels in the profile grid."""
+        if topic_slug(slug) != slug:
+            html = status_html('Unknown topic', 'Topic links use lowercase letters, numbers and dashes.', retry=False)
+            return self._send(400, html.encode(), 'text/html; charset=utf-8')
+        try:
+            known = DIRECTORY.lookup(slug) or {}
+            page = DIRECTORY.topic_page(slug)
+            name = known.get('name') or page['name'] or readable_name(slug)
+            count = known.get('count_label') or page['count_label']
+            html = viewer_html(name, count or 'Popular on Instagram', page['posts'], paged=False,
+                               empty_message='' if page['posts'] else
+                               'Instagram shows no popular reels for this topic right now. Try again later.',
+                               topic={'name': name, 'slug': slug, 'count_label': count})
+            return self._send(200, html.encode(), 'text/html; charset=utf-8')
+        except Exception as error:
+            return self._fail(error, context=f'Opening the topic {slug}')
+
+    def _topic_media_path(self) -> bool:
+        match = re.fullmatch(r"/topic/([^/?#]{1,200})/media", self.path)
+        return bool(match) and topic_slug(unquote(match.group(1))) == unquote(match.group(1))
 
     def _media(self, code: str) -> dict:
         data = media_info(code)
@@ -912,8 +971,9 @@ class Handler(BaseHTTPRequestHandler):
             username, action = m.group(1).lower(), m.group(2)
         elif rm or creator_match:
             username, action = MIX, rm.group(2) if rm else "more"
-        elif self.path == "/saved-reels/media" or re.fullmatch(r"/sound/\d{10,32}/media", self.path):
-            action = "media"  # video lookups from the Saved reels and sound pages
+        elif (self.path == "/saved-reels/media" or re.fullmatch(r"/sound/\d{10,32}/media", self.path)
+              or self._topic_media_path()):
+            action = "media"  # video lookups from the Saved reels, sound and topic pages
         else:
             return self._send(404, b"not found", "text/plain")
         try:

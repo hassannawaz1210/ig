@@ -85,7 +85,10 @@
            text-shadow:0 1px 5px #000; }
   .info .user { font-weight:700; font-size:15px; color:#fff; text-decoration:none; }
   .info .date { font-size:12px; color:#cfcfd6; margin-left:8px; }
-  .info .views { display:inline-flex;align-items:center;gap:3px;margin-left:8px;font-size:12px;color:#cfcfd6;white-space:nowrap;vertical-align:middle; }
+  /* Date and views share one line after the name. */
+  .info .post-meta { display:inline-flex;align-items:center;gap:8px;margin-left:8px;vertical-align:middle;white-space:nowrap; }
+  .info .post-meta .date { margin:0; }
+  .info .views { display:inline-flex;align-items:center;gap:3px;font-size:12px;color:#cfcfd6;white-space:nowrap; }
   .info .views .icon { width:14px;height:14px; }
   .cap { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
     overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere;width:100%;box-sizing:border-box;
@@ -250,7 +253,9 @@
 .info { right:auto;width:clamp(160px, calc((100vw - 56.25dvh) / 2 - 28px), 280px);
   max-width:calc(100vw - 92px); }
 .info .user { display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle; }
-.info .date { display:block;margin:4px 0 0;font-size:11px;color:#aaa; }
+.info .post-meta { display:flex;margin:4px 0 0; }
+.info .date { margin:0;font-size:11px;color:#aaa; }
+.info .views { font-size:11px;color:#aaa; }
 @media (max-width:640px) {
   .info { right:auto;width:220px;max-width:calc(100vw - 88px); }
 }
@@ -262,18 +267,14 @@
    its controls from keyboard navigation while closed. */
 #comments-panel[hidden] { display:flex;visibility:hidden;pointer-events:none;transform:translateX(100%);
   transition:transform .24s ease, visibility 0s linear .24s; }
-.comments-heading { display:flex;justify-content:space-between;gap:12px;padding:18px;border-bottom:1px solid #ffffff18; }
+.comments-heading { position:relative;display:flex;justify-content:center;gap:12px;padding:18px 52px;border-bottom:1px solid #ffffff18;font-size:16px; }
+.comments-heading button { position:absolute;right:12px;top:12px;width:36px;height:36px; }
 .comments-heading button { background:transparent;color:#ccc;border:0;font-size:18px;cursor:pointer;align-self:flex-start; }
 #comments-body { padding:18px;overflow-y:auto;overscroll-behavior:contain;font-size:13px;line-height:1.5; }
-#comments-more { padding:12px 0;color:#999;text-align:center; }
+#comments-more { display:flex;justify-content:center;padding:12px 0;color:#999;text-align:center; }
 button#comments-more { display:block;width:100%;border:0;background:transparent;font:inherit;cursor:pointer; }
 button#comments-more:hover { color:#fff; }
 button#comments-more:focus-visible { outline:1px solid #aaa;outline-offset:-1px; }
-.comment-row + .comment-row { margin-top:20px; }
-.comment-row a { color:#ddd3ff;text-decoration:none;font-weight:600; }
-.comment-row p { margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere; }
-.comment-row small { color:#9393a3;font-size:11px; }
-.comment-creator { font-size:10px;margin-left:8px;color:#aaa; }
 
 :root { --comments-width:clamp(180px, 36vw, 360px); }
 #feed { width:100%;transition:width .24s ease; }
@@ -317,7 +318,8 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .android-app .top { padding:calc(8px + env(safe-area-inset-top)) 14px 8px;gap:8px; }
 .android-app #shortcuts, .android-app .feed-key-hints,
 .android-app .feed-panel kbd { display:none; }
-.android-app .info .date { display:inline;margin:0 0 0 8px;font-size:12px;color:#ddd;white-space:nowrap; }
+.android-app .info .post-meta { display:inline-flex;margin:0 0 0 8px; }
+.android-app .info .date { display:inline;margin:0;font-size:12px;color:#ddd;white-space:nowrap; }
 .android-app .info .views { color:#ddd; }
 .android-app .feed-menu summary { min-height:28px;padding:8px 0;background:none;border:0;font-size:16px; }
 .android-app .feed-menu { max-width:calc(100vw - 104px); }
@@ -438,6 +440,13 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 #local-page-loading .ph-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin:0 -16px;}
 #local-page-loading .ph-grid i {aspect-ratio:3/4;border-radius:0;}
 @media (prefers-reduced-motion:reduce) {#local-page-loading i {animation:none;}}
+/* Wider screens: the same sizes as the real profile page (about 180px tiles), not three huge columns. */
+@media (min-width:641px) {
+  #local-page-loading .ph-title {width:min(45%,320px);}
+  #local-page-loading .ph-summary div {max-width:420px;}
+  #local-page-loading .ph-grid {grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;margin:0;}
+  #local-page-loading .ph-grid i {border-radius:4px;}
+}
 
 /* Keep slide and Android navigation geometry unchanged while hiding chrome. */
 .clean-view .info,.clean-view .bar,.clean-view .top,.clean-view .android-nav {

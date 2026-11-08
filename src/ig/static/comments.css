@@ -1,0 +1,46 @@
+/* Comments, styled after Instagram's: picture on the left, name · time on
+   one line, the comment under it, replies below, a heart with the like count
+   on the right. Shared by the reel player and the profile post viewer. */
+.comment-row { display:grid; grid-template-columns:36px minmax(0,1fr) 32px; gap:12px; align-items:start;
+  padding:10px 0; margin:0; font-size:14px; line-height:1.35; color:#f5f5f5; }
+.comment-row + .comment-row { margin-top:4px; }
+.comment-picture { position:relative; display:grid; place-items:center; width:36px; height:36px; border-radius:50%;
+  overflow:hidden; background:#2f2f33; color:#bbb; font:600 14px system-ui; text-decoration:none; }
+.comment-picture img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.comment-main { min-width:0; }
+.comment-meta { display:flex; align-items:center; flex-wrap:wrap; gap:0 6px; font-size:13px; line-height:18px; }
+.comment-name { color:#f5f5f5; font-weight:600; text-decoration:none; }
+.comment-name:hover { text-decoration:underline; }
+.comment-meta time { color:#a8a8a8; font-weight:400; }
+.comment-verified { display:inline-grid; place-items:center; width:13px; height:13px; border-radius:50%;
+  background:#0095f6; color:#fff; font-size:9px; font-weight:700; }
+.comment-creator { padding:0 6px; border-radius:4px; background:#ffffff1a; color:#ddd; font-size:11px; line-height:16px; margin:0; }
+.comment-text { margin:2px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.comment-text a, .comment-text .mention { color:#e0f1ff; text-decoration:none; }
+/* GIF comments: shown in place of text, at a modest size like Instagram's. */
+/* Photo comments: Instagram doesn't share the picture with logged-out visitors. */
+.comment-photo-note { display:inline-block; margin-top:2px; color:#a8a8a8; font-size:13px; font-style:italic; }
+.comment-gif { display:block; max-width:min(180px, 100%); max-height:180px; margin-top:6px; border-radius:8px; }
+.comment-replies { display:inline-flex; align-items:center; gap:10px; margin-top:8px; color:#a8a8a8; font-size:12px; font-weight:600; }
+.comment-replies::before { content:""; width:24px; height:1px; background:#a8a8a8; opacity:.6; }
+.comment-likes { display:flex; flex-direction:column; align-items:center; gap:2px; padding-top:4px;
+  color:#a8a8a8; font-size:11px; }
+.comment-likes .icon { width:14px; height:14px; }
+.comment-likes span:empty { display:none; }
+
+/* Loading: grey rows shaped like comments. */
+@keyframes comment-shimmer { from { background-position:100% 0; } to { background-position:-100% 0; } }
+.comment-row.placeholder .comment-picture, .comment-row.placeholder .comment-main i {
+  background:linear-gradient(90deg, #262629 25%, #323236 50%, #262629 75%); background-size:200% 100%;
+  animation:comment-shimmer 1.3s linear infinite; }
+.comment-row.placeholder .comment-main i { display:block; height:11px; border-radius:6px; margin:4px 0 9px; }
+.comment-row.placeholder .comment-main i:first-child { width:35%; }
+.comment-row.placeholder .comment-main i:last-child { width:80%; }
+@media (prefers-reduced-motion:reduce) {
+  .comment-row.placeholder .comment-picture, .comment-row.placeholder .comment-main i { animation:none; }
+}
+
+/* Empty and status messages, centred like Instagram's. */
+.comments-empty { display:flex; flex-direction:column; align-items:center; gap:6px; padding:48px 16px; text-align:center; }
+.comments-empty b { font-size:20px; font-weight:700; color:#f5f5f5; }
+.comments-empty span { color:#a8a8a8; font-size:14px; }

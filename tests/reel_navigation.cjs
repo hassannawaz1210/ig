@@ -338,8 +338,8 @@ const KEYS = {
       'reel navigation keeps the drawer open');
     assert.equal(await evaluate('commentRequests.length'), 4, 'new reel fetches its own comments');
     await replyComments(2, [], null, true);
-    assert.equal(await evaluate(`document.getElementById('comments-body').textContent`), 'Loading comments…',
-      'a previous reel failure cannot overwrite the current panel');
+    assert.equal(await evaluate(`!!document.querySelector('#comments-body .comment-placeholders')`), true,
+      'a previous reel failure cannot overwrite the current panel (still loading)');
     await replyComments(3, [], null, true);
     assert.ok(await evaluate(`document.querySelector('button#comments-more') !== null`),
       'failed initial request offers a keyboard-accessible retry');
@@ -356,9 +356,12 @@ const KEYS = {
     await replyComments(7, [comment('5')]);
     assert.equal(await evaluate(`document.querySelectorAll('.comment-row').length`), 2,
       'page retry preserves existing comments');
+    assert.deepEqual(await evaluate(`(r => ({picture: !!r.querySelector('.comment-picture'), name: r.querySelector('.comment-name')?.getAttribute('href'),
+      heart: !!r.querySelector('.comment-likes .icon')}))(document.querySelector('.comment-row'))`),
+      {picture: true, name: '/u/fan', heart: true}, 'comments look like Instagram: picture, name, heart');
     await evaluate(`posts[current]._comments = []; posts[current]._commentKeys = new Set();
       posts[current].comment_count = 1; renderComments(posts[current])`);
-    assert.ok((await evaluate(`document.getElementById('comments-body').textContent`)).includes('Instagram lists 1 comment, but returned none.'),
+    assert.ok((await evaluate(`document.getElementById('comments-body').textContent`)).includes('Instagram lists 1 but returned none.'),
       'an empty response does not pretend the advertised comment count is zero');
     await evaluate(`document.querySelector('button#comments-more').click()`);
     assert.equal(await evaluate('commentRequests[8].after'), null, 'retry reloads the first page');
@@ -575,7 +578,7 @@ const KEYS = {
     assert.deepEqual(ages, ['just now', '1 minute ago', '2 hours ago', '1 day ago', '3 days ago', '2 weeks ago', '2 months ago', '2 years ago', '']);
     const dated = await evaluate(`(() => { const d = document.querySelector('.slide:not([hidden]) .info .date');
       return d && {text: d.textContent, display: getComputedStyle(d).display, datetime: d.getAttribute('datetime'), top: d.getBoundingClientRect().top,
-        userTop: d.parentNode.querySelector('.user').getBoundingClientRect().top}; })()`);
+        userTop: d.closest('.info').querySelector('.user').getBoundingClientRect().top}; })()`);
     assert.ok(dated, 'reels show their post date');
     assert.match(dated.text, / ago · /, 'age and date: ' + dated.text);
     assert.notEqual(dated.display, 'none', 'the post date is visible on the phone');

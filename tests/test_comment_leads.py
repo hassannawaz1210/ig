@@ -69,6 +69,40 @@ class CommentFetchTests(unittest.TestCase):
                          req.call_args.kwargs['data'].split('&'))['variables']
         self.assertIn('"media_id":"111222333"', unquote(variables))
 
+    def test_comments_carry_picture_verified_and_replies(self):
+        payload = comments_payload([("fan1", "nice", 1), ("fan2", "ok", 0)])
+        first, second = (edge["node"] for edge in payload["data"]["xig_polaris_media"]["comments_connection"]["edges"])
+        first["user"].update(profile_pic_url="https://cdn.test/fan1.jpg", is_verified=True)
+        first["child_comment_count"] = 3
+        second["user"]["profile_pic_url"] = "http://insecure.test/fan2.jpg"
+        second["child_comment_count"] = None
+        response = MagicMock(status_code=200)
+        response.json.return_value = payload
+        with patch.object(instagram, '_post_page', return_value=POST_HTML), \
+                patch.object(instagram, 'request', return_value=response):
+            one, two = instagram.post_comments('AbCdEfGhIjK')['comments']
+        self.assertEqual((one['profile_pic_url'], one['is_verified'], one['reply_count']),
+                         ('https://cdn.test/fan1.jpg', True, 3))
+        self.assertEqual((two['profile_pic_url'], two['is_verified'], two['reply_count']), (None, False, 0),
+                         'only https pictures; missing counts are zero')
+
+    def test_gif_and_photo_comments(self):
+        payload = comments_payload([("gifter", "", 0), ("photographer", "", 0), ("writer", "hi", 0)])
+        gif, photo, text = (edge["node"] for edge in payload["data"]["xig_polaris_media"]["comments_connection"]["edges"])
+        gif["giphy_media_info"] = {"id": "1",
+            "images": {"fixed_height": {"url": "https://static.cdninstagram.com/rsrc.php/placeholder.gif"}},
+            "first_party_cdn_proxied_images": {"fixed_height": {"url": "https://cdn.fbsbx.com/real.gif"}}}
+        photo["giphy_media_info"] = ["unexpected shape"]
+        response = MagicMock(status_code=200)
+        response.json.return_value = payload
+        with patch.object(instagram, '_post_page', return_value=POST_HTML), \
+                patch.object(instagram, 'request', return_value=response):
+            gif, photo, text = instagram.post_comments('AbCdEfGhIjK')['comments']
+        self.assertEqual(gif['gif'], 'https://cdn.fbsbx.com/real.gif', 'the real GIF, not the logged-out placeholder')
+        self.assertEqual((gif['photo_hidden'], photo['photo_hidden'], text['photo_hidden']), (False, True, False),
+                         'a comment with no text and no GIF is a photo Instagram does not share')
+        self.assertIsNone(photo['gif'])
+
     def test_post_without_comments_is_not_an_error(self):
         payload = {"data": {"xig_polaris_media": {"comments_connection":
                                                   {"edges": [], "page_info": {}}}}}

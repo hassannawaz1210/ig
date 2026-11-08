@@ -58,6 +58,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.ok(await evaluate("!!document.querySelector('#lbcontent img')"), 'photo shows at once');
     await waitFor("!document.querySelector('#lbcontent .preview-wait')", 'loading finished');
     assert.ok(await evaluate("!!document.querySelector('#lbcontent > img')"), 'preview kept when the full photo fails');
+    // Instagram's grid has no likes or comments now: unknown counts show nothing, not 0.
+    assert.equal(await evaluate("statsHtml({shortcode:'X', like_count:null, comment_count:undefined}).includes('heart')"), false);
+    assert.ok(await evaluate("statsHtml({shortcode:'X', like_count:3, comment_count:5}).includes('>heart<') || statsHtml({shortcode:'X', like_count:3, comment_count:5}).includes(' 3<')"));
     // Views fill in after the grid shows; photos get none.
     await evaluate('closeLb()');
     await waitFor("!document.querySelector('[data-views=\"2\"]').hidden", 'reel views filled in');

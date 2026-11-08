@@ -33,6 +33,8 @@ const countEl = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmt = n => (n??0).toLocaleString();
+// A count Instagram didn't send shows nothing, not a misleading 0.
+const countLabel = n => Number.isInteger(n) && n >= 0 ? n.toLocaleString() : '';
 // @usernames in captions and comments link to their profiles (common.js).
 const mentions = text => typeof linkifyMentions === 'function' ? linkifyMentions(text) : esc(text);
 // How old a post is: "5 minutes ago", "3 days ago", "2 years ago".
@@ -557,7 +559,7 @@ function slideHtml(p, i) {
     </div>
     <div class="info">
       <a class="user" href="/u/${esc(p.owner)}" title="View profile (P)">@${esc(p.owner)}</a>
-      ${postDate(p.taken_at)}${viewsLabel(p)}
+      <span class="post-meta">${postDate(p.taken_at)}${viewsLabel(p)}</span>
       ${p.caption ? `<div role="button" tabindex="0" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption"
         onclick="if(!event.target.closest('a'))toggleCaption(${i})"
         onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();toggleCaption(${i})}">${mentions(p.caption)}</div>` : ''}
@@ -567,10 +569,10 @@ function slideHtml(p, i) {
     <div class="bar">
       <button class="ico reel-like" type="button" title="More like this · local like (L)"
         aria-label="Like this reel" aria-pressed="${p.feedback === 'like'}" onclick="likeReel(${i})">
-        <span class="em">${icon('heart')}</span><span id="likes${i}">${fmt(p.like_count)}</span></button>
+        <span class="em">${icon('heart')}</span><span id="likes${i}">${countLabel(p.like_count)}</span></button>
       <button class="ico" type="button" title="Not interested in this reel (N)" aria-label="Not interested"
         onclick="rateReel(${i}, 'dislike')"><span class="em">${icon('less')}</span><span>less</span></button>
-      <button class="ico" type="button" title="Comments (C)" aria-label="Show comments" onclick="toggleComments(${i})"><span class="em">${icon('comment')}</span><span id="cm${i}">${fmt(p.comment_count)}</span></button>
+      <button class="ico" type="button" title="Comments (C)" aria-label="Show comments" onclick="toggleComments(${i})"><span class="em">${icon('comment')}</span><span id="cm${i}">${countLabel(p.comment_count)}</span></button>
       <button class="ico reel-share" type="button" title="Share reel" aria-label="Share reel" onclick="shareReel(${i})">
         <span class="em">${icon('share')}</span><span>share</span></button>
       ${p.reason ? `<button class="ico why-button" type="button" title="Why am I seeing this? (W)"
@@ -700,8 +702,8 @@ async function prepare(i) {
   }
   // A slow response may arrive after the user has scrolled away.
   if (posts[i] !== p || isHidden(p) || i < current || !visibleIndices().filter(j => j >= current).slice(0, PRELOAD_AHEAD + 1).includes(i)) return;
-  document.getElementById('likes'+i).textContent = fmt(p.like_count);
-  document.getElementById('cm'+i).textContent = fmt(p.comment_count);
+  document.getElementById('likes'+i).textContent = countLabel(p.like_count);
+  document.getElementById('cm'+i).textContent = countLabel(p.comment_count);
   if (commentsVisible(p)) renderComments(p);
   setVideo(p, i, current === i);
 }
@@ -1246,7 +1248,7 @@ routeLocalPage = destination => {
     else if (boot.post_code) return false;
     return true;
   }
-  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel|sound)\//.test(destination.pathname))) return false;
+  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel|sound|topic)\//.test(destination.pathname))) return false;
   showLocalPage(destination); return true;
 };
 window.addEventListener('message', event => {
@@ -2192,12 +2194,8 @@ commentsHeading.addEventListener('pointercancel', finishSheetDrag);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') closeComments();
 });
-function commentRow(comment) {
-  return `<article class="comment-row">
-    <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
-    ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-    <p>${mentions(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`;
-}
+// Rows look like Instagram's (comments.js).
+const commentRow = comment => commentHtml(comment);
 function commentKey(comment) {
   return comment.id ? 'id:' + comment.id : JSON.stringify([comment.username, comment.text, comment.created_at]);
 }
@@ -2220,10 +2218,11 @@ function renderComments(p) {
   body.innerHTML = (p._comments || []).map(commentRow).join('');
   const missing = !p._comments?.length && p.comment_count > 0 && !p._commentCursor;
   if (missing && !p._commentsLoading && !p._commentError) {
-    body.textContent = `Instagram lists ${fmt(p.comment_count)} ${p.comment_count === 1 ? 'comment' : 'comments'}, but returned none.`;
+    body.innerHTML = commentsEmptyHtml('No public comments', `Instagram lists ${fmt(p.comment_count)} but returned none.`);
   }
   if (p._commentsLoading) {
-    body.insertAdjacentHTML('beforeend', '<div id="comments-more" role="status">Loading comments…</div>');
+    if (!p._comments?.length) body.innerHTML = commentPlaceholders();
+    else body.insertAdjacentHTML('beforeend', '<div id="comments-more" role="status"><span class="spinner" aria-hidden="true"></span></div>');
   } else if (p._commentError || p._commentCursor || missing) {
     const button = document.createElement('button');
     button.id = 'comments-more';
@@ -2232,7 +2231,8 @@ function renderComments(p) {
     button.onclick = () => loadMoreComments(p);
     body.appendChild(button);
   } else if (!p._comments?.length) {
-    body.textContent = p.comment_count === 0 ? 'No comments yet.' : 'No comments returned.';
+    body.innerHTML = p.comment_count === 0 ? commentsEmptyHtml('No comments yet', 'Start the conversation.')
+      : commentsEmptyHtml('No public comments', 'Instagram returned none.');
   }
   body.scrollTop = top;
 }

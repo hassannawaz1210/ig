@@ -24,3 +24,10 @@ class PageSyncTests(unittest.TestCase):
         script = Path(__file__).with_name('page_sync.cjs')
         common = Path(__file__).resolve().parents[1] / 'src/ig/static/common.js'
         subprocess.run(['node', str(script), str(common)], check=True)
+
+
+class CommentRowTests(unittest.TestCase):
+    def test_comment_rows_look_like_instagram_and_escape_text(self):
+        root = Path(__file__).resolve().parents[1]
+        subprocess.run(['node', str(Path(__file__).with_name('comments_render.cjs')),
+                        str(root / 'src/ig/static/comments.js')], check=True)

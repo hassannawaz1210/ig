@@ -6,6 +6,12 @@
 <header class="page-header"><a class="back" href="/settings" aria-label="Back to Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Feeds</h1></header>
 <main>
   <p id="settings-status" role="status" aria-live="polite"></p>
+  <section id="trending" class="trending" aria-labelledby="trending-title">
+    <h2 id="trending-title" class="group-title">Trending on Instagram</h2>
+    <div class="trending-tabs" role="group" aria-label="Trending lists" hidden></div>
+    <div class="trending-row" aria-busy="true"></div>
+    <p class="trending-note" hidden></p>
+  </section>
   <section aria-labelledby="feeds-title">
     <div class="group-heading">
       <div><h2 id="feeds-title" class="group-title">Your feeds</h2><p id="feeds-total" class="muted"></p></div>
