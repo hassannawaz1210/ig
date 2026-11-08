@@ -35,6 +35,12 @@ REELS_DOC_ID = "27838951732404191"
 REELS_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWProfileReelsTabContentQuery"
 
 
+AYML_DOC_ID = "27840486182295820"
+
+
+AYML_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWAYMLQuery"
+
+
 REQUEST_TIMEOUT = 30          # seconds for one Instagram request
 PAGE_SIZE = 50                # posts per pagination request
 PAGINATION_PAUSE = (1.0, 2.2) # random wait in seconds; stays under the hourly cap
@@ -621,6 +627,85 @@ def post(url_or_code: str) -> dict:
 
 
 class ProfileCache:
+_AYML_CACHE = OrderedDict()
+_AYML_LOCK = threading.Lock()
+AYML_TTL = 30 * 60  # Instagram's own rail changes slowly
+
+
+def related_accounts(username: str) -> list[dict]:
+    """Instagram's logged-out "Accounts you might like" rail for a profile.
+
+    The suggestions come from Instagram's similarity ranking; it mainly
+    computes them for larger accounts, so smaller profiles return []."""
+    username = username.lstrip("@").lower()
+    with _AYML_LOCK:
+        cached = _AYML_CACHE.get(username)
+        if cached and time.monotonic() - cached[0] < AYML_TTL:
+            return cached[1]
+    session, html = fetch_profile_page(username)
+    # The profile's own id, not the first "pk" on the page (posts have them too).
+    user = profile_user(html) or {}
+    pk = str(user.get("pk") or user.get("id") or "")
+    if not pk.isdigit():
+        pk_m = re.search(r'"pk":"?(\d+)"?', html)
+        pk = pk_m.group(1) if pk_m else ""
+    lsd_m = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', html)
+    if not pk or not lsd_m:
+        raise UnexpectedResponse(f"Instagram did not include tokens for @{username}; try again later")
+    csrf = session.cookies.get("csrftoken", "")
+    body = urlencode({
+        "av": "0", "__d": "www", "__user": "0", "__a": "1",
+        "__comet_req": "7", "lsd": lsd_m.group(1),
+        "jazoest": "2" + str(sum(ord(c) for c in lsd_m.group(1))),
+        "fb_api_caller_class": "RelayModern",
+        "fb_api_req_friendly_name": AYML_FRIENDLY_NAME,
+        "server_timestamps": "true",
+        "variables": json.dumps({"id": pk}, separators=(",", ":")),
+        "doc_id": AYML_DOC_ID,
+    })
+    r = request(session, "POST", "https://www.instagram.com/api/graphql", data=body,
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-fb-friendly-name": AYML_FRIENDLY_NAME,
+                    "x-fb-lsd": lsd_m.group(1), "x-csrftoken": csrf,
+                    "x-ig-app-id": WEB_APP_ID, "x-asbd-id": ASBD_ID,
+                    "origin": "https://www.instagram.com",
+                    "referer": f"https://www.instagram.com/{username}/",
+                })
+    try:
+        payload = r.json()
+    except ValueError:
+        BACKOFF.hit()
+        raise RateLimited("Instagram blocked loading suggestions; wait a few minutes") from None
+    if not isinstance(payload, dict):
+        raise UnexpectedResponse("Instagram sent an invalid suggestions reply")
+    if payload.get("require_login") or payload.get("status") == "fail":
+        BACKOFF.hit()
+        raise RateLimited("Instagram is limiting logged-out browsing; wait a few minutes")
+    if payload.get("errors"):
+        raise UnexpectedResponse("Instagram would not load suggestions; "
+                                 "the query id may need refreshing")
+    BACKOFF.reset()
+    suggestions = []
+    for node in (((payload.get("data") or {}).get("xig_user_by_igid_v2") or {}).get("ayml_logged_out") or []):
+        name = (node.get("username") or "").lower() if isinstance(node, dict) else ""
+        if not config.USER_RE.fullmatch(name) or name == username:
+            continue  # it becomes a /u/<name> link in the page
+        picture = node.get("profile_pic_url")
+        suggestions.append({
+            "username": name,
+            "full_name": node.get("full_name") or "",
+            "is_verified": bool(node.get("is_verified")),
+            "profile_pic_url": picture if isinstance(picture, str) and picture.startswith("https://") else None,
+        })
+    with _AYML_LOCK:
+        _AYML_CACHE[username] = (time.monotonic(), suggestions)
+        _AYML_CACHE.move_to_end(username)
+        while len(_AYML_CACHE) > 64:
+            _AYML_CACHE.popitem(last=False)
+    return suggestions
+
+
     """Profiles saved on disk, so restarts do not refetch every account.
 
     Only public metadata is stored: bio, slim posts and the pagination cursor.

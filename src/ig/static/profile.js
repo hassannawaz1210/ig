@@ -641,3 +641,56 @@ document.getElementById('profile-comments-body')?.addEventListener('scroll', eve
   if (!post || !profileCommentsVisible(post) || post._profileCommentsError || post._profileCommentAutoPaused || !post._profileCommentCursor) return;
   if (body.scrollHeight - body.scrollTop - body.clientHeight < 140) loadProfileComments(post);
 });
+
+
+// Instagram's own "Accounts you might like" rail for this profile. Only real
+// profiles have it (Saved reels reuses this page without a username), and it
+// is fetched once the rail scrolls into view.
+const relatedSection = document.getElementById('related');
+let relatedRequest = null;
+function renderRelated(accounts) {
+  const list = document.getElementById('related-list');
+  relatedSection.hidden = false;
+  list.innerHTML = accounts.map(account => `
+    <div class="related-account">
+      <a class="related-link" href="/u/${encodeURIComponent(account.username)}">
+        ${account.profile_pic_url ? `<img loading="lazy" src="${esc(account.profile_pic_url)}" alt="" onerror="this.classList.add('broken')">` : ''}
+        <span class="related-avatar-fallback">${esc(account.username.slice(0,1).toUpperCase())}</span>
+        <span class="related-names"><strong>${esc(account.username)}${account.is_verified ? ' ✓' : ''}</strong>
+        <small>${esc(account.full_name)}</small></span>
+      </a>
+      <button type="button" class="related-add" data-state="out"
+        onclick="toggleRelated(this.dataset.user, this)" data-user="${esc(account.username)}">${icon('plus')} add</button>
+    </div>`).join('');
+}
+async function toggleRelated(username, button) {
+  if (button.dataset.state === 'in' || button.disabled) return;
+  button.disabled = true;
+  try {
+    if (await chooseFeed(username)) {
+      button.dataset.state = 'in';
+      button.innerHTML = icon('check') + ' in feed';
+    }
+  } finally { button.disabled = false; }
+}
+if (relatedSection && boot.username) {
+  const loadRelated = () => {
+    if (relatedRequest) return relatedRequest;
+    relatedRequest = (async () => {
+      try {
+        const response = await fetch('/related/' + encodeURIComponent(boot.username));
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || 'failed');
+        if ((data.accounts || []).length) renderRelated(data.accounts);
+        else relatedSection.hidden = true;
+      } catch (error) {
+        console.warn('Could not load suggestions', error);
+        relatedSection.hidden = true;
+      }
+    })();
+    return relatedRequest;
+  };
+  // The section starts hidden, so it can never "scroll into view"; load it
+  // with the page and show it once there are suggestions.
+  loadRelated();
+} else if (relatedSection) relatedSection.remove();

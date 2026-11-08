@@ -244,3 +244,24 @@ a { color:inherit; }
 .profile-links summary { list-style:none; cursor:pointer; color:var(--soft); }
 .profile-links summary::-webkit-details-marker { display:none; }
 .profile-links details .profile-link { padding:4px 0; }
+
+/* Accounts you might like */
+/* Under the profile header, like Instagram's "Suggested for you" row. */
+#related { padding:4px 24px 14px; }
+#related h2 { font-size:16px; margin:0 0 10px; }
+.related-list { display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; padding-bottom:4px; scrollbar-width:thin; }
+.related-account { flex:0 0 240px; scroll-snap-align:start; display:flex; align-items:center; gap:8px; background:var(--card);
+  border:1px solid var(--line); border-radius:12px; padding:10px; min-width:0; }
+.related-link { display:flex; align-items:center; gap:10px; flex:1; min-width:0; text-decoration:none; position:relative; }
+.related-link img { width:44px; height:44px; border-radius:50%; object-fit:cover; flex:none; background:#202028; }
+.related-link img.broken { display:none; }
+.related-avatar-fallback { display:none; width:44px; height:44px; border-radius:50%; flex:none;
+  background:#202028; color:var(--soft); place-items:center; font-size:17px; }
+.related-link img.broken + .related-avatar-fallback { display:grid; }
+.related-names { display:flex; flex-direction:column; min-width:0; }
+.related-names strong { font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.related-names small { color:var(--soft); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.related-add { flex:none; display:flex; align-items:center; gap:4px; border:0; background:#eaeaea; color:#111;
+  border-radius:16px; padding:7px 12px; cursor:pointer; font:600 12px system-ui; }
+.related-add .icon { width:14px; height:14px; }
+.related-add[data-state="in"] { background:#26262f; color:#cfcfd6; }
