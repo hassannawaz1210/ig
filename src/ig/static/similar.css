@@ -1,0 +1,34 @@
+/* All of a profile's suggested accounts: larger cards with add to feed. */
+main { max-width:960px; }
+.page-header { max-width:960px; }
+.similar-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(168px, 1fr)); gap:12px; padding-bottom:32px; }
+.similar-card { display:flex; flex-direction:column; align-items:center; gap:10px; padding:18px 12px 14px; min-width:0;
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius); text-align:center; }
+.similar-link { display:flex; flex-direction:column; align-items:center; gap:8px; min-width:0; width:100%; color:inherit; text-decoration:none; }
+.similar-picture { position:relative; display:grid; place-items:center; width:84px; height:84px; border-radius:50%;
+  overflow:hidden; background:#26262c; color:#bbb; font:600 28px system-ui; }
+.similar-picture img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.similar-name { max-width:100%; font-weight:650; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.similar-name .verified { display:inline-grid; place-items:center; width:14px; height:14px; margin-left:4px; border-radius:50%;
+  background:#0095f6; color:#fff; font-size:9px; vertical-align:1px; }
+.similar-full { max-width:100%; min-height:1.3em; color:var(--soft); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.similar-add { display:inline-flex; align-items:center; justify-content:center; gap:6px; width:100%; min-height:38px; margin-top:auto;
+  border:0; border-radius:10px; background:#eaeaea; color:#111; font:600 14px system-ui; cursor:pointer; }
+.similar-add .icon { width:16px; height:16px; }
+.similar-add[data-state="in"] { background:#26262f; color:#cfcfd6; cursor:default; }
+.similar-add:disabled { opacity:.6; }
+.similar-empty { grid-column:1 / -1; padding:40px 12px; color:var(--soft); text-align:center; }
+.similar-empty button { margin-top:10px; }
+/* Loading: grey cards shaped like the real ones. */
+@keyframes similar-shimmer { from { background-position:100% 0; } to { background-position:-100% 0; } }
+.similar-card.placeholder i { display:block; border-radius:8px;
+  background:linear-gradient(90deg, #232326 25%, #2e2e33 50%, #232326 75%); background-size:200% 100%; animation:similar-shimmer 1.3s linear infinite; }
+.similar-card.placeholder i:nth-child(1) { width:84px; height:84px; border-radius:50%; }
+.similar-card.placeholder i:nth-child(2) { width:70%; height:14px; }
+.similar-card.placeholder i:nth-child(3) { width:50%; height:11px; }
+.similar-card.placeholder i:nth-child(4) { width:100%; height:38px; border-radius:10px; margin-top:4px; }
+@media (max-width:640px) {
+  .similar-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+  .similar-add { min-height:44px; }
+}
+@media (prefers-reduced-motion:reduce) { .similar-card.placeholder i { animation:none; } }

@@ -778,6 +778,7 @@ async function toggleRelated(username, button) {
   } finally { button.disabled = false; }
 }
 if (relatedSection && boot.username) {
+  document.getElementById('related-all')?.setAttribute('href', '/u/' + encodeURIComponent(boot.username) + '/similar');
   const loadRelated = () => {
     if (relatedRequest) return relatedRequest;
     relatedRequest = (async () => {

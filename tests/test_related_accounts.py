@@ -109,3 +109,47 @@ class ProfileViewsTests(RelatedRouteTests):
             status, body = self.get('/u/star/views')[:2]
         self.assertGreaterEqual(status, 500)
         self.assertNotIn(b'/home/x', body, 'unexpected failures hide internals')
+
+
+class SuggestedAccountsPageTests(RelatedRouteTests):
+    def test_page_route_and_escaping(self):
+        status, body = self.get('/u/Star.Name/similar')[:2]
+        page = body.decode()
+        self.assertEqual(status, 200)
+        self.assertIn('Suggested accounts', page)
+        self.assertIn('href="/u/star.name"', page, 'back to the profile')
+        self.assertEqual(page.count('similar-card placeholder'), 8, 'grey cards while loading')
+
+    def test_in_a_browser(self):
+        import shutil, subprocess, threading
+        from http.server import ThreadingHTTPServer
+        from pathlib import Path
+        from ig.server import Handler
+        from test_reel_navigation import find_chromium
+        chromium = find_chromium()
+        if not shutil.which('node') or not chromium:
+            self.skipTest('needs Node.js and headless Chromium')
+
+        def related(username):
+            if username == 'broken':
+                raise instagram.RateLimited('Instagram is limiting logged-out browsing; wait a few minutes')
+            if username == 'nobody':
+                return []
+            return [{'username': 'friend', 'full_name': 'A Friend', 'is_verified': True,
+                     'profile_pic_url': 'https://cdn.test/friend.jpg'},
+                    {'username': 'Kept', 'full_name': '', 'is_verified': False, 'profile_pic_url': None},
+                    {'username': '<b>x</b>', 'full_name': '<i>y</i>', 'is_verified': False, 'profile_pic_url': 'javascript:1'}]
+        with patch.object(instagram, 'related_accounts', side_effect=related), \
+             patch('ig.server.feed_accounts', return_value={'kept'}), patch.object(Handler, '_allowed', return_value=True):
+            server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                result = subprocess.run(['node', str(Path(__file__).with_name('similar_page.cjs')), chromium,
+                                         f'http://127.0.0.1:{server.server_address[1]}'],
+                                        capture_output=True, text=True, timeout=90)
+            finally:
+                server.shutdown()
+        if result.returncode == 77:
+            self.skipTest('headless Chromium could not start')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('passed', result.stdout)

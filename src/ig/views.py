@@ -219,6 +219,14 @@ def stats_html() -> str:
     return render('stats.html', boot=_page_data({'android': config.ANDROID}))
 
 
+def similar_html(username: str) -> str:
+    """Every account Instagram suggests for a profile; the page loads them itself."""
+    placeholder = '<div class="similar-card placeholder" aria-hidden="true"><i></i><i></i><i></i><i></i></div>'
+    return render('similar.html', title='Suggested accounts', username=escape(username),
+                  back=escape('/u/' + quote(username), quote=True), placeholders=placeholder * 8,
+                  boot=_page_data({'android': config.ANDROID, 'username': username}))
+
+
 def feeds_html() -> str:
     """Settings → Feeds: every feed and its accounts. The page loads them itself."""
     return render('feeds.html', boot=_page_data({'android': config.ANDROID}))

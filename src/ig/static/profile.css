@@ -243,7 +243,10 @@ a { color:inherit; }
 /* Accounts you might like */
 /* Under the profile header, like Instagram's "Suggested for you" row. */
 #related { padding:4px 24px 14px; }
-#related h2 { font-size:16px; margin:0 0 10px; }
+#related h2 { font-size:16px; margin:0; }
+.related-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:0 0 10px; }
+#related-all { color:#e0f1ff; font-size:14px; font-weight:600; text-decoration:none; }
+#related-all:hover { text-decoration:underline; }
 .related-list { display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x proximity; padding-bottom:4px; scrollbar-width:thin; }
 .related-account { flex:0 0 240px; scroll-snap-align:start; display:flex; align-items:center; gap:8px; background:var(--card);
   border:1px solid var(--line); border-radius:12px; padding:10px; min-width:0; }

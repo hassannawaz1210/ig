@@ -25,7 +25,7 @@ from .reels import REELS, media_info
 from . import dash
 from .topics import TOPICS, DIRECTORY, topic_slug, readable_name
 from .suggestions import SUGGESTIONS
-from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, static_file, status_html
+from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, similar_html, static_file, status_html
 from . import stats
 
 log = logging.getLogger(__name__)
@@ -449,6 +449,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
                 return self._fail(error, context="Opening the reels page")
+        similar_match = re.fullmatch(r"/u/([A-Za-z0-9._]+)/similar", self.path)
+        if similar_match and USER_RE.fullmatch(similar_match.group(1)):
+            try:
+                return self._send(200, similar_html(similar_match.group(1).lower()).encode(), "text/html; charset=utf-8")
+            except Exception as error:
+                return self._fail(error, context="Opening suggested accounts")
         views_match = re.fullmatch(r"/u/([A-Za-z0-9._]+)/views(?:\?after=([A-Za-z0-9_=%-]{1,512}))?", self.path)
         if views_match and USER_RE.fullmatch(views_match.group(1)):
             username = views_match.group(1).lower()
