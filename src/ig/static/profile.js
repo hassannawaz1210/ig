@@ -79,7 +79,7 @@ function card(p, i) {
   const plays = p.play_count ? `<span class="plays">${icon('play') || '▶'} ${short(p.play_count)}</span>` : '';
   return `<div class="card" role="button" tabindex="0" onclick="lb(${i})" onkeydown="if(event.key==='Enter')lb(${i})">
     <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
-      onerror="showMissingImage(this)">` : '<div class="missing">no preview</div>'}
+      onerror="showMissingImage(this)">` : `<div class="missing" data-fill="${i}">${p.is_carousel ? '' : 'no preview'}</div>`}
       ${badge ? `<div class="badge">${badge}</div>` : ''}
       <div class="overlay"><span>${icon('heart')} ${short(p.like_count)}</span>${plays}
         ${p.taken_at ? `<span class="age" title="${esc(fdate(p.taken_at))}">${postAge(p.taken_at, {short:true})}</span>` : ''}</div></div>
@@ -87,11 +87,38 @@ function card(p, i) {
       <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,240))}</div></div></div>`;
 }
+// Some older multi-image posts arrive without a preview image. When such a
+// tile comes into view, load the post and use its first item instead.
+const previewFiller = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    previewFiller.unobserve(entry.target);
+    const placeholder = entry.target, post = store[+placeholder.dataset.fill];
+    if (!post) continue;
+    ensureProfileMedia(post).then(full => {
+      const first = full.slides?.find(item => item.image)?.image || full.poster;
+      if (!first) { placeholder.textContent = 'no preview'; return; }
+      post.image = first;
+      const img = document.createElement('img');
+      img.alt = ''; img.src = first; img.onerror = () => showMissingImage(img);
+      placeholder.replaceWith(img);
+    }).catch(error => {
+      console.warn('Could not load a preview for ' + post.shortcode, error);
+      placeholder.textContent = 'no preview';
+    });
+  }
+}, {rootMargin: '300px'}) : null;
+function fillMissingPreviews() {
+  document.querySelectorAll('#grid .missing[data-fill]').forEach(el => {
+    if (previewFiller) previewFiller.observe(el); else el.textContent = 'no preview';
+  });
+}
 function render() {
   const chunk = incoming.splice(0);
   store.push(...chunk);
   grid.insertAdjacentHTML('beforeend', chunk.map((p,k)=>card(p, rendered+k)).join(''));
   rendered += chunk.length;
+  fillMissingPreviews();
   count.textContent = fmt(rendered) + ' posts';
   if (!rendered && boot.empty_message && !grid.querySelector('.empty')) {
     const empty = document.createElement('div');
@@ -105,16 +132,46 @@ render();
 let cur = 0;
 function richHtml(p) {
   if (p.slides && p.slides.length) {
-    return '<div class="slides">' + p.slides.map(s =>
+    // Instagram-style: swipe sideways, with a "2/5" counter and dots.
+    const many = p.slides.length > 1;
+    return '<div class="carousel"><div class="slides">' + p.slides.map(s =>
       s.video
         ? `<video controls muted loop playsinline src="${esc(s.video)}"></video>`
-        : `<img src="${esc(s.image)}" alt="">`).join('') + '</div>';
+        : `<img src="${esc(s.image)}" alt="">`).join('') + '</div>' +
+      (many ? `<span class="slide-count">1/${p.slides.length}</span><div class="slide-dots" aria-hidden="true">` +
+        p.slides.map((_, k) => `<i${k ? '' : ' class="on"'}></i>`).join('') + '</div>' : '') + '</div>';
   }
   if (p.video) {
     return `<video controls muted loop playsinline
       poster="${esc(p.poster || p.image)}" src="${esc(p.video)}"></video>`;
   }
-  return `<img src="${esc(p.image)}" alt="">`;
+  // Full post details carry the full-size photo as the poster.
+  return `<img src="${esc(p.poster || p.image)}" alt="">`;
+}
+function updateSlideDots() {
+  const carousel = document.querySelector('#lbcontent .slides');
+  if (!carousel) return;
+  const at = Math.round(carousel.scrollLeft / (carousel.clientWidth || 1));
+  const count = document.querySelector('#lbcontent .slide-count');
+  if (count) count.textContent = `${at + 1}/${carousel.children.length}`;
+  document.querySelectorAll('#lbcontent .slide-dots i').forEach((dot, k) => dot.classList.toggle('on', k === at));
+}
+// While the full post loads, show its grid preview so opening is instant.
+function previewHtml(p) {
+  return p.image ? `<div class="preview-wait"><img src="${esc(p.image)}" alt=""><span class="spinner" aria-hidden="true"></span></div>`
+    : '<div class="loading">Loading…</div>';
+}
+// Fetch the next posts' full details in the background, one at a time,
+// so swiping on doesn't wait. Failures only mean that post loads when opened.
+let prefetchChain = Promise.resolve();
+function prefetchAround(i) {
+  for (const k of [i + 1, i + 2, i - 1]) {
+    const post = store[k];
+    if (!post || post._rich) continue;
+    prefetchChain = prefetchChain.then(() => ensureProfileMedia(post)).catch(error => {
+      console.warn('Could not preload ' + post.shortcode, error);
+    });
+  }
 }
 const lbEl = document.getElementById('lb');
 let profileMediaVersion = 0;
@@ -203,9 +260,12 @@ function lb(i) {
   const box = document.getElementById('lbcontent');
   if (p._rich) {
     box.innerHTML = richHtml(p);
-  } else if (p.is_video || p.is_carousel) {
-    box.innerHTML = '<div class="loading">Loading…</div>';
+    prefetchAround(i);
+  } else {
+    // Every post type, photos included, swaps the preview for full quality.
+    box.innerHTML = previewHtml(p);
     ensureProfileMedia(p).then(() => {
+      prefetchAround(i);
       if (!lbEl.hidden && cur === i && version === profileMediaVersion) {
         box.innerHTML = richHtml(p);
         syncProfilePlayback();
@@ -213,10 +273,12 @@ function lb(i) {
       }
     }).catch(error => {
       console.warn('Could not load media for ' + p.shortcode, error);
-      if (cur === i && version === profileMediaVersion) box.innerHTML = '<button class="loading" type="button" onclick="lb(cur)">Could not load media · Retry</button>';
+      if (cur === i && version === profileMediaVersion) {
+        // A photo's preview is still worth seeing; videos and albums need the full post.
+        if (!p.is_video && !p.is_carousel && p.image) box.innerHTML = `<img src="${esc(p.image)}" alt="">`;
+        else box.innerHTML = '<button class="loading" type="button" onclick="lb(cur)">Could not load media · Retry</button>';
+      }
     });
-  } else {
-    box.innerHTML = `<img src="${esc(p.image)}" alt="">`;
   }
   if (lbEl.hidden) {
     lbEl.hidden = false;
@@ -287,7 +349,7 @@ function zoomProfilePost() {
   if (media) profileZoom.zoom(media);
 }
 document.getElementById('lbcontent').addEventListener('scroll', event => {
-  if (event.target.classList?.contains('slides')) { profileZoom?.reset(); syncProfilePlayback(); }
+  if (event.target.classList?.contains('slides')) { profileZoom?.reset(); syncProfilePlayback(); updateSlideDots(); }
 }, true);
 function scrollsProfileDetails(target) {
   const panel = target.closest('.lbmeta');

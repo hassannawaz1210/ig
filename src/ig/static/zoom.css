@@ -4,3 +4,6 @@
   font:600 13px system-ui; cursor:pointer; white-space:nowrap; }
 #lbcontent { position:relative; overflow:hidden; }
 #lbcontent img, #lbcontent video { touch-action:none; }
+/* Inside a multi-image post, one finger still swipes sideways between items;
+   pinches stay with the zoom code and vertical swipes change posts. */
+#lbcontent .slides img, #lbcontent .slides video { touch-action:pan-x; }

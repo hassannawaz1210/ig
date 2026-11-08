@@ -180,11 +180,20 @@ def audio_id(media):
                original.get('audio_asset_id') or original.get('id') or '') or None
 
 
-def slim(n: dict) -> dict:
+def _preview_image(n: dict):
     img = n.get("display_uri")
     if not img:
         cands = (n.get("image_versions2") or {}).get("candidates") or []
         img = (cands[0] or {}).get("url") if cands else None
+    return img
+
+
+def slim(n: dict) -> dict:
+    img = _preview_image(n)
+    if not img:
+        # Older multi-image posts may carry images only on their items.
+        items = n.get("carousel_media") or []
+        img = _preview_image(items[0]) if items and isinstance(items[0], dict) else None
     return {
         "shortcode": n.get("code"),
         "audio_id": audio_id(n),
