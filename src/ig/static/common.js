@@ -289,6 +289,14 @@ function feedPickerStyles() {
       margin-top:5px;padding:9px;background:#111;border:1px solid #444;border-radius:3px;color:#eee;font:inherit;}
     #feed-picker textarea {resize:vertical;min-height:48px;}
     #feed-picker [hidden] {display:none;}
+    #feed-picker .fp-feed {margin-top:10px;}
+    #feed-picker .fp-label {display:block;color:#ccc;margin-bottom:6px;}
+    #feed-picker .fp-chips {display:flex;flex-wrap:wrap;gap:6px;max-height:148px;overflow-y:auto;overscroll-behavior:contain;padding:1px;}
+    #feed-picker .fp-chip {padding:6px 12px;border:1px solid #3a3a3a;border-radius:999px;background:#222;color:#ddd;font:inherit;line-height:1.3;cursor:pointer;}
+    #feed-picker .fp-chip[aria-checked="true"] {background:#eee;border-color:#eee;color:#111;font-weight:600;}
+    #feed-picker .fp-chip-new {border-style:dashed;color:#bbb;}
+    .android-app #feed-picker .fp-chip {min-height:40px;padding:8px 14px;font-size:15px;}
+    .android-app #feed-picker .fp-chips {max-height:200px;}
     #feed-picker .fp-note {color:#999;font-size:11px;margin:6px 0;}
     #feed-picker .fp-actions {display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:18px;}
     #feed-picker button {padding:7px 12px;border:1px solid #444;border-radius:3px;background:#262626;color:#eee;font:inherit;cursor:pointer;}
@@ -316,7 +324,9 @@ async function chooseFeed(username = '', createNew = false, importing = false) {
       <li>Export or download your information. Choose Followers and following, All time, and JSON.</li>
       <li>Select the downloaded ZIP, or its following.json / following.html file here (up to 25 MB).</li>
     </ol><p>Processed by your local ig app; only account handles are saved.</p></details>` : ''}
-    <label>Feed<select name="destination" aria-label="Feed" disabled></select></label>
+    <div class="fp-feed"><span class="fp-label" id="fp-feed-label">Feed</span>
+      <div class="fp-chips" role="radiogroup" aria-labelledby="fp-feed-label"></div>
+      <select name="destination" aria-label="Feed" disabled hidden></select></div>
     <label class="fp-new" hidden>Name<input name="feedname" maxlength="20" placeholder="Feed name" autocomplete="off"></label>
     <label>Instagram accounts<textarea name="accounts" rows="2" placeholder="@username or Instagram profile links"></textarea></label>
     ${importing ? '<p class="fp-note fp-count">Choose a file to preview accounts.</p><p class="fp-note">Existing and blocked accounts are skipped.</p>' : '<button type="button" class="fp-import-link">Import following from Instagram</button>'}
@@ -344,12 +354,41 @@ async function chooseFeed(username = '', createNew = false, importing = false) {
     submit.disabled = !feedsReady || !previewReady || !total || total > 7500 || saving || previewing || completed;
   };
   accounts.oninput = updateImport;
+  // Feeds are compact chips instead of the phone's full-screen dropdown list;
+  // the hidden select keeps the chosen value for saving.
+  const chips = dialog.querySelector('.fp-chips');
+  function showChoice() {
+    for (const chip of chips.children) {
+      const on = chip.dataset.value === select.value;
+      chip.setAttribute('aria-checked', String(on));
+      chip.tabIndex = on ? 0 : -1;
+    }
+  }
+  function renderChips() {
+    chips.replaceChildren(...[...select.options].map(option => {
+      const chip = document.createElement('button');
+      chip.type = 'button'; chip.className = 'fp-chip' + (option.value ? '' : ' fp-chip-new');
+      chip.setAttribute('role', 'radio'); chip.dataset.value = option.value; chip.textContent = option.textContent;
+      chip.onclick = () => { if (select.disabled) return; select.value = option.value; select.dispatchEvent(new Event('change')); };
+      return chip;
+    }));
+    chips.onkeydown = event => {   // arrow keys move between chips, like radio buttons
+      const list = [...chips.children], at = list.findIndex(chip => chip === document.activeElement);
+      const step = {ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1}[event.key];
+      if (!step || at < 0) return;
+      event.preventDefault();
+      const next = list[(at + step + list.length) % list.length];
+      next.focus(); next.click();
+    };
+    showChoice();
+  }
   function mode() {
     const creating = select.value === '';
+    showChoice();
     dialog.querySelector('.fp-new').hidden = !creating;
     name.required = creating;
     accounts.required = importing || !creating;
-    select.closest('label').hidden = createNew;
+    dialog.querySelector('.fp-feed').hidden = createNew;
     dialog.querySelector('h2').textContent = importing ? 'Import following' : creating ? 'New feed' : 'Add accounts';
     submit.textContent = importing ? 'Import' : creating ? 'Create' : 'Add';
   }
@@ -432,13 +471,14 @@ async function chooseFeed(username = '', createNew = false, importing = false) {
     select.append(option);
     if (createNew || !names.length) select.value = '';
     else if (typeof chosenFeeds !== 'undefined' && chosenFeeds?.length === 1 && names.includes(chosenFeeds[0])) select.value = chosenFeeds[0];
+    renderChips();
     feedsReady = true; select.disabled = false; submit.disabled = false;
     if (status.textContent === 'Loading feeds…') status.textContent = '';
     mode();
     updateImport();
     if (importing) file.focus();
     else if (!select.value) name.focus();
-    else if (username) select.focus();
+    else if (username) chips.querySelector('[aria-checked="true"]')?.focus();
     else accounts.focus();
   } catch (error) { status.textContent = error.message; }
   return result;

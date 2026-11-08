@@ -181,6 +181,14 @@ async function launch() {
     await evaluate("document.querySelector('[data-name=edits] .feed-tools button').click()");
     await waitFor("!!document.querySelector('#feed-picker select:not(:disabled)')");
     assert.equal(await evaluate("document.querySelector('#feed-picker select').value"),'edits','Add chooses the requested feed');
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('#feed-picker .fp-chip')].filter(c=>c.getAttribute('aria-checked')==='true').map(c=>c.textContent)"),['edits'],
+      'feeds are chips, not the phone dropdown; the requested one is chosen');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('#feed-picker select')).display"),'none');
+    await evaluate("document.querySelector('#feed-picker .fp-chip-new').click()");
+    assert.equal(await evaluate("document.querySelector('#feed-picker select').value"),'','the New feed chip switches to creating a feed');
+    assert.equal(await evaluate("document.querySelector('#feed-picker .fp-new').hidden"),false);
+    await evaluate("document.querySelector('#feed-picker .fp-chip[data-value=\"edits\"]').click()");
+    assert.equal(await evaluate("document.querySelector('#feed-picker select').value"),'edits');
     await evaluate("document.querySelector('#feed-picker textarea').value='@beta'; document.querySelector('#feed-picker form').requestSubmit()");
     await waitFor("!document.getElementById('feed-picker') && document.querySelectorAll('[data-name=edits] .account-row').length===2");
     await evaluate("document.querySelector('[data-name=edits] .delete-feed').click()");
