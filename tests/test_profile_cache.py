@@ -39,7 +39,9 @@ class TempDirs(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name)
-        for target, value in [('ig.config.CONFIG_DIR', path / 'config'), ('ig.config.CACHE', path / 'cache')]:
+        # Watch history too: tests must never read or write the real ~/.cache/ig history.
+        for target, value in [('ig.config.CONFIG_DIR', path / 'config'), ('ig.config.CACHE', path / 'cache'),
+                              ('ig.history.HISTORY_JSON', path / 'cache' / 'history.json')]:
             patcher = patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)

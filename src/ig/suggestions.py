@@ -8,6 +8,12 @@ ranks higher, and it belongs to the feed of the creator that suggested it.
 
 Suggestions are fetched in the background, a few seconds apart, cached in
 SQLite for a day, and loading reels never waits for them.
+
+The map grows through accounts you enjoy ("earned expansion"): once you like,
+save or keep watching a suggested account, its own suggestions are fetched
+too (a second hop). Accounts never earn a third hop, which keeps the map in
+the niche you watch instead of drifting. An account suggested by more of the
+accounts in the map ranks higher, and each feed's map is capped.
 """
 import json
 import logging
@@ -15,7 +21,7 @@ import random
 import threading
 import time
 
-from . import config, instagram, recommendations
+from . import config, history, instagram, recommendations
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +35,31 @@ SUGGESTED_READY = 3           # suggested creators kept loaded ahead
 SUGGESTED_LOAD_GAP = 10       # seconds between background loads of suggested creators
 SUGGESTED_REELS = 3           # reels one suggested creator may supply per 20 viewed
 DISCOVERY_AFTER = 1           # reels from your feeds before the next new-creator turn
+MAX_HOPS = 2                  # feed creator -> suggestion -> its suggestions (if earned)
+EARN_SECONDS = 20             # total seconds watched that earns an account a lookup
+MAX_EXPANDED = 20             # earned accounts whose suggestions are kept fresh
+MAX_MAP_PER_FEED = 300        # suggested accounts kept per feed, most-suggested first
+
+
+def earned_accounts(candidates) -> set[str]:
+    """Suggested accounts you liked, saved, or watched for EARN_SECONDS or more."""
+    candidates = set(candidates)
+    if not candidates:
+        return set()
+    earned = set()
+    with recommendations.database() as connection:
+        for (raw,) in connection.execute("SELECT r.data FROM reels r JOIN feedback f ON f.code=r.code "
+                                         "WHERE f.action='like'"):
+            owner = (json.loads(raw).get('owner') or '').lower()
+            if owner in candidates:
+                earned.add(owner)
+        earned |= {row[0].lower() for row in connection.execute('SELECT DISTINCT owner FROM saved_reels')
+                   if row[0] and row[0].lower() in candidates}
+    with history.database() as db:
+        earned |= {owner.lower() for owner, seconds in db.execute(
+            'SELECT owner, SUM(seconds) FROM viewings GROUP BY owner') if owner and owner.lower() in candidates
+            and (seconds or 0) >= EARN_SECONDS}
+    return earned
 
 
 def _schema(connection):
@@ -75,9 +106,10 @@ class SuggestionDiscovery:
 
     # ---- leads ----
     def leads(self, selected: dict, exclude=()) -> dict[str, dict]:
-        """Suggested accounts for the creators in these feeds, as
-        {username: {'source': 'suggested', 'via': creator, 'feed': feed, 'count': n}}.
-        Missing or stale lists are queued for the background worker."""
+        """Suggested accounts for these feeds, as {username: {'source': 'suggested',
+        'via': account, 'feed': feed, 'count': n, 'hop': 1 or 2}}. Hop 2 accounts
+        come from suggested accounts you enjoyed. Missing or stale lists are
+        queued for the background worker."""
         exclude = set(exclude)
         owners = {}
         for feed, accounts in selected.items():
@@ -89,20 +121,39 @@ class SuggestionDiscovery:
         sources = sources[:MAX_SOURCES]
         try:
             rows = self._rows(sources)
+            first = {}   # hop-1 account -> (feed, via)
+            for source in sources:
+                for name in (rows.get(source) or (0, [], None))[1]:
+                    if name not in owners:
+                        first.setdefault(name, (owners[source], source))
+            expanded = []
+            if MAX_HOPS > 1:
+                expanded = sorted(earned_accounts(first))
+                random.shuffle(expanded)
+                expanded = expanded[:MAX_EXPANDED]
+                rows.update(self._rows([name for name in expanded if name not in rows]))
         except Exception:
             log.exception('Could not read suggested accounts; continuing without them')
             return {}
-        self._schedule(sources, rows)
+        self._schedule(sources + expanded, rows)
         found = {}
-        for source in sources:
+        lists = [(source, owners[source], 1) for source in sources] + \
+                [(source, first[source][0], 2) for source in expanded]
+        for source, feed, hop in lists:
             for name in (rows.get(source) or (0, [], None))[1]:
-                if name in exclude or not config.USER_RE.fullmatch(name):
+                if name in exclude or name in owners or not config.USER_RE.fullmatch(name):
                     continue
                 if name in found:
-                    found[name]['count'] += 1
+                    found[name]['count'] += 1   # suggested by more accounts in the map
                 else:
-                    found[name] = {'source': 'suggested', 'via': source, 'feed': owners[source], 'count': 1}
-        return found
+                    found[name] = {'source': 'suggested', 'via': source, 'feed': feed, 'count': 1, 'hop': hop}
+        # Keep each feed's map to its most-suggested accounts.
+        kept = {}
+        for feed in {info['feed'] for info in found.values()}:
+            ranked = sorted((name for name, info in found.items() if info['feed'] == feed),
+                            key=lambda name: (-found[name]['count'], found[name]['hop'], name))
+            kept.update({name: found[name] for name in ranked[:MAX_MAP_PER_FEED]})
+        return kept
 
     @staticmethod
     def strength(info) -> float:

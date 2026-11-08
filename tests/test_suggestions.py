@@ -120,3 +120,61 @@ class SuggestedPreloadTests(ProjectTests):
             self.assertIn('suggested_one', refill.pending, 'suggested accounts load outside the discovery slot')
             for future, _ in list(refill.pending.values()):
                 future.result(timeout=2)
+
+
+class EarnedExpansionTests(ProjectTests):
+    """The map grows through suggested accounts you enjoy, two hops at most."""
+    def setUp(self):
+        super().setUp()
+        lists = {'creator_a': ['liked_one', 'plain_one'],
+                 'liked_one': ['second_hop', 'plain_one'],
+                 'watched_one': ['from_watching'],
+                 'second_hop': ['third_hop']}
+        self.calls = []
+
+        def fetch(source):
+            self.calls.append(source)
+            return lists.get(source, [])
+        self.discovery = suggestions.SuggestionDiscovery(fetch=fetch)
+        self.discovery.enabled = True
+        gap = patch.object(suggestions, 'REQUEST_GAP', 0)
+        gap.start()
+        self.addCleanup(gap.stop)
+
+    def settle(self, selected):
+        for _ in range(4):   # each round can reveal accounts that earned a lookup
+            self.discovery.leads(selected)
+            if self.discovery._worker:
+                self.discovery._worker.join(5)
+        return self.discovery.leads(selected)
+
+    def like(self, owner):
+        rec.remember_reels([{'shortcode': owner + '01', 'owner': owner, 'caption': ''}])
+        rec.set_feedback(owner + '01', 'like')
+
+    def test_liked_suggestions_bring_their_own_suggestions(self):
+        self.like('liked_one')
+        found = self.settle({'memes': ['creator_a']})
+        self.assertEqual(found['second_hop']['hop'], 2)
+        self.assertEqual((found['second_hop']['via'], found['second_hop']['feed']), ('liked_one', 'memes'))
+        self.assertEqual(found['plain_one']['count'], 2, 'suggested by two accounts in the map')
+        self.assertNotIn('third_hop', found, 'never a third hop, so the map stays in the niche')
+        self.assertNotIn('plain_one', self.calls, 'accounts you have not enjoyed are not expanded')
+
+    def test_watching_long_enough_earns_a_lookup(self):
+        lists_owner = 'creator_b'   # a different feed creator, in its own feed
+        self.discovery.fetch = lambda source: {'creator_b': ['watched_one'], 'watched_one': ['from_watching']}.get(source, [])
+        from ig import history
+        with history.database() as db:
+            db.execute('INSERT INTO viewings VALUES (?,?,?,?,?,?)',
+                       ('t1', 'CODE1', 'client', 'watched_one', 1.0, suggestions.EARN_SECONDS - 5))
+        self.assertNotIn('from_watching', self.settle({'edits': [lists_owner]}))
+        with history.database() as db:
+            db.execute('INSERT INTO viewings VALUES (?,?,?,?,?,?)', ('t2', 'CODE2', 'client', 'watched_one', 2.0, 6))
+        self.assertIn('from_watching', self.settle({'edits': [lists_owner]}))
+
+    def test_each_feed_keeps_its_most_suggested_accounts(self):
+        self.like('liked_one')   # plain_one is then suggested by two accounts in the map
+        with patch.object(suggestions, 'MAX_MAP_PER_FEED', 1):
+            found = self.settle({'memes': ['creator_a']})
+        self.assertEqual(list(found), ['plain_one'])

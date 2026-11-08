@@ -14,7 +14,8 @@ class ProjectTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         path = Path(self.tmp.name)
-        for target, value in [('ig.config.CONFIG_DIR', path)]:
+        # Watch history too: tests must never read or write the real ~/.cache/ig history.
+        for target, value in [('ig.config.CONFIG_DIR', path), ('ig.history.HISTORY_JSON', path / 'history.json')]:
             p = patch(target, value)
             p.start()
             self.addCleanup(p.stop)
@@ -23,6 +24,9 @@ class ProjectTests(unittest.TestCase):
             offline = patch.object(service, 'enabled', False)
             offline.start()
             self.addCleanup(offline.stop)
+        # A rate-limit pause left by another test must not leak into this one.
+        instagram.BACKOFF.reset()
+        self.addCleanup(instagram.BACKOFF.reset)
         feeds.POOLS.clear()
 
     def run_cli(self, *args):

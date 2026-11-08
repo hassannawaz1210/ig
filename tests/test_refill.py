@@ -16,6 +16,17 @@ class BackgroundRefillTests(TempDirs):
         self.addCleanup(topic_pages.stop)
         self.refill = Refill()
         self.addCleanup(self.refill.executor.shutdown, wait=True)
+        # refill.py holds its own reference to Instagram's shared rate-limit
+        # pause. A pause left by an earlier test uses the real clock, so it
+        # looks endless to tests that fake the time; give refill a fresh one.
+        from ig.instagram import Backoff
+        fresh = patch('ig.refill.BACKOFF', Backoff())
+        fresh.start()
+        self.addCleanup(fresh.stop)
+        for service in ('ig.feeds.SUGGESTIONS.enabled',):
+            offline = patch(service, False)
+            offline.start()
+            self.addCleanup(offline.stop)
 
     def test_slow_network_does_not_block_batch_and_requests_are_deduplicated(self):
         config.save_feeds({'memes':['cold']})
