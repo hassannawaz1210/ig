@@ -689,6 +689,14 @@ def recent_creators():
     return [row[0] for row in rows]
 
 
+def recent_view_counts(limit=20):
+    """How many of the last `limit` viewed reels each creator supplied."""
+    from collections import Counter
+    with database() as connection:
+        rows = connection.execute('SELECT owner FROM viewed_reels ORDER BY viewed DESC, rowid DESC LIMIT ?', (limit,)).fetchall()
+    return Counter(row[0] for row in rows)
+
+
 def trial_cooldowns(saved):
     """An unfamiliar creator gets one trial per 20 actually viewed reels until liked."""
     with database() as connection:

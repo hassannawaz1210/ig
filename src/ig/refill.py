@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .instagram import RateLimited, ProfileUnavailable, BACKOFF
 from .reels import REELS, STATE, more_reels
 from .topics import TOPICS, TOPIC_TRIAL_SHARE, POPULAR_READY, POPULAR_LOAD_GAP
+from .suggestions import SUGGESTED_READY, SUGGESTED_LOAD_GAP
 
 
 class Refill:
@@ -17,6 +18,7 @@ class Refill:
         self.load_seconds = 12.0
         self.next_discovery_at = 0.0
         self.next_popular_at = 0.0
+        self.next_suggested_at = 0.0
         self.last_exploration = None
         self.exploration_pending = set()
         self.refresh_after = {}
@@ -75,6 +77,8 @@ class Refill:
         usable = set()
         ready = pool.get('buffered', 0)
         popular_ready = 0   # loaded popular topic reels not served yet
+        suggested_ready = 0  # loaded suggested creators with unseen reels
+        suggested = pool.get('suggested_leads', set())
         for name in dict.fromkeys(names):
             topic_trial = pool.get('topic_trials', {}).get(name) if name not in saved else None
             if topic_trial:
@@ -93,6 +97,8 @@ class Refill:
                          for p in state['posts']) if state else 0
             if unseen:
                 usable.add(name)
+                if name in suggested and name not in saved:
+                    suggested_ready += 1
             if name in trusted:
                 ready += unseen
             if name in self.pending or self.retry_at.get(name, 0) > now:
@@ -161,19 +167,31 @@ class Refill:
             waiting_popular = [c for c in trials if isinstance(c[2], dict) and (not special or c[1] != special[1])]
             if waiting_popular:
                 popular = random.choice(waiting_popular)
-                urgent = [c for c in candidates if c[0] == 0]
-                candidates = urgent + [popular] + [c for c in candidates if c[0] != 0]
+        # Likewise keep a few of Instagram's suggested accounts loaded, so about
+        # every other reel can come from one (suggestions.py, feeds.py).
+        suggested_load = None
+        if suggested_ready < SUGGESTED_READY and now >= self.next_suggested_at:
+            waiting_suggested = [c for c in trials if c[1] in suggested and not isinstance(c[2], dict)
+                                 and (not special or c[1] != special[1])]
+            if waiting_suggested:
+                suggested_load = random.choice(waiting_suggested)
         if special:
             regular = [c for c in regular if c[1] != special[1]]
             # Startup and empty sources get both workers before optional work.
             urgent = [c for c in regular if c[0] == 0]
             rest = [c for c in regular if c[0] != 0]
             candidates = urgent + [special] + rest if ready >= 6 else regular + [special]
+        extras = [c for c in (popular, suggested_load) if c]
+        if extras:
+            urgent = [c for c in candidates if c[0] == 0 and c not in extras]
+            candidates = urgent + extras + [c for c in candidates if c not in urgent and c not in extras]
         for _, name, paging in candidates:
             if len(self.pending) >= 2:
                 break
             if popular and name == popular[1]:
                 self.next_popular_at = now + POPULAR_LOAD_GAP
+            if suggested_load and name == suggested_load[1]:
+                self.next_suggested_at = now + SUGGESTED_LOAD_GAP
             if special and name == special[1]:
                 self.next_discovery_at = now + (0 if empty_topic_feed and isinstance(paging, dict) else 30)
                 self.last_exploration = kind

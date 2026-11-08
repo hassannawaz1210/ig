@@ -53,7 +53,8 @@ class DiscoveryExperimentTests(TempDirs):
         self.assertEqual(rec.saved_streak({'saved'},['saved']),3)
         self.assertEqual(rec.saved_streak({'saved'},['new','saved']),1)
 
-    def test_trial_takes_fourth_slot_without_changing_memberships(self):
+    def test_trial_follows_one_saved_reel_without_changing_memberships(self):
+        # About half of all reels come from new creators (suggestions.DISCOVERY_AFTER).
         config.save_feeds({'gaming':['saved1','saved2','saved3']})
         states={n:{'posts':[{'shortcode':n+'clip'+str(i),'owner':n,'is_video':True,'caption':'gaming edit'} for i in range(3)], 'has_more':False}
                 for n in ['saved1','saved2','saved3','new']}
@@ -61,8 +62,9 @@ class DiscoveryExperimentTests(TempDirs):
         with patch('ig.feeds.STATE',states),patch.object(feeds.REELS.cache,'fresh_usernames',return_value=set()):
             batch=feeds._pool_more(pool,allow_network=False)
         self.assertEqual(len(batch['posts']),4)
-        self.assertEqual(batch['posts'][3]['owner'],'new')
-        self.assertIn('discovery_source',batch['posts'][3])
+        self.assertEqual(batch['posts'][1]['owner'],'new')
+        self.assertIn('discovery_source',batch['posts'][1])
+        self.assertEqual([p['owner'] for p in batch['posts']].count('new'),1,'one trial reel per creator in a row')
         self.assertEqual(config.load_feeds(),{'gaming':['saved1','saved2','saved3']})
 
     def test_unrelated_likes_do_not_supply_hashtag_leads(self):

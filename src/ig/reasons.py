@@ -66,6 +66,11 @@ class Reason:
             tags = ", ".join("#" + tag for tag in self.lead.get("tags") or [])
             details.append(f"{owner} uses hashtags from reels in your feeds: {tags}." if tags
                            else f"{owner} uses hashtags from reels in your feeds.")
+        elif self.lead and self.lead.get("source") == "suggested":
+            others = (self.lead.get("count") or 1) - 1
+            details.append(f"Instagram suggests {owner} for people who like @{self.lead.get('via')}, "
+                           f"a creator in {_feeds_phrase([self.lead.get('feed')])}"
+                           + (f" (and {others} more of your creators)." if others else "."))
         elif self.lead and self.lead.get("source") == "popular_topic":
             details.append(f"This reel appeared on Instagram’s “{self.lead.get('topic')}” page, "
                            f"a topic of {_feeds_phrase([self.lead.get('feed')])}.")

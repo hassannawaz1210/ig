@@ -24,6 +24,7 @@ from .reels import REELS, media_info
 from .recognition import recognize_song
 from . import dash
 from .topics import TOPICS
+from .suggestions import SUGGESTIONS
 from .views import viewer_html, reels_html, settings_html, feeds_html, static_file, status_html
 
 log = logging.getLogger(__name__)
@@ -882,6 +883,7 @@ def make_server(host: str, port: int, access=None) -> ThreadingHTTPServer:
     # A real server may fetch topic pages in the background; tests that build
     # a Handler directly stay offline.
     TOPICS.enabled = True
+    SUGGESTIONS.enabled = True
     handler = Handler if access is None else type("SharedHandler", (Handler,), {"access": access})
     return ThreadingHTTPServer((host, port), handler)
 

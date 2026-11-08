@@ -10,6 +10,7 @@ from .reels import STATE, REELS, more_reels
 from .reasons import Reason
 from .refill import REFILL
 from .topics import TOPICS, TOPIC_LEAD, TOPIC_TRIAL_SHARE, POPULAR_EVERY
+from .suggestions import SUGGESTIONS, SUGGESTED_TRIAL_SHARE, SUGGESTED_REELS, DISCOVERY_AFTER
 
 log = logging.getLogger(__name__)
 
@@ -124,14 +125,34 @@ def add_topic_leads(leads: dict, reasons: dict, selected: dict, snapshot) -> lis
     return added
 
 
-def discover_leads(pool: dict, leads: dict, topic_names: list[str]) -> None:
-    """Fill the pool with related leads, then topic creators in their own room:
-    with hundreds of related leads, the pool would otherwise be full."""
-    discover_into(pool, [name for name in leads if name not in set(topic_names)])
-    discover_into(pool, topic_names, limit=MAX_DISCOVERED + TOPIC_ROOM)
+def add_suggested_leads(leads: dict, reasons: dict, selected: dict, snapshot) -> list[str]:
+    """Add Instagram's suggested accounts for the selected feeds' creators
+    (see suggestions.py), the main source of new creators."""
+    saved, other_saved, _, blocked, _ = snapshot
+    added = []
+    for name, info in SUGGESTIONS.leads(selected, exclude=saved | other_saved | blocked).items():
+        strength = SUGGESTIONS.strength(info)
+        if leads.get(name, 0) < strength:
+            leads[name] = strength
+            reasons[name] = info
+            added.append(name)
+    return added
+
+
+SUGGESTED_ROOM = 120   # suggested accounts' own room, beyond caption leads
+
+
+def discover_leads(pool: dict, leads: dict, topic_names: list[str], suggested_names=()) -> None:
+    """Fill the pool with related leads, then topic and suggested creators in
+    their own room: with hundreds of related leads, the pool would otherwise be full."""
+    priority = set(topic_names) | set(suggested_names)
+    discover_into(pool, [name for name in leads if name not in priority])
+    discover_into(pool, list(suggested_names), limit=MAX_DISCOVERED + SUGGESTED_ROOM)
+    discover_into(pool, topic_names, limit=MAX_DISCOVERED + SUGGESTED_ROOM + TOPIC_ROOM)
     # Hundreds of related leads would otherwise win almost every trial;
     # refill.py and _pool_more give these creators a fixed share instead.
     pool['topic_leads'] = set(topic_names) & pool['discovered']
+    pool['suggested_leads'] = set(suggested_names) & pool['discovered']
 
 
 def discover(usernames) -> None:
@@ -170,7 +191,8 @@ def pool_more(pool: dict, limit: int = 12, excluded=None, client="legacy-client"
         evidence = {}
         leads = recommendations.related_leads(snapshot[0], include_liked=config.selected_feeds() is None,
                                                topics=selected, reasons=evidence)
-        discover_leads(pool, leads, add_topic_leads(leads, evidence, selected, snapshot))
+        topic_names = add_topic_leads(leads, evidence, selected, snapshot)
+        discover_leads(pool, leads, topic_names, add_suggested_leads(leads, evidence, selected, snapshot))
         pool['topic_trials'] = {name: info for name, info in evidence.items()
                                 if info.get('source') == 'popular_topic' and info.get('shortcode')}
         source_weights = recommendations.discovery_weights(evidence)
@@ -274,13 +296,17 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
     snapshot = snapshot or account_snapshot()
     leads = recommendations.related_leads(saved, include_liked=config.selected_feeds() is None,
                                           reasons=lead_reasons, topics=selected)
-    discover_leads(pool, leads, add_topic_leads(leads, lead_reasons, selected, snapshot))
+    topic_names = add_topic_leads(leads, lead_reasons, selected, snapshot)
+    discover_leads(pool, leads, topic_names, add_suggested_leads(leads, lead_reasons, selected, snapshot))
     topic_trials = {name: info for name, info in lead_reasons.items()
                     if info.get('source') == 'popular_topic' and info.get('shortcode')}
     liked_creators = recommendations.discovery_accounts()
     model = recommendations.preference_model()
     recent = recommendations.recent_creators()
     cooldowns = recommendations.trial_cooldowns(saved)
+    # Instagram suggested these, so one may supply a few reels, not just one trial.
+    views = recommendations.recent_view_counts(20)
+    cooldowns -= {name for name in pool.get('suggested_leads', ()) if views.get(name, 0) < SUGGESTED_REELS}
     vocabulary = recommendations.topic_tag_vocabulary(selected)
     out = []
     tried = set()
@@ -325,10 +351,13 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             if rested:
                 candidates = rested
         unfamiliar = [a for a in candidates if a not in saved]
-        rested_trials = [a for a in unfamiliar if a not in cooldowns and a not in recent]
+        # Suggested accounts may return sooner (a few reels each), never back to back.
+        suggested_pool = pool.get('suggested_leads', ())
+        rested_trials = [a for a in unfamiliar if a not in cooldowns
+                         and a not in (recent[:3] if a in suggested_pool else recent)]
         # Reserve the first attempt for discovery instead of leaving an entire
         # batch to chance. Failed trials may fall back to saved creators.
-        discovery_turn = bool(rested_trials) and streak >= 3
+        discovery_turn = bool(rested_trials) and streak >= DISCOVERY_AFTER
         # A popular topic reel at least every POPULAR_EVERY reels, when one is loaded.
         popular_ready = [a for a in candidates if a in topic_trials]
         if popular_ready and pool.get('since_popular', 0) >= POPULAR_EVERY - 1:
@@ -336,8 +365,12 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
             discovery_turn = True
         elif discovery_turn:
             candidates = rested_trials
+            # Instagram's suggested accounts first, then popular topics, then caption leads.
+            from_suggested = [a for a in candidates if a in pool.get('suggested_leads', ())]
             from_topics = [a for a in candidates if a in pool.get('topic_leads', ())]
-            if from_topics and random.random() < TOPIC_TRIAL_SHARE:
+            if from_suggested and random.random() < SUGGESTED_TRIAL_SHARE:
+                candidates = from_suggested
+            elif from_topics and random.random() < TOPIC_TRIAL_SHARE:
                 candidates = from_topics
         elif any(a in saved for a in candidates):
             candidates = [a for a in candidates if a in saved]
@@ -397,6 +430,9 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         topic_lead = lead_reasons.get(username) or {}
         if not memberships and topic_trial and topic_lead.get('feed') in selected:
             # Evidence applies only to this exact reel, never the whole creator.
+            memberships = {topic_lead['feed']}
+        if not memberships and topic_lead.get('source') == 'suggested' and topic_lead.get('feed') in selected:
+            # Instagram suggested this account for a creator in that feed.
             memberships = {topic_lead['feed']}
         if not memberships:
             # Curated meme starters are known candidates. Other credit/liked
