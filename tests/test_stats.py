@@ -62,6 +62,15 @@ class StatsTests(ProjectTests):
         self.assertEqual([s['source'] for s in data['sources']], ['feed', 'suggested'], 'fixed source order')
         self.assertEqual(stats.compute(0, now=NOW)['summary']['reels'], 4)
 
+    def test_today_starts_at_local_midnight(self):
+        t = time.localtime(NOW)
+        midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+        self.log('t5', 'MEME0000001', 'saved_one', 7, midnight + 60)     # this morning
+        self.log('t6', 'EDIT0000001', 'editor', 9, midnight - 60)        # last night
+        data = stats.compute('today', now=max(NOW, midnight + 120))
+        self.assertEqual((data['days'], data['summary']['reels'], data['summary']['seconds']), ('today', 1, 7),
+                         'only views since midnight count')
+
     def test_weeks_split_by_feed_and_hours(self):
         data = stats.compute(0, now=NOW)
         keys = [s['key'] for s in data['weeks']['series']]
@@ -105,6 +114,7 @@ class StatsRouteTests(ProjectTests):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)['days'], 7)
         self.assertEqual(self.get('/stats/data?days=5')[0], 400)
+        self.assertEqual(json.loads(self.get('/stats/data?days=today&part=overview')[1])['days'], 'today')
         # Each section can load on its own, so the page shows whichever is ready first.
         self.assertEqual(set(json.loads(self.get('/stats/data?days=7&part=overview')[1])),
                          {'days', 'since', 'summary', 'creators', 'sources', 'hours'})

@@ -55,6 +55,11 @@ def backfill():
 
 
 def _period_start(days, now):
+    """Where a period begins: 'today' starts at local midnight, a number of
+    days counts back from now, and 0 means all time."""
+    if days == 'today':
+        t = time.localtime(now)
+        return time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
     return now - days * DAY if days else 0
 
 
@@ -96,7 +101,7 @@ def _compute_part(connection, part, days, now):
 
 
 def compute(days=30, now=None, part=None):
-    """Stats for the last `days` days (0 = all time).
+    """Stats for the last `days` days (0 = all time, 'today' = since midnight).
 
     `part` is one of PARTS, so the page can show each section as soon as its
     own data is ready: 'overview' (tiles, creators, sources, hours; depends

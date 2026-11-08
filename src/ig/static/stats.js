@@ -1,4 +1,4 @@
-// Settings → Your stats. Numbers come from /stats/data?days=7|30|0 (stats.py).
+// Settings → Your stats. Numbers come from /stats/data?days=today|7|30|0 (stats.py).
 const boot = JSON.parse(document.getElementById('boot').textContent);
 if (boot.android) document.body.classList.add('android-app');
 const status = document.getElementById('settings-status');
