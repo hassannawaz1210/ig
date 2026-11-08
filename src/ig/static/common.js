@@ -622,3 +622,21 @@ if (typeof window !== 'undefined' && window.top === window) {
     updateHideTimer = notice.done ? setTimeout(() => window.igShowAppUpdate(null), UPDATE_DONE_HIDE_MS) : null;
   };
 }
+
+// ---- Text selection ----
+// Long-pressing a caption selects text and Android shows Copy / Select all.
+// The player handles taps itself (pause, double-tap like), so a tap elsewhere
+// never reached the browser's own "clear the selection" behaviour and the menu
+// stayed open. Clear it on any press outside the selected text.
+if (typeof document !== 'undefined') document.addEventListener('pointerdown', event => {
+  const selection = document.getSelection?.();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+    for (const rect of range.getClientRects()) {
+      if (event.clientX >= rect.left - 8 && event.clientX <= rect.right + 8 &&
+          event.clientY >= rect.top - 8 && event.clientY <= rect.bottom + 8) return;  // adjusting the selection
+    }
+  }
+  selection.removeAllRanges();
+}, true);

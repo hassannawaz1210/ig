@@ -673,6 +673,21 @@ const KEYS = {
       browseCreator=real; return calls;
     })()`);
     assert.deepEqual(swipes,[1,-1],'swipe left shows more from the creator, right goes back, small moves do nothing');
+    // A caption selection (Copy / Select all menu) clears when you press elsewhere.
+    const selecting = await evaluate(`(() => {
+      const info = document.querySelector('#s' + current + ' .info');
+      const text = document.createElement('span'); text.textContent = 'some caption words to copy'; info.append(text);
+      const select = () => { const r = document.createRange(); r.selectNodeContents(text); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+      const press = (x, y) => document.elementFromPoint(x, y)?.dispatchEvent(new PointerEvent('pointerdown', {clientX: x, clientY: y, bubbles: true}));
+      select(); const box = text.getBoundingClientRect();
+      press(box.left + 4, box.top + box.height / 2);
+      const keptOnText = !getSelection().isCollapsed;
+      press(innerWidth / 2, 60);
+      const clearedElsewhere = getSelection().isCollapsed;
+      text.remove();
+      return {keptOnText, clearedElsewhere};
+    })()`);
+    assert.deepEqual(selecting, {keptOnText: true, clearedElsewhere: true}, 'text selection menu closes on an outside press');
     // Smooth mode: the reel follows the finger and the next one slides in;
     // a long drag moves on, a short slow one springs back. Snappy: no follow.
     const dragging = await evaluate(`(async () => {
