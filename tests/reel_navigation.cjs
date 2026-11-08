@@ -770,7 +770,7 @@ const KEYS = {
       return {text: row.textContent.trim(), href: row.getAttribute('href'), visible: !row.hidden && box.height > 0 && box.bottom <= innerHeight}; })()`);
     assert.deepEqual(song, {text:'We Dem Boyz · Wiz Khalifa', href:'/sound/561481164338977', visible:true}, 'the reel names its song on phones');
     assert.equal(await evaluate(`(() => { posts[current].song = {title:'Original audio', artist:'stheno15', original:true}; showSong(current);
-      return document.getElementById('song'+current).textContent.trim(); })()`), '@stheno15 · Original audio');
+      return document.getElementById('song'+current).hidden; })()`), true, 'original audio has no song name, so no song line');
     await evaluate("delete posts[current].song; document.getElementById('song'+current).outerHTML = songRow(posts[current], current)");
     assert.equal(await evaluate("viewsLabel({play_count:2816256}).replace(/<svg.*<\\/svg>/,'')"), '<span class="views" title="2,816,256 views">2.8M</span>', 'reels show views with an eye icon');
     assert.equal(await evaluate("viewsLabel({})"), '', 'no views, no label');

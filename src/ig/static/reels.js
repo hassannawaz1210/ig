@@ -47,11 +47,11 @@ function postAge(t, now = Date.now()) {
   return 'just now';
 }
 // "3 days ago · Oct 8" (with the year when it isn't this year).
-// The reel's music from Instagram's own data, like Instagram's label:
-// "Track · Artist", or "@creator · Original audio". Opens the sound's page.
+// The reel's song from Instagram's own data: "Track · Artist". Shown only
+// for real songs; a creator's "Original audio" has no song name, so it shows
+// nothing (its sound page is still in the reel's "…" menu). Opens the sound's page.
 function songLabel(song) {
-  if (!song || typeof song.title !== 'string' || !song.title) return '';
-  if (song.original) return song.artist ? `@${song.artist} · ${song.title}` : song.title;
+  if (!song || song.original || typeof song.title !== 'string' || !song.title) return '';
   return song.artist ? `${song.title} · ${song.artist}` : song.title;
 }
 function songRow(p, i) {
@@ -64,7 +64,7 @@ function songRow(p, i) {
 }
 function showSong(i) {   // details that arrive after the slide was drawn
   const row = document.getElementById('song'+i);
-  if (!row || !posts[i] || !songLabel(posts[i].song)) return;
+  if (!row || !posts[i]) return;
   row.outerHTML = songRow(posts[i], i);
 }
 function postDate(t) {
