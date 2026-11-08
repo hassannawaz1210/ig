@@ -368,6 +368,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps(stats.compute(days, part=part)).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=self.path != '/stats', context='Loading your stats')
+        feed_page = re.fullmatch(r"/settings/feeds/([a-z0-9_-]{1,20})", self.path)
+        if feed_page and FEED_RE.fullmatch(feed_page.group(1)):
+            try:
+                return self._send(200, feeds_html(feed_page.group(1)).encode(), 'text/html; charset=utf-8')
+            except Exception as error:
+                return self._fail(error, context='Opening the feed')
         if self.path in ('/settings', '/settings/feeds', '/settings/data'):
             try:
                 if self.path == '/settings':

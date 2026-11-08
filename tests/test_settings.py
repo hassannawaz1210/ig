@@ -170,7 +170,7 @@ print(json.dumps({'playback': config.playback_preferences(),
                 self.assertEqual(json.loads(views.settings_html()), {
                     'android': True, 'scroll_animation': 'smooth', 'version': '1.2.3', 'build': '45',
                     'repository': 'https://github.com/hassannawaz1210/ig'})
-            self.assertEqual(json.loads(views.feeds_html()), {'android': True})
+            self.assertEqual(json.loads(views.feeds_html()), {'android': True, 'feed': ''})
             boot = json.loads(views.viewer_html('@someone', 'posts', [], username='someone'))
             self.assertTrue(boot['android'], 'profile page gets the phone layout in the app')
         page = self.request('/settings/feeds')

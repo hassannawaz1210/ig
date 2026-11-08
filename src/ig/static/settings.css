@@ -154,3 +154,20 @@ label.row {cursor:pointer;}
   .topic-skeleton {height:48px;}
 }
 @media(prefers-reduced-motion:reduce) {.feed-setting summary::after,.switch,.switch::after {transition:none;} .skeleton {animation:none;}}
+
+/* Feeds list: one compact row per feed; each opens its own page. */
+.feed-row {display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 16px;color:inherit;text-decoration:none;}
+.feed-row+.feed-row {border-top:1px solid var(--line);}
+.feed-row:hover {background:var(--card-hover);}
+.feed-row[hidden] {display:none;}
+.feed-row::after {content:'';flex:none;width:7px;height:7px;margin-right:4px;border:solid var(--soft);border-width:0 2px 2px 0;transform:rotate(-45deg);}
+.feed-row-text {flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.feed-row .feed-name {font-weight:550;text-transform:capitalize;overflow-wrap:anywhere;}
+.feed-row-meta {color:var(--soft);font-size:13px;}
+/* One feed's page: Accounts / Topics tabs. */
+#feed-summary {margin:0 0 12px;}
+.feed-tabs {width:100%;margin:0 0 12px;}
+.feed-tabs label {flex:1;text-align:center;}
+.feed-detail .feed-body {padding:14px 16px 16px;}
+.feed-detail .feed-pane[hidden] {display:none;}
+.feed-detail .account-list {max-height:none;}

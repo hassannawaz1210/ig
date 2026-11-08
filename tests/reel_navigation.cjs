@@ -1038,7 +1038,7 @@ const KEYS = {
     assert.deepEqual(await evaluate('selectedFeeds'),['memes'],'feed selection survives Settings round trip');
     // Pages with their own header (Settings, Feeds, profiles) don't get a second back bar.
     await evaluate("showLocalPage(new URL('/settings/feeds', location.href))");
-    for(let i=0;!(await evaluate("!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#settings-feeds .feed-setting')"));i++){
+    for(let i=0;!(await evaluate("!!document.querySelector('#local-page iframe')?.contentDocument?.querySelector('#settings-feeds .feed-row')"));i++){
       assert.ok(i<80,'Feeds page did not load');await sleep(50);
     }
     assert.equal(await evaluate("document.getElementById('local-page-back').hidden"),true,'one back control on the Feeds page');

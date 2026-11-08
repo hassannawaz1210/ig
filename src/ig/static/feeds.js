@@ -260,17 +260,30 @@ class FeedTopicEditor {
   }
 }
 
-function renderFeed(name, accounts, open, topics = []) {
-  const details = element('details','feed-setting'); details.dataset.name=name; details.open=open;
-  const summary = element('summary');
-  summary.append(element('span','feed-name',displayName(name)),
-    element('span','feed-count',`${accounts.length} account${accounts.length===1?'':'s'}`));
-  const body = element('div','feed-body');
+// The list: one compact row per feed; tap to open that feed's page.
+function feedRow(name, accounts, topics = []) {
+  const link = element('a', 'feed-row'); link.dataset.name = name;
+  link.href = '/settings/feeds/' + encodeURIComponent(name);
+  const text = element('span', 'feed-row-text');
+  text.append(element('span', 'feed-name', displayName(name)));
+  const details = `${accounts.length} account${accounts.length===1?'':'s'} · ${topics.length + 1} topic${topics.length ? 's' : ''}`;
+  text.append(element('span', 'feed-row-meta', details));
+  link.append(text);
+  return link;
+}
+
+// One feed's page: Accounts and Topics tabs.
+function renderFeedPage(name, accounts, topics = []) {
+  const box = element('div', 'feed-setting'); box.dataset.name = name;
+  document.getElementById('feed-summary').textContent =
+    `${accounts.length} account${accounts.length===1?'':'s'} · ${topics.length + 1} discovery topic${topics.length ? 's' : ''}`;
+  // Accounts
+  const accountsPane = element('div', 'feed-pane feed-body'); accountsPane.dataset.tab = 'accounts';
   const tools = element('div','feed-tools');
   const add = element('button','','Add accounts'); add.type='button';
   add.onclick = () => {chosenFeeds=[name]; chooseFeed();};
   const remove = element('button','delete-feed','Delete feed'); remove.type='button';
-  remove.onclick = () => confirmSettingsAction(body,`Delete “${displayName(name)}”?`, 'Delete feed', async () => {
+  remove.onclick = () => confirmSettingsAction(accountsPane,`Delete “${displayName(name)}”?`, 'Delete feed', async () => {
     const data = await settingsRequest('/feeds/delete',{name});
     notifyFeedsChange();
     status.textContent=`Deleted ${displayName(name)}. `;
@@ -278,22 +291,20 @@ function renderFeed(name, accounts, open, topics = []) {
     undo.onclick = async () => {
       undo.disabled=true;
       try { await settingsRequest('/feeds/restore',{deletion_id:data.deletion_id}); notifyFeedsChange();
-        status.textContent=`Restored ${displayName(name)}.`; await loadFeeds(name); }
+        status.textContent=`Restored ${displayName(name)}.`; await loadFeeds(); }
       catch (error) {status.textContent=error.message;}
     };
     status.append(undo); await loadFeeds();
   });
-  const topicEditor = new FeedTopicEditor(name, topics); topicEditors.set(name, topicEditor);
-  tools.append(add,remove); body.append(tools, topicEditor.box);
+  tools.append(add, remove);
   const search = element('input','account-search'); search.type='search';
   search.placeholder='Find an account'; search.setAttribute('aria-label',`Find an account in ${displayName(name)}`);
-  search.autocomplete='off'; search.spellcheck=false;
-  if (accounts.length) body.append(search);
+  search.autocomplete='off'; search.spellcheck=false; search.hidden = accounts.length < 8;
   const list = element('ul','account-list');
   const more = element('button','load-accounts','Show more'); more.type='button';
-  let shown=100, rendered=false;
+  let shown=100;
   const renderAccounts = () => {
-    rendered=true; list.replaceChildren();
+    list.replaceChildren();
     const query=search.value.trim().toLowerCase().replace(/^@/,'');
     const matching=accounts.filter(account=>account.includes(query));
     for (const account of matching.slice(0,shown)) {
@@ -304,26 +315,37 @@ function renderFeed(name, accounts, open, topics = []) {
       button.onclick=()=>confirmSettingsAction(row,`Remove @${account} from ${displayName(name)}?`,'Remove from this feed',async()=>{
         await settingsRequest('/feeds/accounts/remove',{name,username:account});
         notifyFeedsChange();   // the creator may still be in another feed
-        status.textContent=`Removed @${account} from ${displayName(name)}.`; await loadFeeds(name);
+        status.textContent=`Removed @${account} from ${displayName(name)}.`; await loadFeeds();
       });
       row.append(link,button); list.append(row);
     }
-    if (!matching.length) list.append(element('li','muted',accounts.length?'No matching accounts.':'No accounts yet.'));
+    if (!matching.length) list.append(element('li','muted',accounts.length?'No matching accounts.':'No accounts yet. Add some above.'));
     more.hidden=matching.length<=shown;
     if (!more.hidden) more.textContent=`Show more (${matching.length-shown} remaining)`;
   };
   more.onclick=()=>{shown+=100;renderAccounts();};
   search.oninput=()=>{shown=100;renderAccounts();};
-  details.addEventListener('toggle',()=>{if(!details.open)return; if(!rendered)renderAccounts(); topicEditor.opened();});
-  if (open) {renderAccounts(); topicEditor.opened();}
-  body.append(list,more); details.append(summary,body);
-  return details;
+  renderAccounts();
+  accountsPane.append(tools, search, list, more);
+  // Topics
+  const topicsPane = element('div', 'feed-pane feed-body'); topicsPane.dataset.tab = 'topics';
+  const topicEditor = new FeedTopicEditor(name, topics); topicEditors.set(name, topicEditor);
+  topicsPane.append(topicEditor.box);
+  box.append(accountsPane, topicsPane);
+  const show = tab => {
+    accountsPane.hidden = tab !== 'accounts'; topicsPane.hidden = tab !== 'topics';
+    if (tab === 'topics') topicEditor.opened();
+  };
+  const choice = document.querySelector('.feed-tabs input:checked')?.value || 'accounts';
+  for (const input of document.querySelectorAll('.feed-tabs input')) input.onchange = () => show(input.value);
+  show(choice);
+  return box;
 }
 // Show only feeds whose name (or one of whose accounts) matches the search.
 function filterFeeds() {
   const query = feedSearch.value.trim().toLowerCase().replace(/^@/, '');
   let shown = 0;
-  for (const item of container.querySelectorAll('.feed-setting')) {
+  for (const item of container.querySelectorAll('.feed-row')) {
     const name = item.dataset.name;
     const match = !query || displayName(name).toLowerCase().includes(query) ||
       (feedsData[name] || []).some(account => account.includes(query)) ||
@@ -333,31 +355,43 @@ function filterFeeds() {
   container.querySelector('.no-match')?.remove();
   if (query && !shown && Object.keys(feedsData).length) container.append(element('p','muted empty no-match','No feeds match.'));
 }
-async function loadFeeds(preferredFeed) {
+async function loadFeeds() {
   const version = ++loadVersion;
   container.setAttribute('aria-busy','true');
   try {
     const data = await settingsRequest('/settings/data');
     if (version !== loadVersion) return;
     feedsData = data.feeds; feedTopics = data.feed_topics || {}; feedsLoaded = true;
-    const open = new Set([...container.querySelectorAll('details[open]')].map(item => item.dataset.name));
-    if (preferredFeed) open.add(preferredFeed);
     const names = Object.keys(data.feeds);
+    topicEditors.clear();
+    if (boot.feed) {   // one feed's page
+      const detail = document.getElementById('feed-detail');
+      if (!(boot.feed in data.feeds)) {
+        detail.replaceChildren(element('p', 'muted empty', 'This feed no longer exists.'));
+        document.getElementById('feed-summary').textContent = '';
+      } else detail.replaceChildren(renderFeedPage(boot.feed, data.feeds[boot.feed], data.feed_topics?.[boot.feed] || []));
+      detail.setAttribute('aria-busy', 'false');
+      return;
+    }
     const total = new Set(Object.values(data.feeds).flat()).size;
     document.getElementById('feeds-total').textContent = `${names.length} feed${names.length===1?'':'s'} · ${total} account${total===1?'':'s'}`;
     feedSearch.hidden = names.length < 2;
-    container.replaceChildren(); topicEditors.clear();
+    container.replaceChildren();
     if (!names.length) container.append(element('p','muted empty','No feeds yet. Create one, or import from Settings.'));
-    for (const name of names) container.append(renderFeed(name, data.feeds[name], open.has(name), data.feed_topics?.[name] || []));
+    for (const name of names) container.append(feedRow(name, data.feeds[name], data.feed_topics?.[name] || []));
     filterFeeds();
   } catch (error) { if (version === loadVersion) status.textContent = error.message; }
   finally { if (version === loadVersion) container.setAttribute('aria-busy','false'); }
 }
 feedSearch.oninput = filterFeeds;
 document.getElementById('create-feed').onclick = () => chooseFeed('', true);
-window.addEventListener('ig-feeds-changed', event => loadFeeds(event.detail?.name));
+window.addEventListener('ig-feeds-changed', () => loadFeeds());
 // Accounts added or feeds edited on another page (common.js).
 accountsChanged = () => loadFeeds(); feedListsEdited = () => loadFeeds();
 // Back navigation can restore this page without fresh server data.
 window.addEventListener('pageshow', event => { if (event.persisted) loadFeeds(); });
+document.getElementById('feed-list-view').hidden = Boolean(boot.feed);
+document.getElementById('feed-view').hidden = !boot.feed;
+document.getElementById('feed-list-view').hidden = Boolean(boot.feed);
+document.getElementById('feed-view').hidden = !boot.feed;
 loadFeeds();

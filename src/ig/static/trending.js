@@ -59,10 +59,12 @@ function render() {
   grid.replaceChildren(...lists[selected].topics.map(topicCard));
 }
 
+// Tapping a card opens the topic's popular reels; the + in its corner adds
+// the topic to a feed.
 function topicCard(topic) {
+  const card = element('div', 'trend-card-wrap');
   const button = element('button', 'trend-card'); button.type = 'button';
-  button.setAttribute('aria-haspopup', 'dialog');
-  button.setAttribute('aria-label', topic.name + (topic.countLabel ? `, ${topic.countLabel}` : ''));
+  button.setAttribute('aria-label', `Watch ${topic.name}` + (topic.countLabel ? `, ${topic.countLabel}` : ''));
   const picture = element('span', 'trend-picture');
   picture.append(element('span', 'trend-initial', topic.name.slice(0, 1).toUpperCase()));
   if (topic.image) {
@@ -74,8 +76,17 @@ function topicCard(topic) {
   text.append(element('span', 'trend-name', topic.name));
   if (topic.count) text.append(element('span', 'trend-count', topic.count + ' posts'));
   button.append(picture, text);
-  button.onclick = () => openTopicSheet(topic, button);
-  return button;
+  button.onclick = async () => {
+    if (!topic.slug) { status.textContent = `${topic.name} has no page to open.`; return; }
+    try { await visitLocalPage('/topic/' + encodeURIComponent(topic.slug)); }
+    catch (error) { status.textContent = `Couldn’t open ${topic.name}: ${error.message}`; }
+  };
+  const add = element('button', 'trend-add'); add.type = 'button';
+  add.innerHTML = icon('plus'); add.title = 'Add to a feed';
+  add.setAttribute('aria-label', `Add ${topic.name} to a feed`); add.setAttribute('aria-haspopup', 'dialog');
+  add.onclick = () => openTopicSheet(topic, add);
+  card.append(button, add);
+  return card;
 }
 
 function renderCreators(creators) {
@@ -112,7 +123,7 @@ function openTopicSheet(topic, opener) {
   };
   const list = element('div', 'topic-sheet-feeds');
   list.append(element('p', 'muted', 'Loading your feeds…'));
-  dialog.append(watch, element('h3', 'topic-sheet-subtitle', 'Add to feed'), list, sheetError);
+  dialog.append(element('h3', 'topic-sheet-subtitle', 'Add to feed'), list, sheetError, watch);
   dialog.addEventListener('close', () => { if (opener?.isConnected) opener.focus(); }, {once:true});
   dialog.showModal();
   loadFeeds().then(names => {

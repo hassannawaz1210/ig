@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Feeds · ig</title><link rel="stylesheet" href="/static/settings.css"></head>
+<title>{{title}} · ig</title><link rel="stylesheet" href="/static/settings.css"></head>
 <body>
-<header class="page-header"><a class="back" href="/settings" aria-label="Back to Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Feeds</h1></header>
+<header class="page-header"><a class="back" href="{{back}}" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1 id="page-title">{{title}}</h1></header>
 <main>
   <p id="settings-status" role="status" aria-live="polite"></p>
-  <section aria-labelledby="feeds-title">
+  <section id="feed-list-view" aria-labelledby="feeds-title">
     <div class="group-heading">
       <div><h2 id="feeds-title" class="group-title">Your feeds</h2><p id="feeds-total" class="muted"></p></div>
       <button id="create-feed" class="primary" type="button">{{icon:plus}}New feed</button>
@@ -14,6 +14,14 @@
     <input id="feed-search" class="account-search feed-search" type="search" placeholder="Find a feed, topic or @account"
       aria-label="Find a feed or account" autocomplete="off" spellcheck="false" hidden>
     <div id="settings-feeds" class="card" aria-busy="true"><p class="muted empty">Loading feeds…</p></div>
+  </section>
+  <section id="feed-view" hidden>
+    <p id="feed-summary" class="muted"></p>
+    <fieldset class="segmented feed-tabs" aria-label="Feed sections">
+      <label><input type="radio" name="feed-tab" value="accounts" checked><span>Accounts</span></label>
+      <label><input type="radio" name="feed-tab" value="topics"><span>Topics</span></label>
+    </fieldset>
+    <div id="feed-detail" class="card feed-detail" aria-busy="true"><p class="muted empty">Loading…</p></div>
   </section>
 </main>
 <script id="boot" type="application/json">{{boot}}</script>

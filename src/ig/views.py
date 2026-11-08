@@ -233,9 +233,12 @@ def similar_html(username: str) -> str:
                   boot=_page_data({'android': config.ANDROID, 'username': username}))
 
 
-def feeds_html() -> str:
-    """Settings → Feeds: every feed and its accounts. The page loads them itself."""
-    return render('feeds.html', boot=_page_data({'android': config.ANDROID}))
+def feeds_html(feed: str = '') -> str:
+    """Settings → Feeds: the list of feeds, or one feed's accounts and topics
+    (/settings/feeds/<name>). The page loads them itself."""
+    title = feed.replace('_', ' ').title() if feed else 'Feeds'
+    return render('feeds.html', title=escape(title), back='/settings/feeds' if feed else '/settings',
+                  boot=_page_data({'android': config.ANDROID, 'feed': feed}))
 
 
 def settings_html() -> str:

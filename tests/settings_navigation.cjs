@@ -156,20 +156,27 @@ async function launch() {
     assert.equal(await evaluate("document.querySelectorAll('.feed-setting').length"),0,'Settings does not list every feed');
     assert.equal(await evaluate("document.querySelector('a[href=\"/feeds/export\"]').textContent.includes('Export backup')"),true);
     await evaluate("document.querySelector('a[href=\"/settings/feeds\"]').click()");
-    await waitFor("location.pathname==='/settings/feeds' && document.querySelectorAll('.feed-setting').length===3");
+    await waitFor("location.pathname==='/settings/feeds' && document.querySelectorAll('.feed-row').length===3");
     assert.equal(await evaluate("document.getElementById('feeds-total').textContent"),'3 feeds · 162 accounts');
-    assert.equal(await evaluate("document.querySelectorAll('.feed-setting[open]').length"),0,'feeds start collapsed');
+    assert.equal(await evaluate("document.querySelectorAll('.account-row').length"),0,'the list shows feeds, not every account');
+    assert.match(await evaluate("document.querySelector('[data-name=edits] .feed-row-meta').textContent"),/^2 accounts · 1 topic$/);
     // Finding a feed by name or by one of its accounts.
     const search=async q=>evaluate(`(() => { const s=document.getElementById('feed-search'); s.value=${JSON.stringify(q)};
-      s.dispatchEvent(new Event('input')); return [...document.querySelectorAll('.feed-setting:not([hidden])')].map(f=>f.dataset.name); })()`);
+      s.dispatchEvent(new Event('input')); return [...document.querySelectorAll('.feed-row:not([hidden])')].map(f=>f.dataset.name); })()`);
     assert.deepEqual(await search('mem'),['memes']);
     assert.deepEqual((await search('@shared')).sort(),['edits','memes']);
     assert.deepEqual(await search('zzz'),[]);
     assert.ok(await evaluate("!!document.querySelector('.no-match')"),'no matching feeds says so');
     await search('');
-    assert.equal(await evaluate("document.querySelectorAll('.feed-setting:not([hidden])').length"),3);
-    await evaluate("document.querySelector('[data-name=edits] summary').click()");
-    await waitFor("document.querySelectorAll('[data-name=edits] .account-row').length===2");
+    assert.equal(await evaluate("document.querySelectorAll('.feed-row:not([hidden])').length"),3);
+    // A feed opens its own page with Accounts and Topics tabs.
+    await evaluate("document.querySelector('a.feed-row[data-name=edits]').click()");
+    await waitFor("location.pathname==='/settings/feeds/edits' && document.querySelectorAll('[data-name=edits] .account-row').length===2");
+    assert.equal(await evaluate("document.getElementById('page-title').textContent"),'Edits');
+    assert.equal(await evaluate("document.querySelector('[data-tab=topics]').hidden"),true,'Accounts tab first');
+    await evaluate("document.querySelector('.feed-tabs input[value=topics]').click()");
+    assert.equal(await evaluate("document.querySelector('[data-tab=accounts]').hidden"),true,'Topics tab switches');
+    await evaluate("document.querySelector('.feed-tabs input[value=accounts]').click()");
     await evaluate("document.querySelector('[data-name=edits] button[aria-label=\"Remove @shared from edits\"]').click()");
     assert.equal(await evaluate("document.querySelectorAll('[data-name=edits] .account-row').length"),2,'remove waits for confirmation');
     await evaluate("document.querySelector('[data-name=edits] .confirmation button').click()");
@@ -196,14 +203,16 @@ async function launch() {
     await evaluate("document.querySelector('[data-name=edits] .confirmation button').click()");
     assert.ok(await evaluate("!!document.querySelector('[data-name=edits]')"),'cancel preserves feed');
     await evaluate("document.querySelector('[data-name=edits] .delete-feed').click(); document.querySelector('[data-name=edits] .confirm-remove').click()");
-    await waitFor("!document.querySelector('[data-name=edits]')");
+    await waitFor("!document.querySelector('[data-name=edits]') && document.getElementById('feed-detail').textContent.includes('no longer exists')");
     await evaluate("document.querySelector('#settings-status button').click()");
     await waitFor("!!document.querySelector('[data-name=edits]')");
+    await send('Page.navigate',{url:new URL('/settings/feeds',url).href});
+    await waitFor("document.querySelectorAll('.feed-row').length===3");
     await evaluate("document.getElementById('create-feed').click()");
     await waitFor("!!document.querySelector('#feed-picker select:not(:disabled)')");
     await evaluate("document.querySelector('#feed-picker input[name=feedname]').value='New feed'; document.querySelector('#feed-picker form').requestSubmit()");
     await waitFor("!!document.querySelector('[data-name=new_feed]')");
-    await evaluate("document.querySelector('[data-name=large] summary').click()");
+    await send('Page.navigate',{url:new URL('/settings/feeds/large',url).href});
     await waitFor("document.querySelectorAll('[data-name=large] .account-row').length===100");
     await evaluate("document.querySelector('[data-name=large] .load-accounts').click()");
     assert.equal(await evaluate("document.querySelectorAll('[data-name=large] .account-row').length"),160);
@@ -223,7 +232,7 @@ async function launch() {
       assert.equal(await evaluate("document.querySelector('#feed-picker h2').textContent"),'Import backup');
       await evaluate("document.getElementById('feed-picker').close()");await sleep(50);
     }
-    await evaluate("history.back()");
+    await send('Page.navigate',{url:new URL('/settings',url).href});
     await waitFor("location.pathname==='/settings' && document.getElementById('feeds-total')?.textContent==='4 feeds · 163 accounts'");
     console.log('Settings: playback persistence, membership removal, confirmations, add/create/delete/undo, large feeds, imports and mobile layout passed');
   } finally {await browser.close();}

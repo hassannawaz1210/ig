@@ -103,15 +103,21 @@ async function launch() {
     await send('Fetch.enable', {patterns: [{urlPattern: 'https://example.invalid/*'}]});
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
     await send('Page.enable');
+    // A feed's topics are on its own page, under the Topics tab.
+    const openTopics = async name => {
+      await send('Page.navigate', {url: url + '/settings/feeds/' + name});
+      await waitFor(`!!document.querySelector('[data-name=${name}]')`);
+      await evaluate("document.querySelector('.feed-tabs input[value=topics]').click()");
+    };
     await send('Page.navigate', {url: url + '/settings/feeds'});
-    await waitFor("document.querySelectorAll('.feed-setting').length===2");
+    await waitFor("document.querySelectorAll('.feed-row').length===2");
 
     assert.equal(await evaluate("document.getElementById('trending')"), null, 'trending moved to its own page');
     assert.ok(await fitsWidth(), 'no sideways page scroll at 390px');
 
     // Suggestions load only when a feed is opened.
     assert.equal((await log()).filter(entry => entry.path === '/feeds/topics/suggest').length, 0, 'no suggestions before opening a feed');
-    await evaluate("document.querySelector('[data-name=edits] summary').click()");
+    await openTopics('edits');
     await waitFor("document.querySelectorAll('[data-name=edits] .topic-skeleton').length>0", 'loading chips while suggestions load');
     await waitFor("document.querySelectorAll('[data-name=edits] .suggestions .topic-option').length===3", 'suggestions render');
     assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-name=edits] .suggestions .topic-option')].map(b=>b.textContent)"),
@@ -154,7 +160,7 @@ async function launch() {
 
     // Suggestions that fail to load show a quiet note with a retry.
     await setState({suggest: 'fail'});
-    await evaluate("document.querySelector('[data-name=memes] summary').click()");
+    await openTopics('memes');
     await waitFor("document.querySelector('[data-name=memes] .topic-note')?.textContent.startsWith('Couldn’t load suggestions.')", 'suggestion failure note');
     assert.equal(await evaluate("document.querySelectorAll('[data-name=memes] .topic-skeleton').length"), 0, 'no endless loading');
     await setState({suggest: 'ok'});
@@ -181,7 +187,7 @@ async function launch() {
     assert.ok(await fitsWidth(), 'the trending page fits at 390px');
 
     // Topic sheet: add to a feed (feeds that have it are disabled), failures, then watch.
-    await evaluate("document.querySelector('#trending .trend-card').click()");
+    await evaluate("document.querySelector('#trending .trend-add').click()");
     await waitFor("document.querySelectorAll('#topic-sheet .topic-sheet-feed').length===2", 'feeds listed in the sheet');
     assert.equal(await evaluate("document.querySelector('#topic-sheet h2').textContent"), 'Edit');
     assert.deepEqual(await evaluate("[...document.querySelectorAll('#topic-sheet .topic-sheet-feed')].map(b=>[b.dataset.feed,b.disabled])"),
@@ -192,7 +198,7 @@ async function launch() {
     assert.deepEqual(await evaluate('savedTopics[0]'), {name: 'memes', topics: ['edit']});
     assert.ok(await evaluate("JSON.parse(localStorage.getItem('ig-change-log')).some(change=>change.kind==='feeds')"), 'other pages hear about it');
     await evaluate("document.getElementById('topic-sheet').close()");
-    await evaluate("document.querySelectorAll('.trending-tab')[1].click(); document.querySelector('#trending .trend-card').click()");
+    await evaluate("document.querySelectorAll('.trending-tab')[1].click(); document.querySelector('#trending .trend-add').click()");
     await waitFor("document.querySelector('#topic-sheet h2')?.textContent==='Phonk' && document.querySelectorAll('#topic-sheet .topic-sheet-feed').length===2");
     await evaluate(`window.realFetch=window.fetch; window.fetch=(u,o)=>u==='/feeds/topics'?Promise.resolve(new Response('{"error":"Could not save topics."}',{status:500})):realFetch(u,o);
       document.querySelector('#topic-sheet [data-feed=memes]').click()`);
@@ -200,14 +206,10 @@ async function launch() {
     assert.equal(await evaluate("document.querySelector('#topic-sheet [data-feed=memes]').disabled"), false, 'a failed add can be retried');
     await evaluate("window.fetch=window.realFetch; document.getElementById('topic-sheet').close(); document.querySelectorAll('.trending-tab')[0].click()");
     await evaluate("document.querySelector('#trending .trend-card').click()");
-    await waitFor("document.getElementById('topic-sheet')?.open");
-    await evaluate("document.querySelector('#topic-sheet .topic-sheet-watch').click()");
-    await waitFor("location.pathname==='/topic/edit' && document.readyState==='complete'", 'Watch opens the topic page');
+    await waitFor("location.pathname==='/topic/edit' && document.readyState==='complete'", 'tapping a card opens its reels');
 
     // The Feeds page shows the topic added from Trending.
-    await send('Page.navigate', {url: url + '/settings/feeds'});
-    await waitFor("document.querySelectorAll('.feed-setting').length===2");
-    await evaluate("document.querySelector('[data-name=memes] summary').click()");
+    await openTopics('memes');
     await waitFor("[...document.querySelectorAll('[data-name=memes] .topic-chip')].some(c=>c.firstChild.textContent==='edit')", 'feed card shows the new topic');
 
     // Trending that fails offers a retry; an empty answer says so.
@@ -221,13 +223,12 @@ async function launch() {
     await send('Page.reload');
     await waitFor("document.querySelector('#trending .trend-empty')?.textContent.includes('isn’t showing anything')", 'empty trending says so');
     await setState({trending: 'ok'});
-    await send('Page.navigate', {url: url + '/settings/feeds'});
-    await waitFor("document.querySelectorAll('.feed-setting').length===2");
+    await openTopics('edits');
 
     // Layout on both widths, in the Android app too.
     for (const [width, android] of [[390, true], [390, false], [1000, false]]) {
       await send('Emulation.setDeviceMetricsOverride', {width, height: 844, deviceScaleFactor: 1, mobile: width < 500});
-      await evaluate(`document.body.classList.toggle('android-app',${android}); document.querySelector('[data-name=edits]').open=true; window.scrollTo(0,0)`);
+      await evaluate(`document.body.classList.toggle('android-app',${android}); window.scrollTo(0,0)`);
       await waitFor("document.querySelectorAll('[data-name=edits] .suggestions .topic-option').length>0");
       assert.ok(await fitsWidth(), `no sideways page scroll at ${width}px`);
       if (width === 390) {
