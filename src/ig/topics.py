@@ -27,6 +27,9 @@ MAX_RELATED = 2                   # sub-topics followed from a broad topic page
 MAX_CREATORS_PER_TOPIC = 24
 TOPIC_LEAD = 2.2                  # ahead of reel-based leads (credit 2.0), behind a collaborator
 TOPIC_TRIAL_SHARE = 0.8           # topic creators come first; reel-based leads get the rest
+POPULAR_EVERY = 8                 # at most this many reels between popular topic reels
+POPULAR_READY = 2                 # popular reels kept loaded ahead
+POPULAR_LOAD_GAP = 8              # seconds between background loads of popular reels
 
 POPULAR_URL = 'https://www.instagram.com/popular/{}/'
 SLUG_RE = re.compile(r'[^\W_]+(?:-[^\W_]+)*')

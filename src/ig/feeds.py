@@ -9,7 +9,7 @@ from .instagram import InstagramError, RateLimited, ProfileUnavailable
 from .reels import STATE, REELS, more_reels
 from .reasons import Reason
 from .refill import REFILL
-from .topics import TOPICS, TOPIC_LEAD, TOPIC_TRIAL_SHARE
+from .topics import TOPICS, TOPIC_LEAD, TOPIC_TRIAL_SHARE, POPULAR_EVERY
 
 log = logging.getLogger(__name__)
 
@@ -329,7 +329,12 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         # Reserve the first attempt for discovery instead of leaving an entire
         # batch to chance. Failed trials may fall back to saved creators.
         discovery_turn = bool(rested_trials) and streak >= 3
-        if discovery_turn:
+        # A popular topic reel at least every POPULAR_EVERY reels, when one is loaded.
+        popular_ready = [a for a in candidates if a in topic_trials]
+        if popular_ready and pool.get('since_popular', 0) >= POPULAR_EVERY - 1:
+            candidates = popular_ready
+            discovery_turn = True
+        elif discovery_turn:
             candidates = rested_trials
             from_topics = [a for a in candidates if a in pool.get('topic_leads', ())]
             if from_topics and random.random() < TOPIC_TRIAL_SHARE:
@@ -456,6 +461,7 @@ def _pool_more(pool: dict, limit: int = 12, excluded=None, *, allow_network=True
         pool['served'].add(post['shortcode'])
         out.append(post)
         streak = streak + 1 if username in saved else 0
+        pool['since_popular'] = 0 if username in topic_trials else pool.get('since_popular', 0) + 1
         if uncertain:
             uncertain_used = True
         for topic in memberships:

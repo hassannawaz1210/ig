@@ -329,3 +329,57 @@ class TopicSafetyTests(TempDirs):
             refill.schedule(pool, ['creator'], set(), states={})
             load.assert_not_called()
         self.assertFalse(refill.pending)
+
+
+class PopularTurnTests(ProjectTests):
+    """A loaded popular topic reel plays at least every POPULAR_EVERY reels."""
+    def setUp(self):
+        super().setUp()
+        config.save_feeds({'memes': ['saved_one']})
+        self.discovery = topics.TopicDiscovery()
+        lead = {'source': 'popular_topic', 'topic': 'funny memes', 'feed': 'memes',
+                'shortcode': 'POPULAR0001', 'username': 'popular_one'}
+        popular = {**reel_details(owner='popular_one'), 'shortcode': 'POPULAR0001', 'is_video': True,
+                   'image': 'https://cdn.test/p.jpg', 'url': 'https://www.instagram.com/reel/POPULAR0001/'}
+        self.discovery.leads = lambda feeds_, exclude=(): {'popular_one': dict(lead)}
+        self.discovery.trial_state = lambda info, network=False: {'posts': [popular], 'has_more': False}
+        saved_posts = [{'shortcode': f'SAVED{i:06d}', 'owner': 'saved_one', 'is_video': True, 'caption': ''}
+                       for i in range(12)]
+        for name, value in [('TOPICS', self.discovery),
+                            ('STATE', {'saved_one': {'posts': saved_posts, 'has_more': False}})]:
+            p = patch.object(feeds, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def first_owner(self, since_popular):
+        pool = feeds.make_pool(['saved_one'])
+        pool['saved_streak'] = 0          # no ordinary discovery turn
+        pool['since_popular'] = since_popular
+        batch = feeds._pool_more(pool, limit=1, allow_network=False, snapshot=feeds.account_snapshot())
+        return batch['posts'][0]['owner'], pool['since_popular']
+
+    def test_popular_reel_after_seven_others(self):
+        self.assertEqual(self.first_owner(topics.POPULAR_EVERY - 1), ('popular_one', 0))
+
+    def test_saved_creators_until_then(self):
+        self.assertEqual(self.first_owner(2), ('saved_one', 3))
+
+
+class PopularPreloadTests(ProjectTests):
+    def test_refill_keeps_popular_reels_loaded_ahead(self):
+        from ig.refill import Refill
+        refill = Refill()
+        self.addCleanup(refill.executor.shutdown, wait=True)
+        refill.next_discovery_at = time.monotonic() + 60   # the shared discovery slot is busy
+        info = {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}
+        pool = {'served': set(), 'topic_trials': {'creator': info}}
+        with patch('ig.refill.TOPICS') as discovery:
+            discovery.trial_state.return_value = None
+            # A feed with saved creators (an empty feed loads popular reels continuously).
+            refill.schedule(pool, ['creator'], {'saved_one'}, states={})
+            self.assertIn('creator', refill.pending, 'popular reels load outside the discovery slot')
+            for future, _ in list(refill.pending.values()):
+                future.result(timeout=2)
+            refill.pending.clear()
+            refill.schedule(pool, ['creator'], {'saved_one'}, states={})
+            self.assertNotIn('creator', refill.pending, 'popular loads are spaced out')

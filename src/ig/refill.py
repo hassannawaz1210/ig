@@ -4,7 +4,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from .instagram import RateLimited, ProfileUnavailable, BACKOFF
 from .reels import REELS, STATE, more_reels
-from .topics import TOPICS, TOPIC_TRIAL_SHARE
+from .topics import TOPICS, TOPIC_TRIAL_SHARE, POPULAR_READY, POPULAR_LOAD_GAP
 
 
 class Refill:
@@ -16,6 +16,7 @@ class Refill:
         self.completed_seconds = {}
         self.load_seconds = 12.0
         self.next_discovery_at = 0.0
+        self.next_popular_at = 0.0
         self.last_exploration = None
         self.exploration_pending = set()
         self.refresh_after = {}
@@ -73,13 +74,16 @@ class Refill:
         candidates, older = [], []
         usable = set()
         ready = pool.get('buffered', 0)
+        popular_ready = 0   # loaded popular topic reels not served yet
         for name in dict.fromkeys(names):
             topic_trial = pool.get('topic_trials', {}).get(name) if name not in saved else None
             if topic_trial:
                 if topic_trial['shortcode'] in pool['served']:
                     continue
                 state = TOPICS.trial_state(topic_trial)
-                if state is None and name not in self.pending and self.retry_at.get(name, 0) <= now:
+                if state is not None:
+                    popular_ready += 1
+                elif name not in self.pending and self.retry_at.get(name, 0) <= now:
                     candidates.append((0, name, topic_trial))
                 continue
             state = states.get(name)
@@ -150,6 +154,15 @@ class Refill:
             for _, name, _ in trials:
                 self.retry_at[name] = self.next_discovery_at
         candidates = regular
+        # Keep a couple of popular topic reels loaded, outside the shared
+        # discovery slot, so one can play every POPULAR_EVERY reels (feeds.py).
+        popular = None
+        if popular_ready < POPULAR_READY and now >= self.next_popular_at:
+            waiting_popular = [c for c in trials if isinstance(c[2], dict) and (not special or c[1] != special[1])]
+            if waiting_popular:
+                popular = random.choice(waiting_popular)
+                urgent = [c for c in candidates if c[0] == 0]
+                candidates = urgent + [popular] + [c for c in candidates if c[0] != 0]
         if special:
             regular = [c for c in regular if c[1] != special[1]]
             # Startup and empty sources get both workers before optional work.
@@ -159,6 +172,8 @@ class Refill:
         for _, name, paging in candidates:
             if len(self.pending) >= 2:
                 break
+            if popular and name == popular[1]:
+                self.next_popular_at = now + POPULAR_LOAD_GAP
             if special and name == special[1]:
                 self.next_discovery_at = now + (0 if empty_topic_feed and isinstance(paging, dict) else 30)
                 self.last_exploration = kind
