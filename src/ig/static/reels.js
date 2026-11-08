@@ -1248,7 +1248,7 @@ routeLocalPage = destination => {
     else if (boot.post_code) return false;
     return true;
   }
-  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel|sound|topic)\//.test(destination.pathname))) return false;
+  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels|trending)$/.test(destination.pathname) || /^\/(?:u|reel|sound|topic)\//.test(destination.pathname))) return false;
   showLocalPage(destination); return true;
 };
 window.addEventListener('message', event => {

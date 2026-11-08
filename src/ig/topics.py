@@ -11,6 +11,7 @@ waits for a topic page: until one is cached, it simply adds no leads.
 """
 import html as html_text
 import json
+from urllib.parse import urlencode
 import logging
 import re
 import threading
@@ -534,8 +535,10 @@ def parse_topic_reels(html: str) -> dict:
             for item in value:
                 walk(item)
 
+    cursor, has_more = None, False
     for payload in instagram.sjs_payloads(html, 'popular_search'):
         walk(payload)
+        cursor, has_more = _next_page(payload) if not cursor else (cursor, has_more)
     name = label = None
     title = re.search(r'<title>([^<]*)</title>', html)
     if title:
@@ -544,17 +547,87 @@ def parse_topic_reels(html: str) -> dict:
         name = text.strip() or None
         label = count.strip() if re.fullmatch(r'[\d.,]+[KMB]? (?:reels?|posts?)', count.strip()) else None
     return {'name': name, 'count_label': label, 'posts': posts[:MAX_TOPIC_REELS],
-            'creators': creators, 'related': related}
+            'creators': creators, 'related': related, 'cursor': cursor, 'has_more': has_more}
+
+
+def _next_page(payload) -> tuple[str | None, bool]:
+    """The cursor for a topic's next reels, from its media list's page_info."""
+    media = instagram.nested_find(payload, 'xig_logged_out_popular_search_media_info')
+    info = instagram.nested_find(media, 'page_info') if isinstance(media, dict) else None
+    if not isinstance(info, dict):
+        return None, False
+    cursor = info.get('end_cursor')
+    cursor = cursor if isinstance(cursor, str) and 0 < len(cursor) <= 500 else None
+    return cursor, bool(info.get('has_next_page')) and cursor is not None
+
+
+def _topic_reels_in(value) -> list[dict]:
+    posts, seen = [], set()
+
+    def walk(item):
+        if isinstance(item, dict):
+            reel = _topic_reel(item) if 'code' in item else None
+            if reel and reel['shortcode'] not in seen:
+                seen.add(reel['shortcode'])
+                posts.append(reel)
+            for child in item.values():
+                walk(child)
+        elif isinstance(item, list):
+            for child in item:
+                walk(child)
+    walk(value)
+    return posts
 
 
 def fetch_topic_reels(slug: str) -> dict:
-    with instagram._new_session() as session:
-        response = instagram.request(session, 'GET', POPULAR_URL.format(slug))
+    session = instagram._new_session()
+    response = instagram.request(session, 'GET', POPULAR_URL.format(slug))
     if response.status_code == 404:
-        return {'name': None, 'count_label': None, 'posts': [], 'creators': {}, 'related': []}
+        return {'name': None, 'count_label': None, 'posts': [], 'creators': {}, 'related': [],
+                'cursor': None, 'has_more': False}
     if response.status_code >= 400:
         raise instagram.UnexpectedResponse(f'Instagram returned HTTP {response.status_code} for topic “{slug}”')
-    return parse_topic_reels(response.text)
+    page = parse_topic_reels(response.text)
+    token = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', response.text)
+    # The session and token are kept (in memory only) to load the next reels.
+    page['context'] = {'session': session, 'lsd': token.group(1) if token else ''}
+    if not token:
+        page['has_more'] = False
+    return page
+
+
+TOPIC_QUERY_ID = '28712343918405624'   # PolarisLoggedOutPopularSearchPageQuery
+TOPIC_QUERY_NAME = 'PolarisLoggedOutPopularSearchPageQuery'
+
+
+def fetch_topic_more(slug: str, context: dict, cursor: str) -> dict:
+    """The next reels of a topic page, through the query the page itself uses."""
+    session, lsd = context.get('session'), context.get('lsd') or ''
+    if session is None or not lsd:
+        raise instagram.UnexpectedResponse('Reopen the topic to load more reels')
+    variables = json.dumps({'debug': None, 'include_description': True, 'include_reel_experience_fields': True,
+                            'include_trending_pills': False, 'keyword': slug.replace('-', ' '), 'media_count': 12,
+                            'related_keywords_count': 10, 'after': cursor}, separators=(',', ':'))
+    body = urlencode({'av': '0', '__d': 'www', '__user': '0', '__a': '1', '__comet_req': '7', 'lsd': lsd,
+                      'jazoest': '2' + str(sum(ord(c) for c in lsd)), 'fb_api_caller_class': 'RelayModern',
+                      'fb_api_req_friendly_name': TOPIC_QUERY_NAME, 'server_timestamps': 'true',
+                      'variables': variables, 'doc_id': TOPIC_QUERY_ID})
+    response = instagram.request(session, 'POST', 'https://www.instagram.com/api/graphql', data=body, headers={
+        'content-type': 'application/x-www-form-urlencoded', 'x-fb-friendly-name': TOPIC_QUERY_NAME, 'x-fb-lsd': lsd,
+        'x-csrftoken': session.cookies.get('csrftoken', ''), 'x-ig-app-id': instagram.WEB_APP_ID,
+        'x-asbd-id': instagram.ASBD_ID, 'origin': 'https://www.instagram.com', 'referer': POPULAR_URL.format(slug)})
+    try:
+        payload = response.json()
+    except ValueError:
+        instagram.BACKOFF.hit()
+        raise instagram.RateLimited('Instagram blocked loading more reels; wait a few minutes') from None
+    if not isinstance(payload, dict) or payload.get('errors'):
+        raise instagram.UnexpectedResponse('Instagram would not load more reels for this topic; the query may need updating')
+    if payload.get('require_login') or payload.get('status') == 'fail':
+        instagram.BACKOFF.hit()
+        raise instagram.RateLimited('Instagram is limiting logged-out browsing; wait a few minutes')
+    next_cursor, has_more = _next_page(payload)
+    return {'posts': _topic_reels_in(payload), 'cursor': next_cursor, 'has_more': has_more}
 
 
 def _directory_schema(connection):
@@ -569,10 +642,13 @@ class TopicDirectory:
     kept in memory and in SQLite, so a restart or a failed fetch still has
     the last good copy."""
 
-    def __init__(self, discovery: TopicDiscovery, fetch=fetch_explore_page, fetch_page=fetch_topic_reels):
+    def __init__(self, discovery: TopicDiscovery, fetch=fetch_explore_page, fetch_page=fetch_topic_reels,
+                 fetch_more=fetch_topic_more):
         self.discovery = discovery
         self.fetch = fetch
         self.fetch_page = fetch_page
+        self.fetch_more = fetch_more
+        self._paging = OrderedDict()   # slug → cursor and session for loading more reels
         self._data: dict | None = None
         self._failed_at = 0.0
         self._error: Exception | None = None
@@ -760,12 +836,15 @@ class TopicDirectory:
 
     # ---- topic pages ----
     def topic_page(self, slug: str) -> dict:
-        """A topic's popular reels with its name and count, reused for a few minutes."""
+        """A topic's popular reels with its name and count, reused for a few minutes.
+        Opening it also starts its paging over (see topic_more)."""
         with self._pages_lock:
             cached = self._pages.get(slug)
         if cached and time.time() - cached[0] < TOPIC_PAGE_TTL:
+            self._start_paging(slug, cached[1])
             return cached[1]
         page = self.fetch_page(slug)
+        self._start_paging(slug, page)
         if page['creators'] or page['related']:
             try:  # the page also refreshes topic discovery's cache
                 self.discovery._store(slug, page['creators'], page['related'])
@@ -777,6 +856,31 @@ class TopicDirectory:
             while len(self._pages) > MAX_OPEN_TOPIC_PAGES:
                 self._pages.popitem(last=False)
         return page
+
+
+    def _start_paging(self, slug: str, page: dict) -> None:
+        with self._pages_lock:
+            self._paging[slug] = {'context': page.get('context') or {}, 'cursor': page.get('cursor'),
+                                  'has_more': bool(page.get('has_more')),
+                                  'seen': {post['shortcode'] for post in page['posts']}, 'lock': threading.Lock()}
+            self._paging.move_to_end(slug)
+            while len(self._paging) > MAX_OPEN_TOPIC_PAGES:
+                self._paging.popitem(last=False)
+
+    def topic_more(self, slug: str) -> dict:
+        """The next reels for an open topic page: {posts, has_more}."""
+        with self._pages_lock:
+            state = self._paging.get(slug)
+        if not state or not state['has_more'] or not state['cursor']:
+            return {'posts': [], 'has_more': False}
+        with state['lock']:   # one page at a time per topic
+            page = self.fetch_more(slug, state['context'], state['cursor'])
+            fresh = [post for post in page['posts'] if post['shortcode'] not in state['seen']]
+            state['seen'].update(post['shortcode'] for post in fresh)
+            state['cursor'] = page['cursor']
+            # Instagram repeating itself also ends the list.
+            state['has_more'] = bool(page['has_more'] and page['cursor'] and fresh)
+            return {'posts': fresh, 'has_more': state['has_more']}
 
 
 DIRECTORY = TopicDirectory(TOPICS)

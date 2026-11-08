@@ -528,3 +528,57 @@ class TopicHeaderTests(ProjectTests):
         html = views.viewer_html('Quiet', 'Popular on Instagram', [], paged=False,
                                  topic={'name': 'Quiet', 'slug': 'quiet', 'count_label': None})
         self.assertNotIn('sound-count', html)
+
+
+class TopicPagingTests(DirectoryTests):
+    """More reels for an open topic page, through the cursor the page gives."""
+
+    def reel(self, code):
+        return {'shortcode': code, 'owner': 'someone', 'is_video': True, 'is_carousel': False,
+                'url': f'https://www.instagram.com/reel/{code}/', 'image': '', 'like_count': None,
+                'play_count': 5, 'comment_count': None, 'taken_at': None, 'caption': None}
+
+    def make(self, pages):
+        first = {'name': 'Calisthenics', 'count_label': '79M posts', 'posts': [self.reel('A' * 11)],
+                 'creators': {}, 'related': [], 'cursor': 'c1', 'has_more': True, 'context': {'session': object(), 'lsd': 'x'}}
+        calls = []
+
+        def more(slug, context, cursor):
+            calls.append(cursor)
+            return pages.pop(0)
+        directory = topics.TopicDirectory(FakeDiscovery(), fetch=self.fetch, fetch_page=lambda slug: first, fetch_more=more)
+        return directory, calls
+
+    def test_pages_follow_the_cursor_and_skip_repeats(self):
+        directory, calls = self.make([
+            {'posts': [self.reel('A' * 11), self.reel('B' * 11)], 'cursor': 'c2', 'has_more': True},
+            {'posts': [self.reel('C' * 11)], 'cursor': None, 'has_more': False}])
+        directory.topic_page('calisthenics')
+        self.assertEqual([p['shortcode'] for p in directory.topic_more('calisthenics')['posts']], ['B' * 11], 'no repeats')
+        last = directory.topic_more('calisthenics')
+        self.assertEqual(([p['shortcode'] for p in last['posts']], last['has_more']), (['C' * 11], False))
+        self.assertEqual(directory.topic_more('calisthenics'), {'posts': [], 'has_more': False}, 'no request after the end')
+        self.assertEqual(calls, ['c1', 'c2'])
+
+    def test_a_page_of_only_repeats_ends_the_list_and_reopening_starts_over(self):
+        directory, calls = self.make([{'posts': [self.reel('A' * 11)], 'cursor': 'c2', 'has_more': True},
+                                      {'posts': [self.reel('D' * 11)], 'cursor': 'c3', 'has_more': True}])
+        directory.topic_page('calisthenics')
+        self.assertEqual(directory.topic_more('calisthenics'), {'posts': [], 'has_more': False})
+        directory.topic_page('calisthenics')   # reopened (from the cache): paging starts again
+        self.assertEqual([p['shortcode'] for p in directory.topic_more('calisthenics')['posts']], ['D' * 11])
+        self.assertEqual(calls, ['c1', 'c1'])
+
+    def test_unopened_topic_and_failures(self):
+        directory, _ = self.make([])
+        self.assertEqual(directory.topic_more('never-opened'), {'posts': [], 'has_more': False})
+        with self.assertRaises(instagram.UnexpectedResponse):
+            topics.fetch_topic_more('calisthenics', {}, 'c1')
+
+    def test_next_page_cursor_from_the_page_data(self):
+        payload = {'data': {'xig_logged_out_popular_search_media_info': {
+            'edges': [], 'page_info': {'end_cursor': 'abc', 'has_next_page': True}}}}
+        self.assertEqual(topics._next_page(payload), ('abc', True))
+        payload['data']['xig_logged_out_popular_search_media_info']['page_info']['has_next_page'] = False
+        self.assertEqual(topics._next_page(payload), ('abc', False))
+        self.assertEqual(topics._next_page({'data': {}}), (None, False))

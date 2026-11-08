@@ -587,7 +587,7 @@ const KEYS = {
     assert.ok(mobile.rail.some(c=>c.includes('account-action')),'add creator sits in the reel rail');
     assert.ok(!mobile.rail.some(c=>c.includes('profile-action')),'profile has no redundant rail button');
     assert.equal(await evaluate(`document.querySelector('#s'+current+' .user').hasAttribute('target')`),false,'username opens profile within the app');
-    assert.deepEqual(mobile.navItems,['Watch reels','Saved reels','Settings'],'feeds are chosen from the top menu only');
+    assert.deepEqual(mobile.navItems,['Watch reels','Trending','Saved reels','Settings'],'feeds are chosen from the top menu only');
     assert.equal(mobile.navText,'','the bottom bar shows icons only');
     assert.ok(mobile.navHeight<=48,'a slim bottom bar: '+mobile.navHeight);
     assert.equal(mobile.autoScrollButton,false,'auto-scroll lives in Settings');

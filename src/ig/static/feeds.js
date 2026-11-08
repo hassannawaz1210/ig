@@ -22,71 +22,12 @@ function confirmSettingsAction(host, message, label, action) {
   };
   confirmation.append(element('p','',message),cancel,confirm); host.append(confirmation); cancel.focus();
 }
-// ---- Topics from Instagram: suggestions, search and trending ----
+// ---- Topics from Instagram: suggestions and search (helpers in topics.js) ----
 // A topic from the server: {name, slug, word, count_label, image, reason?}.
 // Feeds store the topic's `word`.
-const TOPIC_TIMEOUT_MS = 15000;
 const SEARCH_DELAY_MS = 200;
 const topicEditors = new Map();      // feed name → its FeedTopicEditor
 const suggestionCache = new Map();   // feed name → suggestions loaded this visit
-const normalizeTopicWord = word => String(word).trim().toLowerCase().replace(/\s+/g, ' ');
-// GET a topics route. Throws an Error with a short message on failure; a
-// request cancelled through `signal` throws too, and callers ignore it.
-async function loadTopicJSON(path, signal) {
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, TOPIC_TIMEOUT_MS);
-  const cancel = () => controller.abort();
-  signal?.addEventListener('abort', cancel, {once:true});
-  try {
-    let response;
-    try { response = await fetch(path, {cache:'no-store', signal:controller.signal}); }
-    catch (error) {
-      if (timedOut) throw new Error('Instagram took too long to answer.');
-      if (signal?.aborted) throw error;
-      throw new Error('Could not reach ig.');
-    }
-    let data = null;
-    try { data = await response.json(); } catch (_) { /* reported below */ }
-    if (!response.ok) throw new Error((data && typeof data.error === 'string' && data.error) || `HTTP ${response.status}`);
-    if (!data || typeof data !== 'object') throw new Error(timedOut ? 'Instagram took too long to answer.' : 'Unexpected reply from ig.');
-    return data;
-  } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
-}
-// "454M posts" → "454M", "1,234 posts" → "1.2K". Unknown shapes show no count.
-function compactCount(label) {
-  if (typeof label !== 'string') return null;
-  const text = label.trim().replace(/\s*(?:posts?|reels?)$/i, '');
-  if (/^\d+(?:\.\d+)?\s*[KMB]$/i.test(text)) return text.replace(/\s+/g, '').toUpperCase();
-  const plain = text.replace(/[,\s]/g, '');
-  if (/^\d{1,15}$/.test(plain)) return new Intl.NumberFormat('en', {notation:'compact', maximumFractionDigits:1}).format(Number(plain));
-  return null;
-}
-function cleanTopic(raw) {
-  if (!raw || typeof raw !== 'object' || typeof raw.word !== 'string') return null;
-  const word = normalizeTopicWord(raw.word);
-  if (!word || word.length > 40) return null;
-  const label = typeof raw.count_label === 'string' && raw.count_label.trim() ? raw.count_label.trim() : null;
-  return {
-    word,
-    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : word,
-    slug: typeof raw.slug === 'string' && raw.slug.trim() ? raw.slug.trim() : null,
-    countLabel: label, count: compactCount(label),
-    image: typeof raw.image === 'string' && raw.image.startsWith('https://') ? raw.image : null,
-    reason: typeof raw.reason === 'string' ? raw.reason : null,
-  };
-}
-function cleanTopics(list, limit) {
-  if (!Array.isArray(list)) return [];
-  const seen = new Set(), topics = [];
-  for (const raw of list) {
-    const topic = cleanTopic(raw);
-    if (!topic || seen.has(topic.word)) continue;
-    seen.add(topic.word); topics.push(topic);
-    if (topics.length >= limit) break;
-  }
-  return topics;
-}
 const SUGGESTION_REASONS = {related:'Related to this feed', hashtag:'Popular hashtag', trending:'Trending now'};
 function feedHasTopic(name, word) {
   word = normalizeTopicWord(word);
@@ -116,14 +57,6 @@ function skeletonChips(count, className) {
     row.append(chip);
   }
   return row;
-}
-function noteWithRetry(className, message, retry) {
-  const note = element('p', className, message);
-  if (retry) {
-    const button = element('button', '', 'Try again'); button.type = 'button';
-    button.onclick = retry; note.append(' ', button);
-  }
-  return note;
 }
 
 // Discovery topics: the feed name, plus extra words. ig looks up each one on
@@ -327,117 +260,6 @@ class FeedTopicEditor {
   }
 }
 
-// ---- Trending strip at the top of the page ----
-class TrendingStrip {
-  constructor(section) {
-    this.section = section;
-    this.tabs = section.querySelector('.trending-tabs');
-    this.row = section.querySelector('.trending-row');
-    this.note = section.querySelector('.trending-note');
-    this.sections = []; this.selected = 0; this.version = 0;
-  }
-  async load() {
-    const version = ++this.version;
-    this.section.hidden = false; this.note.hidden = true; this.tabs.hidden = true;
-    this.row.hidden = false; this.row.setAttribute('aria-busy', 'true');
-    this.row.replaceChildren(element('span', 'sr-only', 'Loading trending topics…'));
-    for (let i = 0; i < 5; i++) this.row.append(element('span', 'skeleton trend-skeleton'));
-    try {
-      const data = await loadTopicJSON('/topics/trending');
-      if (version !== this.version) return;
-      this.sections = (Array.isArray(data.sections) ? data.sections : [])
-        .map(item => ({title: typeof item?.title === 'string' && item.title.trim() ? item.title.trim() : 'Trending',
-                       topics: cleanTopics(item?.topics, 40)}))
-        .filter(item => item.topics.length);
-      this.selected = 0;
-      // Nothing trending: the strip is optional, so it just stays out of the way.
-      if (!this.sections.length) { this.section.hidden = true; return; }
-      this.render();
-    } catch (error) {
-      if (version !== this.version) return;
-      console.warn('Could not load trending topics', error);
-      this.row.replaceChildren(); this.row.hidden = true;
-      this.note.replaceWith(this.note = noteWithRetry('trending-note', 'Couldn’t load trending topics.', () => this.load()));
-      this.note.hidden = false;
-    } finally { if (version === this.version) this.row.setAttribute('aria-busy', 'false'); }
-  }
-  render() {
-    this.tabs.replaceChildren();
-    this.tabs.hidden = this.sections.length < 2;
-    this.sections.forEach((item, index) => {
-      const tab = element('button', 'trending-tab', item.title); tab.type = 'button';
-      tab.setAttribute('aria-pressed', String(index === this.selected));
-      tab.onclick = () => { this.selected = index; this.render(); };
-      this.tabs.append(tab);
-    });
-    this.row.replaceChildren();
-    this.row.setAttribute('aria-label', this.sections[this.selected].title);
-    for (const topic of this.sections[this.selected].topics) this.row.append(this.item(topic));
-    this.row.scrollLeft = 0;
-  }
-  item(topic) {
-    const button = element('button', 'trend-item'); button.type = 'button';
-    button.setAttribute('aria-haspopup', 'dialog');
-    button.setAttribute('aria-label', topic.name + (topic.countLabel ? `, ${topic.countLabel}` : ''));
-    if (topic.image) {
-      const image = element('img', 'trend-image'); image.alt = ''; image.loading = 'lazy';
-      image.referrerPolicy = 'no-referrer'; image.src = topic.image;
-      image.onerror = () => { image.remove(); button.classList.remove('has-image'); };
-      button.append(image); button.classList.add('has-image');
-    }
-    const text = element('span', 'trend-text');
-    text.append(element('span', 'trend-name', topic.name));
-    if (topic.count) text.append(element('span', 'trend-count', topic.count));
-    button.append(text);
-    button.onclick = () => openTopicSheet(topic, button);
-    return button;
-  }
-}
-// A topic's sheet: watch its popular reels, or add it to one of your feeds.
-function openTopicSheet(topic, opener) {
-  const dialog = androidSheet('topic-sheet', topic.name);
-  dialog.classList.add('topic-sheet');
-  if (topic.countLabel) dialog.append(element('p', 'topic-sheet-count', topic.countLabel));
-  const watch = element('button', 'topic-sheet-action topic-sheet-watch'); watch.type = 'button';
-  watch.innerHTML = icon('play'); watch.append(element('span', '', 'Watch popular reels'));
-  if (!topic.slug) { watch.disabled = true; watch.title = 'This topic has no page to open.'; }
-  watch.onclick = async () => {
-    watch.disabled = true;
-    try { await visitLocalPage('/topic/' + encodeURIComponent(topic.slug)); dialog.close(); }
-    catch (error) { sheetError.textContent = `${error.message} · try again`; watch.disabled = false; }
-  };
-  const sheetError = element('p', 'topic-sheet-error'); sheetError.setAttribute('role', 'alert');
-  dialog.append(watch, element('h3', 'topic-sheet-subtitle', 'Add to feed'));
-  const names = Object.keys(feedsData);
-  const list = element('div', 'topic-sheet-feeds');
-  if (!names.length) list.append(element('p', 'muted', feedsLoaded ? 'No feeds yet. Create one first.' : 'Feeds are still loading.'));
-  for (const name of names) {
-    const button = element('button', 'topic-sheet-action topic-sheet-feed'); button.type = 'button';
-    button.dataset.feed = name;
-    const state = element('span', 'topic-sheet-state');
-    const show = added => {
-      button.disabled = added; button.classList.toggle('added', added);
-      button.innerHTML = icon(added ? 'check' : 'plus');
-      state.textContent = added ? 'Added' : '';
-      button.append(element('span', 'topic-sheet-feed-name', displayName(name)), state);
-      button.setAttribute('aria-label', added ? `${displayName(name)} already has ${topic.name}` : `Add ${topic.name} to ${displayName(name)}`);
-    };
-    show(feedHasTopic(name, topic.word));
-    button.onclick = async () => {
-      const editor = topicEditors.get(name);
-      if (!editor) { sheetError.textContent = 'That feed is gone. Reload the page.'; return; }
-      button.disabled = true; state.textContent = 'Adding…'; sheetError.textContent = '';
-      const result = await editor.addWord(topic.word, {focusInput:false, report:false});
-      if (result.ok) { show(true); status.textContent = `Added “${topic.name}” to ${displayName(name)}.`; }
-      else { show(false); sheetError.textContent = result.message; }
-    };
-    list.append(button);
-  }
-  dialog.append(list, sheetError);
-  dialog.addEventListener('close', () => { if (opener?.isConnected) opener.focus(); }, {once:true});
-  dialog.showModal();
-  return dialog;
-}
 function renderFeed(name, accounts, open, topics = []) {
   const details = element('details','feed-setting'); details.dataset.name=name; details.open=open;
   const summary = element('summary');
@@ -539,4 +361,3 @@ accountsChanged = () => loadFeeds(); feedListsEdited = () => loadFeeds();
 // Back navigation can restore this page without fresh server data.
 window.addEventListener('pageshow', event => { if (event.persisted) loadFeeds(); });
 loadFeeds();
-new TrendingStrip(document.getElementById('trending')).load();

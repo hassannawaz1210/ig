@@ -219,6 +219,12 @@ def stats_html() -> str:
     return render('stats.html', boot=_page_data({'android': config.ANDROID}))
 
 
+def trending_html() -> str:
+    """Trending (bottom bar): Instagram's Explore lists; the page loads them itself."""
+    placeholder = '<div class="trend-card placeholder" aria-hidden="true"><i></i><i></i><i></i></div>'
+    return render('trending.html', placeholders=placeholder * 8, boot=_page_data({'android': config.ANDROID}))
+
+
 def similar_html(username: str) -> str:
     """Every account Instagram suggests for a profile; the page loads them itself."""
     placeholder = '<div class="similar-card placeholder" aria-hidden="true"><i></i><i></i><i></i><i></i></div>'

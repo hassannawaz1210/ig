@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trending · ig</title>
+<link rel="stylesheet" href="/static/settings.css"><link rel="stylesheet" href="/static/trending.css"></head>
+<body>
+<header class="page-header"><a class="back" href="/" aria-label="Back to reels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m14 6-6 6 6 6"/></svg></a><h1>Trending</h1></header>
+<main>
+  <p id="settings-status" role="status" aria-live="polite"></p>
+  <p class="group-note">What's popular on Instagram right now. Tap a topic to watch its reels or add it to a feed.</p>
+  <div class="trending-tabs" id="trending-tabs" role="group" aria-label="Trending lists" hidden></div>
+  <div class="trend-grid" id="trending" aria-busy="true">{{placeholders}}</div>
+  <section id="trending-creators" aria-labelledby="creators-title" hidden>
+    <h2 id="creators-title" class="group-title">Profiles to look out for</h2>
+    <div class="trend-creators" id="trending-creators-list"></div>
+  </section>
+</main>
+<script id="boot" type="application/json">{{boot}}</script>
+<script src="/static/icons.js"></script><script src="/static/common.js"></script><script src="/static/topics.js"></script><script src="/static/trending.js"></script>
+</body></html>

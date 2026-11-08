@@ -1,0 +1,37 @@
+/* Trending page: topic cards in a grid, list tabs above, featured profiles below. */
+main, .page-header { max-width:960px; }
+.trending-tabs { display:flex; gap:6px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; margin:0 0 14px; }
+.trending-tabs::-webkit-scrollbar { display:none; }
+.trending-tabs[hidden] { display:none; }
+.trend-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px; margin-bottom:28px; }
+.trend-card { display:flex; flex-direction:column; gap:8px; min-width:0; padding:0 0 10px; border:1px solid var(--line);
+  border-radius:var(--radius); background:var(--card); color:inherit; text-align:left; overflow:hidden; cursor:pointer; }
+.trend-card:hover { background:var(--card-hover); }
+.trend-picture { position:relative; display:grid; place-items:center; aspect-ratio:4 / 3; background:#26262c; }
+.trend-picture img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.trend-initial { color:#77777f; font:600 34px system-ui; }
+.trend-text { display:flex; flex-direction:column; gap:2px; min-width:0; padding:0 12px; }
+.trend-name { font-size:15px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.trend-count { font-size:12.5px; color:var(--soft); }
+.trend-empty { grid-column:1 / -1; padding:36px 12px; color:var(--soft); text-align:center; }
+.trend-empty button { margin-left:6px; min-height:36px; }
+/* Grey cards while loading. */
+.trend-card.placeholder { cursor:default; }
+.trend-card.placeholder i { display:block; background:linear-gradient(90deg,#1d1d20 25%,#2a2a2e 50%,#1d1d20 75%);
+  background-size:200% 100%; animation:skeleton-shine 1.3s linear infinite; }
+.trend-card.placeholder i:nth-child(1) { aspect-ratio:4 / 3; }
+.trend-card.placeholder i:nth-child(2) { height:13px; width:60%; margin:2px 12px 0; border-radius:6px; }
+.trend-card.placeholder i:nth-child(3) { height:10px; width:35%; margin:0 12px; border-radius:6px; }
+/* Profiles to look out for. */
+.trend-creators { display:flex; gap:14px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; padding:2px 0 24px; }
+.trend-creators::-webkit-scrollbar { display:none; }
+.trend-creator { flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; width:84px; color:inherit; text-decoration:none; }
+.trend-creator-picture { position:relative; display:grid; place-items:center; width:72px; height:72px; border-radius:50%;
+  overflow:hidden; background:#26262c; color:#bbb; font:600 24px system-ui; }
+.trend-creator-picture img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.trend-creator-name { max-width:100%; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.trend-creator-count { font-size:11.5px; color:var(--soft); }
+@media (max-width:640px) {
+  .trend-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
+}
+@media (prefers-reduced-motion:reduce) { .trend-card.placeholder i { animation:none; } }

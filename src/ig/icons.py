@@ -3,6 +3,7 @@ import json
 
 PATHS = {
     'play': '<path d="m8 4 12 8-12 8Z" fill="currentColor" stroke="none"/>',
+    'trending': '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
     'eye': '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
     'search': '<circle cx="10.5" cy="10.5" r="7.5"/><path d="m16 16 5 5"/>',
     'share': '<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',

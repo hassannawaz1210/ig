@@ -106,23 +106,7 @@ async function launch() {
     await send('Page.navigate', {url: url + '/settings/feeds'});
     await waitFor("document.querySelectorAll('.feed-setting').length===2");
 
-    // Trending strip: first list by default, tabs to switch, escaped text.
-    await waitFor("document.querySelectorAll('#trending .trend-item').length===3", 'trending strip renders');
-    const items = await evaluate(`[...document.querySelectorAll('#trending .trend-item')].map(b=>({
-      name:b.querySelector('.trend-name').textContent, count:b.querySelector('.trend-count')?.textContent||null,
-      image:b.querySelector('img')?.getAttribute('src')||null}))`);
-    assert.deepEqual(items, [
-      {name: 'Edit', count: '454M', image: 'https://example.invalid/edit.jpg'},
-      {name: 'Gym', count: '1.2K', image: null},
-      {name: '<img src=x onerror=alert(1)>', count: null, image: null},
-    ], 'names and compact counts; only https images');
-    assert.equal(await evaluate("document.querySelectorAll('#trending img:not(.trend-image)').length"), 0, 'API text is not parsed as HTML');
-    assert.deepEqual(await evaluate("[...document.querySelectorAll('.trending-tab')].map(t=>[t.textContent,t.getAttribute('aria-pressed')])"),
-      [['Trending now', 'true'], ['Music', 'false']]);
-    await evaluate("document.querySelectorAll('.trending-tab')[1].click()");
-    assert.deepEqual(await evaluate("[...document.querySelectorAll('#trending .trend-name')].map(n=>n.textContent)"), ['Phonk']);
-    await evaluate("document.querySelectorAll('.trending-tab')[0].click()");
-    assert.equal(await evaluate("getComputedStyle(document.querySelector('.trending-row')).overflowX"), 'auto', 'the strip scrolls inside itself');
+    assert.equal(await evaluate("document.getElementById('trending')"), null, 'trending moved to its own page');
     assert.ok(await fitsWidth(), 'no sideways page scroll at 390px');
 
     // Suggestions load only when a feed is opened.
@@ -177,64 +161,82 @@ async function launch() {
     await evaluate("document.querySelector('[data-name=memes] .topic-note button').click()");
     await waitFor("document.querySelectorAll('[data-name=memes] .suggestions .topic-option').length===1", 'retry loads suggestions');
 
-    // Trending sheet: add to a feed (feeds with the topic are disabled), then watch.
-    await evaluate("document.querySelector('#trending .trend-item').click()");
-    await waitFor("document.getElementById('topic-sheet')?.open");
+    // Trending page (bottom bar): cards per list, tabs to switch, escaped text.
+    await send('Page.navigate', {url: url + '/trending'});
+    await waitFor("document.querySelectorAll('#trending .trend-card:not(.placeholder)').length===3", 'trending cards render');
+    const items = await evaluate(`[...document.querySelectorAll('#trending .trend-card')].map(b=>({
+      name:b.querySelector('.trend-name').textContent, count:b.querySelector('.trend-count')?.textContent||null,
+      image:b.querySelector('img')?.getAttribute('src')||null}))`);
+    assert.deepEqual(items, [
+      {name: 'Edit', count: '454M posts', image: 'https://example.invalid/edit.jpg'},
+      {name: 'Gym', count: '1.2K posts', image: null},
+      {name: '<img src=x onerror=alert(1)>', count: null, image: null},
+    ], 'names and compact counts; only https images');
+    assert.equal(await evaluate("document.querySelectorAll('#trending img').length"), 1, 'API text is not parsed as HTML');
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('.trending-tab')].map(t=>[t.textContent,t.getAttribute('aria-pressed')])"),
+      [['Trending now', 'true'], ['Music', 'false']]);
+    await evaluate("document.querySelectorAll('.trending-tab')[1].click()");
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('#trending .trend-name')].map(n=>n.textContent)"), ['Phonk']);
+    await evaluate("document.querySelectorAll('.trending-tab')[0].click()");
+    assert.ok(await fitsWidth(), 'the trending page fits at 390px');
+
+    // Topic sheet: add to a feed (feeds that have it are disabled), failures, then watch.
+    await evaluate("document.querySelector('#trending .trend-card').click()");
+    await waitFor("document.querySelectorAll('#topic-sheet .topic-sheet-feed').length===2", 'feeds listed in the sheet');
     assert.equal(await evaluate("document.querySelector('#topic-sheet h2').textContent"), 'Edit');
     assert.deepEqual(await evaluate("[...document.querySelectorAll('#topic-sheet .topic-sheet-feed')].map(b=>[b.dataset.feed,b.disabled])"),
       [['edits', true], ['memes', false]]);
     assert.equal(await evaluate("Math.round(document.getElementById('topic-sheet').getBoundingClientRect().bottom)"), 844, 'a bottom sheet on phones');
-    assert.ok(await fitsWidth(), 'the sheet fits at 390px');
     await evaluate("document.querySelector('#topic-sheet [data-feed=memes]').click()");
-    await waitFor("savedTopics.length===4 && document.querySelector('#topic-sheet [data-feed=memes]').disabled && document.querySelector('#topic-sheet [data-feed=memes] .topic-sheet-state').textContent==='Added'");
-    assert.deepEqual(await evaluate('savedTopics[3]'), {name: 'memes', topics: ['edit']});
-    assert.ok(await evaluate("[...document.querySelectorAll('[data-name=memes] .topic-chip')].some(c=>c.firstChild.textContent==='edit')"), 'the feed card shows the new topic');
-    // A save that fails is shown in the sheet and the feed can be tried again.
+    await waitFor("savedTopics.length===1 && document.querySelector('#topic-sheet [data-feed=memes] .topic-sheet-state').textContent==='Added'");
+    assert.deepEqual(await evaluate('savedTopics[0]'), {name: 'memes', topics: ['edit']});
+    assert.ok(await evaluate("JSON.parse(localStorage.getItem('ig-change-log')).some(change=>change.kind==='feeds')"), 'other pages hear about it');
     await evaluate("document.getElementById('topic-sheet').close()");
-    await evaluate("document.querySelectorAll('.trending-tab')[1].click(); document.querySelector('#trending .trend-item').click()");
-    await waitFor("document.querySelector('#topic-sheet h2')?.textContent==='Phonk'");
+    await evaluate("document.querySelectorAll('.trending-tab')[1].click(); document.querySelector('#trending .trend-card').click()");
+    await waitFor("document.querySelector('#topic-sheet h2')?.textContent==='Phonk' && document.querySelectorAll('#topic-sheet .topic-sheet-feed').length===2");
     await evaluate(`window.realFetch=window.fetch; window.fetch=(u,o)=>u==='/feeds/topics'?Promise.resolve(new Response('{"error":"Could not save topics."}',{status:500})):realFetch(u,o);
       document.querySelector('#topic-sheet [data-feed=memes]').click()`);
     await waitFor("document.querySelector('#topic-sheet .topic-sheet-error').textContent==='Could not save topics.'");
     assert.equal(await evaluate("document.querySelector('#topic-sheet [data-feed=memes]').disabled"), false, 'a failed add can be retried');
     await evaluate("window.fetch=window.realFetch; document.getElementById('topic-sheet').close(); document.querySelectorAll('.trending-tab')[0].click()");
-    // A save made through the sheet lands in the memes card; add its suggestion too.
-    await evaluate("document.querySelector('[data-name=memes] .suggestions .topic-option').click()");
-    await waitFor("savedTopics.length===5 && !document.querySelector('[data-name=memes] .topic-input').disabled");
-    assert.deepEqual(await evaluate('savedTopics[4]'), {name: 'memes', topics: ['edit', 'funny']});
-    await evaluate("document.querySelector('#trending .trend-item').click()");
+    await evaluate("document.querySelector('#trending .trend-card').click()");
     await waitFor("document.getElementById('topic-sheet')?.open");
     await evaluate("document.querySelector('#topic-sheet .topic-sheet-watch').click()");
     await waitFor("location.pathname==='/topic/edit' && document.readyState==='complete'", 'Watch opens the topic page');
 
-    // Trending that fails offers a retry; an empty answer hides the strip.
-    await setState({trending: 'fail'});
+    // The Feeds page shows the topic added from Trending.
     await send('Page.navigate', {url: url + '/settings/feeds'});
-    await waitFor("document.querySelector('.trending-note')?.textContent.startsWith('Couldn’t load trending topics.')", 'trending failure note');
-    assert.equal(await evaluate("document.querySelector('.trending-row').hidden"), true, 'no endless loading');
+    await waitFor("document.querySelectorAll('.feed-setting').length===2");
+    await evaluate("document.querySelector('[data-name=memes] summary').click()");
+    await waitFor("[...document.querySelectorAll('[data-name=memes] .topic-chip')].some(c=>c.firstChild.textContent==='edit')", 'feed card shows the new topic');
+
+    // Trending that fails offers a retry; an empty answer says so.
+    await setState({trending: 'fail'});
+    await send('Page.navigate', {url: url + '/trending'});
+    await waitFor("document.querySelector('#trending .trend-empty')?.textContent.startsWith('Couldn’t load trending topics.')", 'trending failure note');
     await setState({trending: 'ok'});
-    await evaluate("document.querySelector('.trending-note button').click()");
-    await waitFor("document.querySelectorAll('#trending .trend-item').length===3", 'retry loads trending');
+    await evaluate("document.querySelector('#trending .trend-empty button').click()");
+    await waitFor("document.querySelectorAll('#trending .trend-card').length===3", 'retry loads trending');
     await setState({trending: 'empty'});
     await send('Page.reload');
-    await waitFor("document.querySelectorAll('.feed-setting').length===2 && document.getElementById('trending').hidden", 'empty trending hides the strip');
+    await waitFor("document.querySelector('#trending .trend-empty')?.textContent.includes('isn’t showing anything')", 'empty trending says so');
+    await setState({trending: 'ok'});
+    await send('Page.navigate', {url: url + '/settings/feeds'});
+    await waitFor("document.querySelectorAll('.feed-setting').length===2");
 
     // Layout on both widths, in the Android app too.
-    await setState({trending: 'ok'});
-    await send('Page.reload');
-    await waitFor("document.querySelectorAll('#trending .trend-item').length===3");
     for (const [width, android] of [[390, true], [390, false], [1000, false]]) {
       await send('Emulation.setDeviceMetricsOverride', {width, height: 844, deviceScaleFactor: 1, mobile: width < 500});
       await evaluate(`document.body.classList.toggle('android-app',${android}); document.querySelector('[data-name=edits]').open=true; window.scrollTo(0,0)`);
       await waitFor("document.querySelectorAll('[data-name=edits] .suggestions .topic-option').length>0");
       assert.ok(await fitsWidth(), `no sideways page scroll at ${width}px`);
       if (width === 390) {
-        const small = await evaluate("[...document.querySelectorAll('.topic-option,.trend-item,.trending-tab')].filter(b=>b.getBoundingClientRect().height<48).length");
+        const small = await evaluate("[...document.querySelectorAll('.topic-option')].filter(b=>b.getBoundingClientRect().height<48).length");
         assert.equal(small, 0, '48px touch targets on phones');
       }
     }
     assert.deepEqual(await evaluate('pageErrors'), [], 'no page errors');
-    console.log('Feed topics: trending strip and sheet, lazy suggestions, search, failures and phone layout passed');
+    console.log('Feed topics and Trending page: cards and sheet, lazy suggestions, search, failures and phone layout passed');
   } finally {
     await browser.close();
   }

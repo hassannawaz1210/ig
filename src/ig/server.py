@@ -25,7 +25,7 @@ from .reels import REELS, media_info
 from . import dash
 from .topics import TOPICS, DIRECTORY, topic_slug, readable_name
 from .suggestions import SUGGESTIONS
-from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, similar_html, static_file, status_html
+from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, similar_html, trending_html, static_file, status_html
 from . import stats
 
 log = logging.getLogger(__name__)
@@ -449,6 +449,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
                 return self._fail(error, context="Opening the reels page")
+        if self.path == "/trending":
+            try:
+                return self._send(200, trending_html().encode(), "text/html; charset=utf-8")
+            except Exception as error:
+                return self._fail(error, context="Opening Trending")
         similar_match = re.fullmatch(r"/u/([A-Za-z0-9._]+)/similar", self.path)
         if similar_match and USER_RE.fullmatch(similar_match.group(1)):
             try:
@@ -545,7 +550,7 @@ class Handler(BaseHTTPRequestHandler):
             page = DIRECTORY.topic_page(slug)
             name = known.get('name') or page['name'] or readable_name(slug)
             count = known.get('count_label') or page['count_label']
-            html = viewer_html(name, count or 'Popular on Instagram', page['posts'], paged=False,
+            html = viewer_html(name, count or 'Popular on Instagram', page['posts'], paged=bool(page.get('has_more')),
                                empty_message='' if page['posts'] else
                                'Instagram shows no popular reels for this topic right now. Try again later.',
                                topic={'name': name, 'slug': slug, 'count_label': count})
@@ -965,6 +970,15 @@ class Handler(BaseHTTPRequestHandler):
         creator_match = re.fullmatch(r"/creator/([A-Za-z0-9._]{1,30})/more", self.path)
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)/(more|media)", self.path)
         rm = re.fullmatch(r"/(reels|all)/(more|media)", self.path)
+        topic_more = re.fullmatch(r"/topic/([^/?#]{1,200})/more", self.path)
+        if topic_more:
+            slug = unquote(topic_more.group(1))
+            if topic_slug(slug) != slug:
+                return self._send(400, b'{"error":"Unknown topic"}', "application/json")
+            try:
+                return self._send(200, json.dumps(DIRECTORY.topic_more(slug)).encode(), "application/json")
+            except Exception as error:
+                return self._fail(error, as_json=True, context=f"Loading more reels for the topic {slug}")
         sound_match = re.fullmatch(r"/sound/(\d{10,32})/more", self.path)
         username = action = None
         if sound_match:

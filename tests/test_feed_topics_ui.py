@@ -1,5 +1,5 @@
 """Feeds page topic tools in a real browser: suggestions per feed, topic
-search, and the trending strip with its sheet. The topic routes are stubbed
+search, and the Trending page with its topic sheet. The topic routes are stubbed
 here; saving topics uses the real API with an isolated profile."""
 import json
 import shutil
@@ -111,7 +111,7 @@ class FeedTopicsPageTests(unittest.TestCase):
                     self.skipTest('headless Chromium could not start: ' + result.stderr[-300:])
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(config.feed_topic_words(),
-                                 {'edits': ['movie', 'anime', 'edit', 'fail'], 'memes': ['edit', 'funny']})
+                                 {'edits': ['movie', 'anime', 'edit', 'fail'], 'memes': ['edit']})
             finally:
                 server.shutdown()
                 server.server_close()
