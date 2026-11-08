@@ -19,7 +19,8 @@ WEEKS_SHOWN = 12          # taste over time
 FEEDS_SHOWN = 6           # + "New creators" = 7 validated colours; the rest is grey "Other feeds"
 TOP_CREATORS = 15
 RISING_TAGS = 6
-TAG_WINDOW_DAYS = 14      # recent tags compared with everything before
+TAG_WINDOW_DAYS = 14      # recent tags ...
+TAG_BASELINE_DAYS = 90    # ... compared with the 90 days before them
 MIN_TAG_SECONDS = 60      # ignore tags with too little watching to compare
 # Sources in a fixed order, so colours and rows never shift between periods.
 SOURCE_ORDER = ['feed', 'suggested', 'popular_topic', 'coauthor', 'credit', 'mention',
@@ -45,8 +46,8 @@ def backfill():
         with history.database() as db:
             views = [row for row in db.execute('SELECT token, code, owner, viewed, seconds FROM viewings')
                      if row[0] not in logged]
-        for token, code, owner, viewed, seconds in views:
-            recommendations.log_watch(token, code, owner, seconds or 0, viewed=viewed)
+        recommendations.log_watches([(token, code, owner, seconds or 0, viewed)
+                                     for token, code, owner, viewed, seconds in views])
         if views:
             log.info('Stats: added %d earlier views to the watch log', len(views))
         _backfilled = True
@@ -57,66 +58,96 @@ def _period_start(days, now):
     return now - days * DAY if days else 0
 
 
+CACHE_SECONDS = 30
+_cache = {}            # days -> (version, computed_at, result)
+_cache_lock = threading.Lock()
+
+
+def _version(connection):
+    """Changes whenever a reel is logged, a reaction is recorded, or a reel is
+    saved (all O(1) or tiny lookups), so a cached result is never stale for long."""
+    return (connection.execute('SELECT MAX(rowid) FROM watch_log').fetchone()[0],
+            connection.execute('SELECT MAX(updated), COUNT(*) FROM feedback').fetchone(),
+            connection.execute('SELECT MAX(saved_at), COUNT(*) FROM saved_reels').fetchone())
+
+
 def compute(days=30, now=None):
-    """All stats for the last `days` days (0 = all time)."""
+    """All stats for the last `days` days (0 = all time).
+
+    One grouped scan of the period (viewed index) supplies the overview,
+    creators, sources and hours; weeks and hashtags read only their own
+    windows. Results are reused until something new is recorded (at most
+    CACHE_SECONDS), so switching periods back and forth is instant."""
+    fixed_now = now is not None
     now = now or time.time()
     start = _period_start(days, now)
     with recommendations.database() as connection:
-        rows = connection.execute('SELECT code, owner, viewed, seconds, source, feed, tags FROM watch_log '
-                                  'ORDER BY viewed').fetchall()
-        feedback = dict(connection.execute('SELECT code, action FROM feedback'))
-        feedback_times = connection.execute('SELECT f.action, f.updated FROM feedback f').fetchall()
-        saved = connection.execute('SELECT saved_at FROM saved_reels').fetchall()
-    period = [row for row in rows if row[2] >= start]
-    return {
-        'days': days,
-        'since': min((row[2] for row in rows), default=None),
-        'summary': _summary(period, feedback_times, saved, start),
-        'creators': _creators(period, feedback),
-        'sources': _sources(period, feedback),
-        'weeks': _weeks(rows, now),
-        'tags': _tags(rows, now),
-        'hours': _hours(period),
-    }
-
-
-def _summary(period, feedback_times, saved, start):
-    actions = Counter(action for action, updated in feedback_times if updated >= start)
-    return {'reels': len(period),
-            'seconds': round(sum(row[3] for row in period)),
-            'creators': len({row[1] for row in period}),
-            'new_creators': len({row[1] for row in period if row[4] != 'feed'}),
-            'likes': actions['like'], 'skips': actions['skip'], 'not_interested': actions['dislike'],
-            'saves': sum(1 for (saved_at,) in saved if (saved_at or 0) >= start)}
-
-
-def _creators(period, feedback):
-    seconds, reels, likes, sources = Counter(), Counter(), Counter(), {}
-    for code, owner, _, watched, source, _, _ in period:
-        seconds[owner] += watched
-        reels[owner] += 1
-        likes[owner] += feedback.get(code) == 'like'
-        sources.setdefault(owner, source)
-    return [{'owner': owner, 'seconds': round(total), 'reels': reels[owner], 'likes': likes[owner],
-             'source': sources[owner]} for owner, total in seconds.most_common(TOP_CREATORS)]
-
-
-def _sources(period, feedback):
-    groups = defaultdict(list)
-    for code, _, _, watched, source, _, _ in period:
-        groups[source if source in SOURCE_LABELS else 'other'].append((code, watched))
-    result = []
-    for source in SOURCE_ORDER:
-        items = groups.get(source)
-        if not items:
-            continue
-        actions = Counter(feedback.get(code) for code, _ in items)
-        count = len(items)
-        result.append({'source': source, 'label': SOURCE_LABELS[source], 'reels': count,
-                       'average_seconds': round(sum(w for _, w in items) / count, 1),
-                       'likes': actions['like'], 'like_rate': round(actions['like'] / count, 4),
-                       'skip_rate': round(actions['skip'] / count, 4)})
+        version = _version(connection)
+        with _cache_lock:
+            cached = _cache.get(days)
+        if not fixed_now and cached and cached[0] == version and now - cached[1] < CACHE_SECONDS:
+            return cached[2]
+        groups = connection.execute(
+            "SELECT w.owner, w.source, CAST(strftime('%H', w.viewed, 'unixepoch', 'localtime') AS INTEGER), "
+            "COUNT(*), SUM(w.seconds), SUM(f.action = 'like'), SUM(f.action = 'skip') "
+            "FROM watch_log w LEFT JOIN feedback f ON f.code = w.code WHERE w.viewed >= ? GROUP BY 1, 2, 3",
+            (start,)).fetchall()
+        result = {
+            'days': days,
+            'since': connection.execute('SELECT MIN(viewed) FROM watch_log').fetchone()[0],
+            'summary': _summary(connection, start, groups),
+            'creators': _creators(groups),
+            'sources': _sources(groups),
+            'weeks': _weeks(connection, now),
+            'tags': _tags(connection, now),
+            'hours': _hours(groups),
+        }
+    if not fixed_now:
+        with _cache_lock:
+            _cache[days] = (version, now, result)
     return result
+
+
+def _summary(connection, start, groups):
+    owners, new_owners = set(), set()
+    reels = seconds = 0
+    for owner, source, _, count, total, _, _ in groups:
+        reels += count
+        seconds += total or 0
+        owners.add(owner)
+        if source != 'feed':
+            new_owners.add(owner)
+    actions = dict(connection.execute('SELECT action, COUNT(*) FROM feedback WHERE updated >= ? GROUP BY action',
+                                      (start,)))
+    saves = connection.execute('SELECT COUNT(*) FROM saved_reels WHERE saved_at >= ?', (start,)).fetchone()[0]
+    return {'reels': reels, 'seconds': round(seconds), 'creators': len(owners), 'new_creators': len(new_owners),
+            'likes': actions.get('like', 0), 'skips': actions.get('skip', 0),
+            'not_interested': actions.get('dislike', 0), 'saves': saves}
+
+
+def _creators(groups):
+    seconds, reels, likes, in_feed = Counter(), Counter(), Counter(), set()
+    for owner, source, _, count, total, liked, _ in groups:
+        seconds[owner] += total or 0
+        reels[owner] += count
+        likes[owner] += liked or 0
+        if source == 'feed':
+            in_feed.add(owner)
+    return [{'owner': owner, 'seconds': round(total), 'reels': reels[owner], 'likes': likes[owner],
+             'source': 'feed' if owner in in_feed else 'new'} for owner, total in seconds.most_common(TOP_CREATORS)]
+
+
+def _sources(groups):
+    found = {}
+    for _, source, _, count, total, liked, skipped in groups:
+        key = source if source in SOURCE_LABELS else 'other'
+        entry = found.setdefault(key, [0, 0.0, 0, 0])
+        entry[0] += count; entry[1] += total or 0; entry[2] += liked or 0; entry[3] += skipped or 0
+    return [{'source': key, 'label': SOURCE_LABELS[key], 'reels': reels,
+             'average_seconds': round(total / reels, 1), 'likes': likes,
+             'like_rate': round(likes / reels, 4), 'skip_rate': round(skips / reels, 4)}
+            for key in SOURCE_ORDER if key in found
+            for reels, total, likes, skips in [found[key]]]
 
 
 def _week_start(timestamp):
@@ -125,67 +156,75 @@ def _week_start(timestamp):
     return day - t.tm_wday * DAY
 
 
-def _weeks(rows, now):
-    """Watch time per week for the last WEEKS_SHOWN weeks, split by feed."""
-    # From the first week with data (at most WEEKS_SHOWN back), showing at least 4 weeks.
+def _weeks(connection, now):
+    """Watch time per week (Monday start, local time) for up to WEEKS_SHOWN weeks, by feed."""
     this_week = _week_start(now)
     first_week = this_week - (WEEKS_SHOWN - 1) * 7 * DAY
-    if rows:
-        first_week = max(first_week, _week_start(min(row[2] for row in rows)))
-    first_week = min(first_week, this_week - 3 * 7 * DAY)
+    oldest = connection.execute('SELECT MIN(viewed) FROM watch_log').fetchone()[0]
+    if oldest is not None:
+        first_week = max(first_week, _week_start(oldest))
+    first_week = min(first_week, this_week - 3 * 7 * DAY)   # at least 4 weeks
     by_week = defaultdict(Counter)
     totals = Counter()
-    for _, _, viewed, watched, _, feed, _ in rows:
-        if viewed < first_week:
-            continue
-        name = feed or '__new__'
-        by_week[_week_start(viewed)][name] += watched
-        totals[name] += watched
+    for week, feed, total in connection.execute(
+            "SELECT date(viewed, 'unixepoch', 'localtime', 'weekday 0', '-6 days'), COALESCE(feed, '__new__'), "
+            "SUM(seconds) FROM watch_log WHERE viewed >= ? GROUP BY 1, 2", (first_week,)):
+        start = time.mktime(time.strptime(week, '%Y-%m-%d'))
+        by_week[start][feed] += total
+        totals[feed] += total
     feeds = [name for name, _ in totals.most_common() if name != '__new__'][:FEEDS_SHOWN]
-    series = feeds + (['__other__'] if any(name not in feeds and name != '__new__' for name in totals) else []) \
-        + (['__new__'] if totals['__new__'] else [])
-    weeks = []
-    week = first_week
+    others = any(name not in feeds and name != '__new__' for name in totals)
+    series = feeds + (['__other__'] if others else []) + (['__new__'] if totals['__new__'] else [])
+    weeks, week = [], first_week
     while week <= now:
-        counts = by_week.get(week, Counter())
-        values = {name: 0 for name in series}
-        for name, total in counts.items():
-            key = name if name in feeds or name == '__new__' else '__other__'
-            values[key] += total
+        values = dict.fromkeys(series, 0)
+        for name, total in by_week.get(week, {}).items():
+            values[name if name in feeds or name == '__new__' else '__other__'] += total
         weeks.append({'start': week, 'seconds': {k: round(v) for k, v in values.items()}})
-        week += 7 * DAY
+        week = _week_start(week + 8 * DAY)   # next Monday, safe across clock changes
     labels = {'__other__': 'Other feeds', '__new__': 'New creators'}
     return {'series': [{'key': name, 'label': labels.get(name, name.replace('_', ' ').title())} for name in series],
             'weeks': weeks}
 
 
-def _tags(rows, now):
-    """Hashtags whose share of your watch time grew or shrank lately."""
+def _tag_seconds(connection, start, end):
+    """Watch time per hashtag between two times (SQLite's json_each)."""
+    try:
+        return Counter(dict(connection.execute(
+            'SELECT j.value, SUM(w.seconds) FROM watch_log w, json_each(w.tags) j '
+            'WHERE w.viewed >= ? AND w.viewed < ? GROUP BY j.value', (start, end))))
+    except Exception:   # an SQLite without JSON support: same result, in Python
+        log.warning('SQLite lacks json_each; adding up hashtags in Python', exc_info=True)
+        totals = Counter()
+        for tags, seconds in connection.execute('SELECT tags, seconds FROM watch_log WHERE viewed >= ? AND viewed < ?',
+                                                (start, end)):
+            for tag in json.loads(tags or '[]'):
+                totals[tag] += seconds
+        return totals
+
+
+def _tags(connection, now):
+    """Hashtags whose share of your watch time grew or shrank lately: the last
+    TAG_WINDOW_DAYS against the TAG_BASELINE_DAYS before them."""
     cutoff = now - TAG_WINDOW_DAYS * DAY
-    recent, earlier = Counter(), Counter()
-    for _, _, viewed, watched, _, _, tags in rows:
-        for tag in json.loads(tags or '[]'):
-            if tag in recommendations.GENERIC_TAGS:
-                continue
-            (recent if viewed >= cutoff else earlier)[tag] += watched
+    recent = _tag_seconds(connection, cutoff, now + DAY)
+    earlier = _tag_seconds(connection, cutoff - TAG_BASELINE_DAYS * DAY, cutoff)
+    for counts in (recent, earlier):
+        for tag in [tag for tag in counts if tag in recommendations.GENERIC_TAGS]:
+            del counts[tag]
     recent_total, earlier_total = sum(recent.values()), sum(earlier.values())
     if not recent_total or not earlier_total:
         return {'rising': [], 'falling': [], 'enough_history': False}
-    changes = []
-    for tag in set(recent) | set(earlier):
-        if recent[tag] + earlier[tag] < MIN_TAG_SECONDS:
-            continue
-        change = recent[tag] / recent_total - earlier[tag] / earlier_total
-        changes.append((change, tag))
-    changes.sort()
+    changes = sorted((recent[tag] / recent_total - earlier[tag] / earlier_total, tag)
+                     for tag in set(recent) | set(earlier) if recent[tag] + earlier[tag] >= MIN_TAG_SECONDS)
     as_items = lambda items: [{'tag': tag, 'change': round(change * 100, 1)} for change, tag in items]
     return {'rising': as_items([c for c in reversed(changes) if c[0] > 0][:RISING_TAGS]),
             'falling': as_items([c for c in changes if c[0] < 0][:RISING_TAGS]),
             'enough_history': True}
 
 
-def _hours(period):
-    seconds = [0.0] * 24
-    for _, _, viewed, watched, _, _, _ in period:
-        seconds[time.localtime(viewed).tm_hour] += watched
-    return [round(s) for s in seconds]
+def _hours(groups):
+    hours = [0.0] * 24
+    for _, _, hour, _, total, _, _ in groups:
+        hours[hour] += total or 0
+    return [round(value) for value in hours]

@@ -12,40 +12,40 @@
     <label><input type="radio" name="period" value="30" checked><span>30 days</span></label>
     <label><input type="radio" name="period" value="0"><span>All time</span></label>
   </fieldset>
-  <p class="group-note" id="since"></p>
+  <p class="group-note" id="since" aria-live="polite"><span class="skeleton-line" style="width:16em"></span></p>
 
   <section aria-labelledby="summary-title">
     <h2 id="summary-title" class="group-title">Overview</h2>
-    <div class="tiles" id="tiles" aria-busy="true"></div>
+    <div class="tiles period-part" id="tiles" aria-busy="true"><div class="tile skeleton-tile"><i></i><i></i><i></i></div><div class="tile skeleton-tile"><i></i><i></i><i></i></div><div class="tile skeleton-tile"><i></i><i></i><i></i></div><div class="tile skeleton-tile"><i></i><i></i><i></i></div></div>
   </section>
 
   <section aria-labelledby="creators-title">
     <h2 id="creators-title" class="group-title">Most watched creators</h2>
-    <div class="card list" id="creators"></div>
+    <div class="card list period-part" id="creators" aria-busy="true"><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div></div>
   </section>
 
   <section aria-labelledby="sources-title">
     <h2 id="sources-title" class="group-title">Where good reels come from</h2>
     <p class="group-note">Average watch time per reel from each source, with how often you liked or skipped them.</p>
-    <div class="card list" id="sources"></div>
+    <div class="card list period-part" id="sources" aria-busy="true"><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div><div class="list-row skeleton-row"><i></i><i></i></div></div>
   </section>
 
   <section aria-labelledby="weeks-title">
     <div class="group-heading"><h2 id="weeks-title" class="group-title">Taste over time</h2>
       <button type="button" class="link-button" id="weeks-table-toggle" aria-pressed="false">Show as table</button></div>
     <p class="group-note">Watch time each week, by feed. The last 12 weeks.</p>
-    <div class="card chart-card"><div id="weeks"></div><div class="legend" id="weeks-legend"></div></div>
+    <div class="card chart-card"><div id="weeks" aria-busy="true"><div class="skeleton-chart"></div></div><div class="legend" id="weeks-legend"></div></div>
   </section>
 
   <section aria-labelledby="tags-title">
     <h2 id="tags-title" class="group-title">Rising and fading hashtags</h2>
     <p class="group-note">Share of your watch time in the last 2 weeks compared with before.</p>
-    <div class="card" id="tags"></div>
+    <div class="card" id="tags" aria-busy="true"><div class="list-row skeleton-row"><i></i></div><div class="list-row skeleton-row"><i></i></div><div class="list-row skeleton-row"><i></i></div></div>
   </section>
 
   <section aria-labelledby="hours-title">
     <h2 id="hours-title" class="group-title">When you watch</h2>
-    <div class="card chart-card"><div id="hours"></div></div>
+    <div class="card chart-card period-part"><div id="hours" aria-busy="true"><div class="skeleton-chart short"></div></div></div>
   </section>
 </main>
 <div class="viz-tooltip" id="tooltip" role="tooltip" hidden></div>

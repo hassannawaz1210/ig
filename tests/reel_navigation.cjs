@@ -574,7 +574,9 @@ const KEYS = {
         shortcuts:getComputedStyle(document.getElementById('shortcuts')).display,
         more:getComputedStyle(document.querySelector('.android-reel-more')).display,
         rail:[...document.querySelector('.slide:not([hidden]) .bar').children].filter(el=>getComputedStyle(el).display!=='none').map(el=>el.className),
-        navItems:[...document.querySelectorAll('.android-nav > *')].map(el=>el.textContent.trim()),
+        navItems:[...document.querySelectorAll('.android-nav > *')].map(el=>el.getAttribute('aria-label')),
+        navText:[...document.querySelectorAll('.android-nav > *')].map(el=>el.textContent.trim()).join(''),
+        navHeight:document.querySelector('.android-nav').getBoundingClientRect().height,
         autoScrollButton:!!document.getElementById('auto-scroll')};
     })()`);
     assert.equal(mobile.shortcuts,'none','Android has no keyboard-shortcut button');
@@ -594,7 +596,9 @@ const KEYS = {
     assert.ok(mobile.rail.some(c=>c.includes('account-action')),'add creator sits in the reel rail');
     assert.ok(!mobile.rail.some(c=>c.includes('profile-action')),'profile has no redundant rail button');
     assert.equal(await evaluate(`document.querySelector('#s'+current+' .user').hasAttribute('target')`),false,'username opens profile within the app');
-    assert.deepEqual(mobile.navItems,['Watch','Saved','Settings'],'feeds are chosen from the top menu only');
+    assert.deepEqual(mobile.navItems,['Watch reels','Saved reels','Settings'],'feeds are chosen from the top menu only');
+    assert.equal(mobile.navText,'','the bottom bar shows icons only');
+    assert.ok(mobile.navHeight<=48,'a slim bottom bar: '+mobile.navHeight);
     assert.equal(mobile.autoScrollButton,false,'auto-scroll lives in Settings');
     assert.equal(mobile.navBottom,844,'bottom navigation fits the viewport');
     assert.equal(mobile.reelHeight,mobile.navTop,'video viewport ends above navigation');
@@ -1021,6 +1025,7 @@ const KEYS = {
       assert.ok(i<80,'Settings did not load');await sleep(50);
     }
     assert.equal(await evaluate("!!document.querySelector('#local-page iframe').contentDocument.getElementById('sound-on')"),false,'Settings has no separate sound toggle');
+    assert.equal(await evaluate("document.getElementById('local-page-loading').hidden"),true,'loading placeholder removed once the page loads');
     assert.equal(await evaluate("document.querySelector('#local-page iframe').contentDocument.getElementById('auto-scroll-on').checked"),true);
     assert.deepEqual(await evaluate("fetch('/preferences').then(r=>r.json()).then(d=>d.selected_feeds)"),['memes'],'selection saved before Settings navigation');
     await evaluate("document.querySelector('#local-page iframe').contentDocument.querySelector('a[aria-label=\"Back to reels\"]').click()");

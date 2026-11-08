@@ -52,6 +52,17 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     // Switching period reloads; all time includes the older view.
     await evaluate("document.querySelector('#period input[value=\"0\"]').click()");
     await waitFor("document.querySelector('#tiles .tile b').textContent === '4'", 'all time');
+    await waitFor("!document.querySelector('.viz-root').classList.contains('refreshing')", 'refresh finished');
+    assert.equal(await evaluate("document.querySelectorAll('.skeleton-tile, .skeleton-row, .skeleton-chart').length"), 0, 'placeholders replaced');
+    // A failed load keeps the last numbers, says so, and offers Retry.
+    await evaluate(`window.realFetch = window.fetch; window.fetch = () => Promise.reject(new Error('offline'))`);
+    await evaluate("document.querySelector('#period input[value=\"7\"]').click()");
+    await waitFor("[...document.querySelectorAll('#settings-status button')].some(b => b.textContent === 'Retry')", 'retry offered');
+    assert.equal(await evaluate("document.querySelector('#tiles .tile b').textContent"), '4', 'last numbers kept');
+    assert.equal(await evaluate("document.querySelector('.viz-root').classList.contains('refreshing')"), false);
+    await evaluate("window.fetch = window.realFetch; document.querySelector('#settings-status button').click()");
+    await waitFor("document.querySelector('#tiles .tile b').textContent !== '4' && !document.querySelector('#settings-status button')", 'retry loads 7 days');
+    console.error = () => {};
     assert.deepEqual(errors, []);
     console.log('Stats page: tiles, creators, sources, weekly chart, tooltip, table, periods passed');
   } finally {

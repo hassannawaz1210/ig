@@ -237,16 +237,37 @@ function render(data) {
   renderWeeks(data.weeks);
   renderTags(data.tags);
   renderHours(data.hours);
+  for (const id of ['weeks', 'tags', 'hours']) document.getElementById(id).setAttribute('aria-busy', 'false');
+}
+
+// First load: the page starts with grey placeholders (stats.html). Switching
+// period: the sections that depend on it fade and shimmer until the answer
+// arrives; older answers that come back late are ignored.
+function setRefreshing(on) {
+  document.querySelector('.viz-root').classList.toggle('refreshing', on);
+  for (const part of document.querySelectorAll('.period-part')) part.setAttribute('aria-busy', String(on));
+  const note = document.getElementById('since');
+  if (on && current) note.textContent = 'Updating…';
 }
 
 async function load(days) {
   const version = ++loadVersion;
-  document.getElementById('tiles').setAttribute('aria-busy', 'true');
+  status.replaceChildren();
+  setRefreshing(true);
   try {
     const data = await settingsRequest('/stats/data?days=' + encodeURIComponent(days));
-    if (version === loadVersion) render(data);
+    if (version !== loadVersion) return;
+    render(data);
   } catch (error) {
-    if (version === loadVersion) status.textContent = error.message || 'Could not load your stats. Try again.';
+    if (version !== loadVersion) return;
+    console.error('Loading stats failed', error);
+    const retry = node('button', {type: 'button', class: 'link-button'}, 'Retry');
+    retry.addEventListener('click', () => load(document.querySelector('#period input:checked').value));
+    status.replaceChildren(node('span', {}, (error && error.message) || 'Could not load your stats.'), ' ', retry);
+    if (current) render(current);   // keep showing the last good numbers
+    else document.getElementById('since').textContent = '';
+  } finally {
+    if (version === loadVersion) setRefreshing(false);
   }
 }
 document.getElementById('period').addEventListener('change', event => load(event.target.value));

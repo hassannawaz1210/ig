@@ -12,18 +12,17 @@
   .feeds { width:92px; height:28px; border-radius:8px; background:#1c1c1f; }
   .icon { width:24px; height:24px; color:#ddd; }
   .mute { display:grid; place-items:center; width:44px; height:44px; border-radius:50%; background:#0006; }
-  .status { position:fixed; left:50%; top:calc(50% - 31px); transform:translate(-50%,-50%);
+  .status { position:fixed; left:50%; top:calc(50% - 24px); transform:translate(-50%,-50%);
     display:flex; flex-direction:column; align-items:center; gap:14px; color:#c8c8d0; }
   .spinner { width:34px; height:34px; border:3px solid #ffffff33; border-top-color:#fff; border-radius:50%;
     animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion:reduce) { .spinner { animation-duration:2s; } }
-  nav { position:fixed; left:0; right:0; bottom:0; height:62px; display:flex; padding:4px 12px; box-sizing:border-box;
+  nav { position:fixed; left:0; right:0; bottom:0; height:48px; display:flex; padding:0 12px; box-sizing:border-box;
     border-top:1px solid #ffffff12; background:#101010; }
-  nav span { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
-    color:#aaa; font:11px system-ui; }
+  nav span { flex:1; display:flex; align-items:center; justify-content:center; color:#8a8a92; }
   nav span:first-child { color:#fff; }
-  nav .icon { width:23px; height:23px; color:currentColor; }
+  nav .icon { width:25px; height:25px; color:currentColor; }
 </style></head>
 <body>
 <div class="top">
@@ -32,8 +31,8 @@
 </div>
 <div class="status" role="status"><span class="spinner" aria-hidden="true"></span><span>Starting ig…</span></div>
 <nav aria-hidden="true">
-  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m10 8 6 4-6 4Z"/></svg>Watch</span>
-  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-5-7 5V4a1 1 0 0 1 1-1Z"/></svg>Saved</span>
-  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg>Settings</span>
+  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="m10 8 6 4-6 4Z"/></svg></span>
+  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-5-7 5V4a1 1 0 0 1 1-1Z"/></svg></span>
+  <span><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg></span>
 </nav>
 </body></html>

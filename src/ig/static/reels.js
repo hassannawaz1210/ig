@@ -1131,6 +1131,21 @@ window.addEventListener('pageshow', event => {
     replaceExpiredQueue();
   }
 });
+// Grey placeholders over the layer while its page loads (profiles and sound
+// pages wait on Instagram). Shown after a short delay so quick pages don't flash.
+function localPageLoading(page, on) {
+  clearTimeout(page.loadingTimer);
+  if (on) page.loadingTimer = setTimeout(() => { page.loading.hidden = false; }, 120);
+  else page.loading.hidden = true;
+}
+function localPagePlaceholder() {
+  const box = document.createElement('div');
+  box.id = 'local-page-loading'; box.hidden = true;
+  box.setAttribute('role', 'status'); box.setAttribute('aria-label', 'Loading');
+  box.innerHTML = '<i class="ph-title"></i><div class="ph-summary"><i class="ph-picture"></i><div><i></i><i></i><i></i></div></div>' +
+    '<div class="ph-grid">' + '<i></i>'.repeat(12) + '</div>';
+  return box;
+}
 // Settings and other local pages sit over the mounted player. Returning never
 // reconstructs its queue, seeks its video, or closes its comments.
 function showLocalPage(destination, push = true) {
@@ -1144,12 +1159,21 @@ function showLocalPage(destination, push = true) {
     back.type = 'button'; back.textContent = '← Back to reels';
     back.onclick = () => { if (!localPage?.closing) history.go(-(history.state?.igLocalDepth || 1)); };
     const frame = document.createElement('iframe'); frame.title = 'ig';
-    localPage = {layer,frame,back,video,resume:!!posts[current] && !posts[current]._paused};
+    const loading = localPagePlaceholder();
+    const page = localPage = {layer,frame,back,video,loading,resume:!!posts[current] && !posts[current]._paused};
+    frame.addEventListener('load', () => {
+      localPageLoading(page, false);
+      // Links followed inside the page (a sound from a profile post) load too.
+      try { frame.contentWindow.addEventListener('pagehide', () => localPageLoading(page, true)); }
+      catch (error) { console.warn('Cannot watch the page for navigation', error); }
+    });
     video?.pause();
-    layer.append(back,frame); document.body.append(layer);
+    layer.append(back,frame,loading); document.body.append(layer);
+    localPageLoading(page, true);
     for (const node of [feed,document.querySelector('.top'),document.querySelector('.android-nav')]) if (node) node.inert = true;
     frame.src = destination.href;
   } else if (localPage.href !== destination.href) {
+    localPageLoading(localPage, true);
     localPage.frame.contentWindow.location.replace(destination.href);
   }
   localPage.href = destination.href;
@@ -1170,6 +1194,7 @@ async function closeLocalPage() {
   // A newer navigation may have reopened or replaced the page while saving.
   if (localPage !== previous || version !== localPageVersion) return;
   localPage = null;
+  clearTimeout(previous.loadingTimer);
   previous.layer.remove();
   for (const node of [feed,document.querySelector('.top'),document.querySelector('.android-nav')]) if (node) node.inert = false;
   if (saveError) actionStatus(saveError.message + ' · changes were not saved');

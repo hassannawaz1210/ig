@@ -724,6 +724,34 @@ def record_deliveries(posts):
                            '(SELECT id FROM deliveries ORDER BY id DESC LIMIT 200)')
 
 
+def log_watches(entries):
+    """Add many (token, code, owner, seconds, viewed) views to the watch log in
+    one transaction, with feeds read once (used to fill it from older history)."""
+    if not entries:
+        return
+    feeds = config.load_feeds()
+    feed_of = {}
+    for name, accounts in feeds.items():
+        for account in config.accounts_from_feed(accounts):
+            feed_of.setdefault(account, name)
+    with database() as connection:
+        codes = list({entry[1] for entry in entries})
+        posts = {}
+        for i in range(0, len(codes), 500):
+            chunk = codes[i:i + 500]
+            marks = ','.join('?' for _ in chunk)
+            posts.update((code, json.loads(raw)) for code, raw in
+                         connection.execute(f'SELECT code, data FROM reels WHERE code IN ({marks})', chunk))
+        rows = []
+        for token, code, owner, seconds, viewed in entries:
+            post = posts.get(code, {})
+            feed = feed_of.get(owner)
+            rows.append((token, code, owner, viewed or time.time(), seconds, 'feed' if feed else
+                         (post.get('discovery_source') or 'other'), feed,
+                         json.dumps(sorted(caption_tags(post.get('caption') or ''))[:12])))
+        connection.executemany('INSERT OR IGNORE INTO watch_log VALUES (?,?,?,?,?,?,?,?)', rows)
+
+
 def log_watch(token, code, owner, seconds, viewed=None):
     """Add or update one reel in the permanent watch log (stats page).
 
