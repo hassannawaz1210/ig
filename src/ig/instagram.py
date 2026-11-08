@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from collections import OrderedDict
 from copy import deepcopy
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from curl_cffi import requests as cr
 from . import config
 from .migrations import migrate
@@ -520,15 +520,88 @@ def parse_profile(html: str, username: str = ""):
     return user, conn, (lsd_m.group(1) if lsd_m else "")
 
 
+def profile_user(html: str) -> dict | None:
+    """The full account record on a profile page (name, counts, bio, links).
+
+    The page has several xig_user_by_username objects; the one next to the
+    posts only holds the account IDs, so pick the one with follower_count."""
+    found = None
+    for payload in sjs_payloads(html, "xig_user_by_username"):
+        user = nested_find(payload, "xig_user_by_username")
+        if isinstance(user, dict):
+            found = user
+            if "follower_count" in user:
+                break
+    return found
+
+
+# Logged-out pages leave all_media_count empty; the meta description still
+# says e.g. "681M Followers, 652 Following, 4,154 Posts - ...".
+META_POST_COUNT = re.compile(r'<meta[^>]*content="[^"]*?\b(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?[KMB]?) Posts\b')
+COUNT_SUFFIX = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
+
+
+def _meta_post_count(html: str) -> int | None:
+    match = META_POST_COUNT.search(html)
+    if not match:
+        return None
+    text = match.group(1).replace(",", "")
+    suffix = text[-1] if text[-1] in "KMB" else ""
+    return round(float(text.removesuffix(suffix)) * COUNT_SUFFIX[suffix])
+
+
+def _web_link(url) -> str:
+    """url when it is an ordinary http(s) link, else an empty string."""
+    if not isinstance(url, str):
+        return ""
+    url = url.strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    return url if parts.scheme in ("http", "https") and parts.netloc else ""
+
+
+def profile_details(html: str, user: dict | None = None) -> dict:
+    """What instagram.com shows logged-out visitors above a profile's posts.
+
+    Missing values are None or empty, never guessed. user is the record from
+    the posts payload, used when the page has no fuller one."""
+    full = profile_user(html) or user or {}
+    count = full.get("all_media_count")
+    timeline = full.get("edge_owner_to_timeline_media")
+    if not isinstance(count, int) and isinstance(timeline, dict):
+        count = timeline.get("count")
+    if not isinstance(count, int):
+        count = _meta_post_count(html)
+    links = []
+    for link in full.get("bio_links") or []:
+        url = _web_link(link.get("url")) if isinstance(link, dict) else ""
+        if url and url not in (known["url"] for known in links):
+            links.append({"url": url, "title": str(link.get("title") or "")})
+    external = _web_link(full.get("external_url"))
+    if external and not links:
+        links.append({"url": external, "title": ""})
+    hd = full.get("hd_profile_pic_url_info") or {}
+    avatar = _web_link(hd.get("url") if isinstance(hd, dict) else "") or _web_link(full.get("profile_pic_url"))
+    return {
+        "full_name": full.get("full_name") or "",
+        "avatar": avatar,
+        "biography": full.get("biography") or "",
+        "followers": full.get("follower_count"),
+        "following": full.get("following_count"),
+        "post_count": count,
+        "verified": bool(full.get("is_verified")),
+        "external_url": links[0]["url"] if links else "",
+        "links": links,
+    }
+
+
 def profile(username: str) -> tuple[dict, list[str]]:
     _, html = fetch_profile_page(username)
     if "xig_user_by_username" not in html:
         raise UnexpectedResponse(f"Instagram did not include profile data for @{username}; try again later")
-    user = None
-    for payload in sjs_payloads(html, "xig_user_by_username"):
-        user = nested_find(payload, "xig_user_by_username")
-        if user and "follower_count" in user:
-            break
+    user = profile_user(html)
     codes = [c for c in dict.fromkeys(
         re.findall(r'"code":"([A-Za-z0-9_-]{10,12})"', html))]
     return user, codes
@@ -643,21 +716,16 @@ class ProfileStore:
         s, html = fetch_profile_page(username)
         user, conn, lsd = parse_profile(html, username)
         user = user or {}
+        details = profile_details(html, user)
+        if details["followers"] is None and not details["full_name"]:
+            log.warning("Instagram sent no account details for @%s; the profile header will be "
+                        "incomplete (the page layout may have changed)", username)
         state = {
             "session": s, "lsd": lsd,
             "csrf": s.cookies.get("csrftoken", ""),
             "user_id": user.get("id"), "username": user.get("username", username),
-            "biography": user.get("biography") or "",
-            "profile": {
-                "full_name": user.get("full_name") or "",
-                "avatar": user.get("profile_pic_url") or "",
-                "biography": user.get("biography") or "",
-                "followers": user.get("follower_count"),
-                "following": user.get("following_count"),
-                "post_count": user.get("all_media_count"),
-                "verified": bool(user.get("is_verified")),
-                "external_url": user.get("external_url") or "",
-            },
+            "biography": details["biography"],
+            "profile": details,
             "posts": [slim(e["node"]) for e in conn.get("edges") or []],
             "cursor": (conn.get("page_info") or {}).get("end_cursor"),
             "has_more": (conn.get("page_info") or {}).get("has_next_page", False),

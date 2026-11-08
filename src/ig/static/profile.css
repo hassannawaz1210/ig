@@ -222,3 +222,12 @@ a { color:inherit; }
 
 .page-header:has(+ .profile-summary) .hleft p { display:none; }
 #lbcontent > img, #lbcontent > video { max-width:100%; }
+
+/* Bio links: the first one, then "and N more" that opens the rest below. */
+.profile-links { display:flex; flex-wrap:wrap; align-items:baseline; column-gap:6px; min-width:0; }
+.profile-links > .profile-link { flex:0 1 auto; min-width:0; font-weight:600; }
+.profile-links details { flex:none; max-width:100%; }
+.profile-links details[open] { flex-basis:100%; }
+.profile-links summary { list-style:none; cursor:pointer; color:var(--soft); }
+.profile-links summary::-webkit-details-marker { display:none; }
+.profile-links details .profile-link { padding:4px 0; }

@@ -60,33 +60,9 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                       f'onclick="toggleAcc({escape(json.dumps(username), quote=True)}, this)">'
                       + (icon("check") + " in feed" if saved else icon("plus") + " add to feed")
                       + "</button>")
-    profile = profile or {}
-    def stat(value):
-        if not isinstance(value, int) or value < 0:
-            return '—'
-        if value >= 1_000_000:
-            return f'{value / 1_000_000:.1f}'.rstrip('0').rstrip('.') + 'M'
-        if value >= 10_000:
-            return f'{value / 1_000:.1f}'.rstrip('0').rstrip('.') + 'K'
-        return f'{value:,}'
     profile_header = ''
     if username:
-        avatar = profile.get('avatar') or ''
-        avatar_html = (f'<img src="{escape(avatar, quote=True)}" alt="" referrerpolicy="no-referrer" '
-                       'onerror="this.hidden=true">') if avatar.startswith(('https://', 'http://')) else ''
-        link = profile.get('external_url') or ''
-        website = (f'<a class="profile-link" href="{escape(link, quote=True)}" target="_blank" rel="noopener noreferrer">'
-                   f'{escape(link.removeprefix("https://").removeprefix("http://").rstrip("/"))}</a>') if link.startswith(('https://', 'http://')) else ''
-        profile_header = (f'<section class="profile-summary" aria-label="Profile">'
-            f'<div class="profile-avatar"><span>{escape(username[:1].upper())}</span>{avatar_html}</div>'
-            '<dl class="profile-counts">'
-            + ''.join(f'<div><dt>{label}</dt><dd>{stat(profile.get(key))}</dd></div>'
-                      for key, label in [('post_count','posts'),('followers','followers'),('following','following')])
-            + '</dl><div class="profile-bio">'
-            f'<strong>{escape(profile.get("full_name") or username)}</strong>'
-            + ('<span class="verified" aria-label="Verified">' + icon('check') + '</span>' if profile.get('verified') else '')
-            + f'<p>{escape(profile.get("biography") or "")}</p>{website}</div>'
-            f'<div class="profile-actions">{add_button}</div></section>')
+        profile_header = _profile_summary(username, profile or {}, add_button)
         add_button = ''
     return render("profile.html", title=escape(title), subtitle=escape(subtitle), profile_header=profile_header,
                   add_button=add_button,
@@ -94,6 +70,68 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
                   boot=_page_data({"posts": posts, "username": username,
                                    "empty_message": empty_message, "android": config.ANDROID,
                                    **config.playback_preferences(include_missing=True)}))
+
+
+def compact_count(value) -> str | None:
+    """Counts the way Instagram shows them: 640, 4,154, 12.5K, 681M. None if unknown."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    if value < 10_000:
+        return f'{value:,}'  # Instagram writes 4,154 in full.
+    units = ((1_000_000_000, 'B'), (1_000_000, 'M'), (1_000, 'K'))
+    for index, (size, suffix) in enumerate(units):
+        if value >= size:
+            if round(value / size, 1) >= 1000 and index:  # 999,999 is 1M, not 1000K.
+                size, suffix = units[index - 1]
+            return f'{value / size:.1f}'.removesuffix('.0') + suffix
+
+
+def _web_link(url) -> str:
+    """url when it is an http(s) link, else '', so javascript: never reaches an href."""
+    if not isinstance(url, str) or not url.startswith(('https://', 'http://')):
+        return ''
+    return url
+
+
+def _profile_link(url: str) -> str:
+    # Shown the way Instagram does: hrbl.me/CR7Pro2col, without scheme or www.
+    label = url.split('://', 1)[1].removeprefix('www.').rstrip('/')
+    return (f'<a class="profile-link" href="{escape(url, quote=True)}" target="_blank" '
+            f'rel="noopener noreferrer">{escape(label)}</a>')
+
+
+def _profile_summary(username: str, profile: dict, add_button: str) -> str:
+    """Picture, counts, name, bio and links, as instagram.com shows them to a
+    logged-out visitor. Every Instagram value is escaped; unknown values are left out."""
+    avatar = _web_link(profile.get('avatar'))
+    avatar_html = (f'<img src="{escape(avatar, quote=True)}" alt="" referrerpolicy="no-referrer" '
+                   'onerror="this.hidden=true">') if avatar else ''  # The initial shows through.
+    counts = ''
+    for key, one, many in (('post_count', 'post', 'posts'), ('followers', 'follower', 'followers'),
+                           ('following', 'following', 'following')):
+        shown = compact_count(profile.get(key))
+        if shown is not None:
+            counts += f'<div><dt>{one if profile.get(key) == 1 else many}</dt><dd>{shown}</dd></div>'
+    links = [url for url in (_web_link(link.get('url')) for link in profile.get('links') or []
+                             if isinstance(link, dict)) if url]
+    if not links and _web_link(profile.get('external_url')):
+        links = [profile['external_url']]  # Profiles cached before links were stored.
+    links_html = ''
+    if links:
+        more = (f'<details><summary>and {len(links) - 1} more</summary>'
+                + ''.join(_profile_link(url) for url in links[1:]) + '</details>') if len(links) > 1 else ''
+        links_html = f'<div class="profile-links">{_profile_link(links[0])}{more}</div>'
+    biography = profile.get('biography') or ''
+    return ('<section class="profile-summary" aria-label="Profile">'
+            f'<div class="profile-avatar"><span>{escape(username[:1].upper())}</span>{avatar_html}</div>'
+            + (f'<dl class="profile-counts">{counts}</dl>' if counts else '')
+            + '<div class="profile-bio">'
+            f'<strong>{escape(profile.get("full_name") or username)}</strong>'
+            + ('<span class="verified" role="img" aria-label="Verified">' + icon('check') + '</span>'
+               if profile.get('verified') else '')
+            + (f'<p>{escape(biography)}</p>' if biography else '')
+            + links_html + '</div>'
+            f'<div class="profile-actions">{add_button}</div></section>')
 
 
 def reels_html(code: str | None = None) -> str:
