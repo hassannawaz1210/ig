@@ -14,6 +14,7 @@ import sys
 import time
 from urllib.parse import urlsplit, parse_qs, unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections import OrderedDict
 from . import logs
 from . import instagram
 from .config import CACHE, SERVER_JSON, USER_RE, FEED_RE, load_feeds, edit_feeds, accounts_from_feed, set_prefer_memes, selected_feeds, set_selected_feeds, blocked_accounts, set_blocked
@@ -34,6 +35,31 @@ INTERNAL_ERROR = "Something went wrong. Details are in the server log (run: ig l
 POST_CODE = re.compile(r"[A-Za-z0-9_-]{5,30}")
 MAX_SAVED_REEL_BODY = 1024
 SAVED_REEL_DETAILS = ("caption", "url", "taken_at", "like_count", "comment_count", "image")
+
+# Pagination cursors of open sound pages, bounded; one sound per slot.
+SOUND_STATE = OrderedDict()
+SOUND_LOCK = threading.Lock()
+MAX_SOUND_PAGES = 32
+
+
+def _remember_sound(audio_id: str, data: dict) -> None:
+    with SOUND_LOCK:
+        SOUND_STATE[audio_id] = (data.get("cursor"), data.get("has_more") is True)
+        SOUND_STATE.move_to_end(audio_id)
+        while len(SOUND_STATE) > MAX_SOUND_PAGES:
+            SOUND_STATE.popitem(last=False)
+
+
+def sound_more(audio_id: str) -> dict:
+    """The next page of a sound's reels for an already opened sound page."""
+    with SOUND_LOCK:
+        cursor, has_more = SOUND_STATE.get(audio_id, (None, False))
+    if not has_more or not cursor:
+        return {"posts": [], "has_more": False}
+    data = instagram.audio_reels(audio_id, after=cursor)
+    _remember_sound(audio_id, data)
+    return {"posts": data["reels"], "has_more": data["has_more"],
+            "total": data["total"]}
 
 
 def saved_reel_details(code: str) -> dict:
@@ -408,6 +434,21 @@ class Handler(BaseHTTPRequestHandler):
                     "application/json")
             except Exception as error:
                 return self._fail(error, as_json=True, context=f"Loading suggestions for @{username}")
+        m = re.fullmatch(r"/sound/(\d{10,32})", self.path)
+        if m:
+            audio_id = m.group(1)
+            try:
+                data = instagram.audio_reels(audio_id)
+                _remember_sound(audio_id, data)
+                html = viewer_html(data["title"],
+                                   data["total"] or "Reels using this sound",
+                                   data["reels"],
+                                   empty_message="" if data["reels"] else
+                                   "Instagram returned no public reels for this sound",
+                                   sound={"id": audio_id, "title": data["title"], "total": data["total"]})
+                return self._send(200, html.encode(), "text/html; charset=utf-8")
+            except Exception as error:
+                return self._fail(error, context=f"Opening the sound {audio_id}")
         legacy = {"/edits": "/"}
         if self.path in legacy:
             self.send_response(301)
@@ -834,13 +875,20 @@ class Handler(BaseHTTPRequestHandler):
         creator_match = re.fullmatch(r"/creator/([A-Za-z0-9._]{1,30})/more", self.path)
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)/(more|media)", self.path)
         rm = re.fullmatch(r"/(reels|all)/(more|media)", self.path)
+        sound_match = re.fullmatch(r"/sound/(\d{10,32})/more", self.path)
         username = action = None
-        if m and USER_RE.match(m.group(1)):
+        if sound_match:
+            try:
+                data = sound_more(sound_match.group(1))
+                return self._send(200, json.dumps(data).encode(), "application/json")
+            except Exception as error:
+                return self._fail(error, as_json=True, context="Loading more reels on this sound")
+        elif m and USER_RE.match(m.group(1)):
             username, action = m.group(1).lower(), m.group(2)
         elif rm or creator_match:
             username, action = MIX, rm.group(2) if rm else "more"
-        elif self.path == "/saved-reels/media":  # the Saved reels page's video lookups
-            action = "media"
+        elif self.path == "/saved-reels/media" or re.fullmatch(r"/sound/\d{10,32}/media", self.path):
+            action = "media"  # video lookups from the Saved reels and sound pages
         else:
             return self._send(404, b"not found", "text/plain")
         try:

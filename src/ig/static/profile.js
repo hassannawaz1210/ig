@@ -474,6 +474,11 @@ function updateProfileActions(post = store[cur]) {
   button('lb-like', 'heart', post.feedback === 'like' ? 'Remove local like' : 'Like in ig', post.feedback === 'like');
   button('lb-comments-toggle', 'comment', 'Comments (C)');
   button('lb-share', 'share', 'Share post');
+  const sound = document.getElementById('lb-sound');
+  if (sound) {   // Other reels using this post's audio (/sound/<id>).
+    sound.hidden = !post.audio_id;
+    if (post.audio_id) sound.href = '/sound/' + encodeURIComponent(post.audio_id);
+  }
   const save = button('lb-save', 'bookmark', post.saved ? 'Unsave reel (S)' : 'Save reel (S)', Boolean(post.saved));
   if (save) {save.hidden = !post.is_video || post.is_carousel; save.disabled = Boolean(post._saveBusy);}
   const download = button('lb-download', 'download', post.is_carousel ? 'Download current item (D)' : 'Download (D)');

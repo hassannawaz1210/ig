@@ -53,7 +53,7 @@ document.addEventListener('click', async event => {
       link.hasAttribute('download') || (link.target && link.target !== '_self')) return;
   const destination = new URL(link.href, location.href);
   if (destination.origin !== location.origin ||
-      !(/^\/(?:settings(?:\/feeds)?|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return;
+      !(/^\/(?:settings(?:\/feeds)?|reels|saved-reels)?\/?$/.test(destination.pathname) || /^\/(?:u|reel|sound)\//.test(destination.pathname))) return;
   event.preventDefault();
   if (localNavigationPending) return;
   localNavigationPending = true;
@@ -483,6 +483,7 @@ function showReelActions(index = current) {
   action(cleanView ? 'Leave Clean view' : 'Clean view', 'play', toggleCleanView);
   action('Not interested', 'less', () => rateReel(index, 'dislike'));
   action('More from this creator', 'user', () => { if (current !== index) showSlide(index); browseCreator(1); });
+  if (post.audio_id) action('More reels on this sound', 'music', () => visitLocalPage('/sound/' + encodeURIComponent(post.audio_id)));
   if (post.reason) action('Why this reel?', 'info', () => toggleWhy(index));
   action('Download video', 'download', () => downloadReel(index, document.getElementById('s'+index)?.querySelector('.download')));
   action('Block for this session', 'less', () => { if (current !== index) showSlide(index); blockCurrent(true); });

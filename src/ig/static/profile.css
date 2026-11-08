@@ -181,7 +181,7 @@ a { color:inherit; }
 .grid[data-layout="grid"] .card:hover .overlay,.grid[data-layout="grid"] .card:focus .overlay { opacity:1; }
 .grid[data-layout="grid"] .badge { background:none; text-shadow:0 1px 4px #000; }
 .lbactions { display:flex; align-items:center; gap:8px; margin:0 -6px 8px; }
-.lbactions button { border:0; background:none; color:#eee; padding:8px; min-width:40px; min-height:40px; cursor:pointer; display:grid; place-items:center; }
+.lbactions button, .lbactions a { border:0; background:none; color:#eee; padding:8px; min-width:40px; min-height:40px; cursor:pointer; display:grid; place-items:center; }
 .lbactions button:disabled { opacity:.4; cursor:wait; }
 .lbactions button[aria-pressed="true"] .icon { fill:currentColor; }
 #lb-like[aria-pressed="true"] { color:#ff4055; }
@@ -265,3 +265,9 @@ a { color:inherit; }
   border-radius:16px; padding:7px 12px; cursor:pointer; font:600 12px system-ui; }
 .related-add .icon { width:14px; height:14px; }
 .related-add[data-state="in"] { background:#26262f; color:#cfcfd6; }
+
+/* Sound pages: a music tile in place of the profile picture. */
+.sound-art { border-radius:18px; display:grid; place-items:center;
+  background:linear-gradient(135deg, #3a2a6b, #8a2f6b 55%, #c4602f); }
+.sound-art .icon { width:46%; height:46%; color:#fff; }
+.sound-summary .sound-count { color:var(--soft); }

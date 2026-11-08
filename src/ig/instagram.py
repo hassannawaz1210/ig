@@ -6,6 +6,7 @@ import re
 import sqlite3
 import threading
 import time
+from html import unescape as html_unescape
 from contextlib import contextmanager
 from collections import OrderedDict
 from copy import deepcopy
@@ -39,6 +40,9 @@ AYML_DOC_ID = "27840486182295820"
 
 
 AYML_FRIENDLY_NAME = "PolarisLoggedOutDesktopWWWAYMLQuery"
+
+
+AUDIO_CRN = "comet.igweb.PolarisClipsAudioRoute"
 
 
 REQUEST_TIMEOUT = 30          # seconds for one Instagram request
@@ -630,7 +634,6 @@ _AYML_CACHE = OrderedDict()
 _AYML_LOCK = threading.Lock()
 AYML_TTL = 30 * 60  # Instagram's own rail changes slowly
 
-
 def related_accounts(username: str) -> list[dict]:
     """Instagram's logged-out "Accounts you might like" rail for a profile.
 
@@ -703,6 +706,90 @@ def related_accounts(username: str) -> list[dict]:
         while len(_AYML_CACHE) > 64:
             _AYML_CACHE.popitem(last=False)
     return suggestions
+
+
+_AUDIO_CONTEXTS = OrderedDict()
+_AUDIO_LOCK = threading.Lock()
+AUDIO_CONTEXT_TTL = 15 * 60
+
+
+def _audio_context(audio_id: str):
+    """A logged-out session, LSD token and page title for one audio page.
+
+    The clips/music endpoint answers only with the page's LSD token, so the
+    audio page is loaded once per sound and the context kept for pagination."""
+    with _AUDIO_LOCK:
+        cached = _AUDIO_CONTEXTS.get(audio_id)
+        if cached and time.monotonic() - cached[0] < AUDIO_CONTEXT_TTL:
+            return cached[1], cached[2], cached[3]
+    session = _new_session()
+    response = request(session, "GET", f"https://www.instagram.com/reels/audio/{audio_id}/")
+    if response.status_code == 404:
+        raise ProfileUnavailable("This sound is unavailable")
+    if response.status_code >= 400:
+        raise UnexpectedResponse(f"Instagram returned HTTP {response.status_code} for the audio page")
+    lsd_m = re.search(r'"LSD",\[\],\{"token":"([\w-]+)"', response.text)
+    if not lsd_m:
+        raise UnexpectedResponse("Instagram did not include tokens for the audio page; try again later")
+    title_m = re.search(r"<title>([^<]*)</title>", response.text)
+    title = html_unescape(title_m.group(1).strip()) if title_m else ""
+    for suffix in (" | Instagram", " on Instagram"):
+        title = re.sub(re.escape(suffix) + r"$", "", title).strip()
+    with _AUDIO_LOCK:
+        _AUDIO_CONTEXTS[audio_id] = (time.monotonic(), session, lsd_m.group(1), title)
+        _AUDIO_CONTEXTS.move_to_end(audio_id)
+        while len(_AUDIO_CONTEXTS) > 32:
+            _AUDIO_CONTEXTS.popitem(last=False)
+    return session, lsd_m.group(1), title
+
+
+def audio_reels(audio_id: str, after: str | None = None) -> dict:
+    """One page of public reels using one sound, without login.
+
+    Works for original sounds and licensed music alike; some sounds are
+    region restricted and simply return no reels."""
+    if not re.fullmatch(r"\d{10,32}", str(audio_id)):
+        raise UnexpectedResponse("Unknown audio id")
+    session, lsd, title = _audio_context(audio_id)
+    body = urlencode({
+        "audio_cluster_id": audio_id,
+        "max_id": after or "",
+        "original_sound_audio_asset_id": audio_id,
+        "__d": "www", "__user": "0", "__a": "1", "__comet_req": "7", "lsd": lsd,
+        "jazoest": "2" + str(sum(ord(c) for c in lsd)),
+        "__crn": AUDIO_CRN,
+    })
+    r = request(session, "POST", "https://www.instagram.com/api/v1/clips/music/", data=body,
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-fb-lsd": lsd, "x-csrftoken": session.cookies.get("csrftoken", ""),
+                    "x-ig-app-id": WEB_APP_ID, "x-asbd-id": ASBD_ID, "x-ig-d": "www",
+                    "origin": "https://www.instagram.com",
+                    "referer": f"https://www.instagram.com/reels/audio/{audio_id}/",
+                })
+    if r.status_code >= 400:
+        BACKOFF.hit()
+        raise RateLimited("Instagram blocked the audio page; wait a few minutes")
+    try:
+        text = r.text
+        payload = json.loads(text[text.find("{"):]) if text.startswith("for (;;);") else r.json()
+    except ValueError:
+        BACKOFF.hit()
+        raise RateLimited("Instagram blocked the audio page; wait a few minutes") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("payload"), dict):
+        raise UnexpectedResponse("Instagram sent an invalid audio page reply")
+    if payload.get("require_login") or payload.get("status") == "fail":
+        BACKOFF.hit()
+        raise RateLimited("Instagram is limiting logged-out browsing; wait a few minutes")
+    BACKOFF.reset()
+    data = payload["payload"]
+    reels = [slim(item["media"]) for item in (data.get("items") or [])
+             if isinstance(item, dict) and isinstance(item.get("media"), dict)]
+    paging = data.get("paging_info") or {}
+    cursor = paging.get("max_id") if paging.get("more_available") and paging.get("max_id") else None
+    return {"title": title or "Sound",
+            "total": data.get("formatted_media_count") or "",
+            "reels": reels, "cursor": cursor, "has_more": cursor is not None}
 
 
 class ProfileCache:

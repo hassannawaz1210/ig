@@ -65,8 +65,32 @@ def static_file(name: str) -> tuple[bytes, str] | None:
     return path.read_bytes(), STATIC_TYPES[path.suffix]
 
 
+def _sound_summary(sound: dict) -> str:
+    """Header for a sound page: track, artist, reel count, like Instagram's audio page."""
+    title = sound.get('title') or 'Sound'
+    artist, _, track = title.partition(' | ')
+    if not track:
+        artist, track = '', title
+    if track.lower() == 'original audio' and config.USER_RE.fullmatch(artist):
+        # An original sound's "artist" is the creator who first posted it.
+        artist_html = f'<p>Original audio by <a href="/u/{escape(artist.lower(), quote=True)}">@{escape(artist)}</a></p>'
+        track = 'Original audio'
+    else:
+        artist_html = f'<p>{escape(artist)}</p>' if artist else ''
+    count = sound.get('total')
+    audio_id = escape(str(sound.get('id') or ''), quote=True)
+    return ('<section class="profile-summary sound-summary" aria-label="Sound">'
+            f'<div class="profile-avatar sound-art" aria-hidden="true">{icon("music")}</div>'
+            '<div class="profile-bio">'
+            f'<strong>{escape(track)}</strong>{artist_html}'
+            + (f'<p class="sound-count">{escape(str(count))} on Instagram</p>' if count else '')
+            + f'<div class="profile-links"><a href="https://www.instagram.com/reels/audio/{audio_id}/" '
+              'target="_blank" rel="noopener">Open on Instagram</a></div></div></section>')
+
+
 def viewer_html(title: str, subtitle: str, posts: list[dict],
-                username: str = "", paged: bool = True, empty_message: str = "", profile: dict | None = None) -> str:
+                username: str = "", paged: bool = True, empty_message: str = "", profile: dict | None = None,
+                sound: dict | None = None) -> str:
     """The post grid page. paged=False shows every post at once, without a
     pagination indicator; empty_message is shown when there are no posts."""
     add_button = ""
@@ -80,6 +104,8 @@ def viewer_html(title: str, subtitle: str, posts: list[dict],
     if username:
         profile_header = _profile_summary(username, profile or {}, add_button)
         add_button = ''
+    elif sound:
+        profile_header = _sound_summary(sound)
     return render("profile.html", title=escape(title), subtitle=escape(subtitle), profile_header=profile_header,
                   add_button=add_button,
                   more_button='<div id="more" role="status" aria-live="polite"></div>' if paged else "",

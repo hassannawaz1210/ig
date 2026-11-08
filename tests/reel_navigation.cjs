@@ -768,6 +768,11 @@ const KEYS = {
     assert.ok(actions.includes('Remove from feeds'));
     assert.ok(!actions.includes('Add creator to a feed') && !actions.includes('View profile'),'rail actions are not repeated in More');
     assert.ok(actions.includes('More from this creator'));
+    assert.ok(!actions.includes('More reels on this sound'), 'no sound entry without an audio id');
+    const withSound = await evaluate(`(() => { document.getElementById('android-reel-actions').close();
+      posts[current].audio_id = '561481164338977'; showReelActions(current);
+      return Array.from(document.querySelectorAll('#android-reel-actions .sheet-actions button'), b => b.textContent); })()`);
+    assert.ok(withSound.includes('More reels on this sound'), 'phones reach sound pages from the More menu');
     fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
     // Removing a creator from the rail or the More menu asks first.
     const removal = await evaluate(`(async () => {

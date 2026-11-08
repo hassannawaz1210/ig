@@ -552,6 +552,8 @@ function slideHtml(p, i) {
         onclick="downloadReel(${i}, this)">
         <span class="em">${icon('download')}</span><span>download</span></button>
       <button class="ico android-reel-more" type="button" aria-label="More reel actions" onclick="showReelActions(${i})"><span class="em">…</span></button>
+      ${p.audio_id ? `<a class="ico" href="/sound/${p.audio_id}" title="More reels on this sound">
+        <span class="em">${icon('music')}</span><span>sound</span></a>` : ''}
       <a class="ico" href="${p.url}" target="_blank" rel="noopener">
         <span class="em">${icon('external')}</span><span>open</span></a>
     </div>
@@ -1182,7 +1184,7 @@ routeLocalPage = destination => {
     else if (boot.post_code) return false;
     return true;
   }
-  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel)\//.test(destination.pathname))) return false;
+  if (destination.origin !== location.origin || !(/^\/(?:settings(?:\/feeds)?|saved-reels)$/.test(destination.pathname) || /^\/(?:u|reel|sound)\//.test(destination.pathname))) return false;
   showLocalPage(destination); return true;
 };
 window.addEventListener('message', event => {
