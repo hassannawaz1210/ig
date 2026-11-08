@@ -112,3 +112,25 @@ class SoundPageTests(unittest.TestCase):
             status = self.request('GET', f'/sound/{AUDIO}')[0]
         self.assertGreaterEqual(status, 400)
         self.assertEqual(self.request('GET', '/sound/notanumber')[0], 404)
+
+
+class SongInfoTests(unittest.TestCase):
+    def test_licensed_track_and_original_audio(self):
+        licensed = {'clips_metadata': {'music_info': {'music_asset_info': {'title': 'We Dem Boyz', 'display_artist': 'Wiz Khalifa'}},
+                                       'original_sound_info': None}}
+        self.assertEqual(instagram.song_info(licensed), {'title': 'We Dem Boyz', 'artist': 'Wiz Khalifa', 'original': False})
+        original = {'clips_metadata': {'music_info': None, 'original_sound_info': {
+            'original_audio_title': 'Tag dost\n.\n.\nfunny   video', 'ig_artist': {'username': 'Stheno15'}}}}
+        self.assertEqual(instagram.song_info(original), {'title': 'Tag dost . . funny video', 'artist': 'stheno15', 'original': True})
+
+    def test_missing_or_malformed_audio(self):
+        for media in (None, {}, {'clips_metadata': 'x'}, {'clips_metadata': {'music_info': {'music_asset_info': {'title': ''}}}},
+                      {'clips_metadata': {'original_sound_info': {'ig_artist': {'username': '../bad'}}}}):
+            self.assertIsNone(instagram.song_info(media), media)
+
+    def test_reel_details_carry_the_song(self):
+        media = {'code': 'AAAAAAAAAAA', 'user': {'username': 'someone'},
+                 'clips_metadata': {'music_info': {'music_asset_info': {'title': 'Song', 'display_artist': 'Band', 'audio_cluster_id': AUDIO}}}}
+        with patch.object(instagram, '_post_media', return_value=media):
+            info = instagram.media_info('AAAAAAAAAAA')
+        self.assertEqual((info['song']['title'], info['audio_id']), ('Song', AUDIO))

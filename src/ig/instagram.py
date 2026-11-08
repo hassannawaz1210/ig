@@ -190,6 +190,30 @@ def audio_id(media):
                original.get('audio_asset_id') or original.get('id') or '') or None
 
 
+def song_info(media) -> dict | None:
+    """The reel's music as Instagram labels it: a licensed track with its
+    artist, or a creator's original audio. None when the post has no audio."""
+    if not isinstance(media, dict):
+        return None
+    clips = media.get('clips_metadata')
+    if not isinstance(clips, dict):
+        return None
+    tidy = lambda text: re.sub(r'\s+', ' ', text).strip()[:120] if isinstance(text, str) else ''
+    music = clips.get('music_info')
+    asset = music.get('music_asset_info') if isinstance(music, dict) else None
+    if isinstance(asset, dict) and tidy(asset.get('title')):
+        return {'title': tidy(asset.get('title')), 'artist': tidy(asset.get('display_artist')), 'original': False}
+    original = clips.get('original_sound_info')
+    if isinstance(original, dict):
+        artist = original.get('ig_artist')
+        name = artist.get('username') if isinstance(artist, dict) else None
+        name = name.lower() if isinstance(name, str) and config.USER_RE.fullmatch(name) else ''
+        title = tidy(original.get('original_audio_title')) or 'Original audio'
+        if name or title != 'Original audio':
+            return {'title': title, 'artist': name, 'original': True}
+    return None
+
+
 def _preview_image(n: dict):
     img = n.get("display_uri")
     if not img:
@@ -276,6 +300,7 @@ def media_info(code: str) -> dict:
     out = {
         "shortcode": m.get("code"),
         "audio_id": audio_id(m),
+        "song": song_info(m),
         "owner": (m.get("user") or {}).get("username"),
         "like_count": m.get("like_count"),
         "comment_count": m.get("comment_count"),

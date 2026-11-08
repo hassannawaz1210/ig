@@ -47,6 +47,26 @@ function postAge(t, now = Date.now()) {
   return 'just now';
 }
 // "3 days ago · Oct 8" (with the year when it isn't this year).
+// The reel's music from Instagram's own data, like Instagram's label:
+// "Track · Artist", or "@creator · Original audio". Opens the sound's page.
+function songLabel(song) {
+  if (!song || typeof song.title !== 'string' || !song.title) return '';
+  if (song.original) return song.artist ? `@${song.artist} · ${song.title}` : song.title;
+  return song.artist ? `${song.title} · ${song.artist}` : song.title;
+}
+function songRow(p, i) {
+  const label = songLabel(p.song);
+  if (!label) return `<div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>`;
+  const inner = `${icon('music')}<span>${esc(label)}</span>`;
+  return /^\d{10,32}$/.test(String(p.audio_id || ''))
+    ? `<a class="song" id="song${i}" href="/sound/${p.audio_id}" title="More reels on this sound: ${esc(label)}">${inner}</a>`
+    : `<div class="song" id="song${i}" title="${esc(label)}">${inner}</div>`;
+}
+function showSong(i) {   // details that arrive after the slide was drawn
+  const row = document.getElementById('song'+i);
+  if (!row || !posts[i] || !songLabel(posts[i].song)) return;
+  row.outerHTML = songRow(posts[i], i);
+}
 function postDate(t) {
   if (!t) return '';
   const date = new Date(t * 1000);
@@ -521,7 +541,7 @@ function slideHtml(p, i) {
       ${p.caption ? `<div role="button" tabindex="0" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption"
         onclick="if(!event.target.closest('a'))toggleCaption(${i})"
         onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();toggleCaption(${i})}">${mentions(p.caption)}</div>` : ''}
-      <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
+      ${songRow(p, i)}
       <div class="why" id="why${i}" hidden></div>
     </div>
     <div class="bar">
@@ -653,6 +673,7 @@ async function prepare(i) {
           const d = await r.json();
           if (!r.ok || d.error || !d.video) throw new Error(d.error || 'Video unavailable');
           Object.assign(p, d, {_rich:true});
+          if (posts[i] === p) showSong(i);
         }).finally(()=> { p._loading = null; });
     }
     await p._loading;
@@ -1308,6 +1329,7 @@ function renderSong(i, result) {
 function queueSong(i) {
   if (boot.song_recognition === false) return;
   const p = posts[i];
+  if (songLabel(p?.song)) return;   // Instagram already named it
   if (!p || current !== i || isHidden(p)) return;
   if (p._song) { renderSong(i, p._song); return; }
   if (songTimer && songTimerFor === i) return; // buffering/loops must not restart the delay

@@ -777,6 +777,13 @@ const KEYS = {
       posts[current].audio_id = '561481164338977'; showReelActions(current);
       return Array.from(document.querySelectorAll('#android-reel-actions .sheet-actions button'), b => b.textContent); })()`);
     assert.ok(withSound.includes('More reels on this sound'), 'phones reach sound pages from the More menu');
+    const song = await evaluate(`(() => { posts[current].song = {title:'We Dem Boyz', artist:'Wiz Khalifa', original:false}; showSong(current);
+      const row = document.getElementById('song'+current); const box = row.getBoundingClientRect();
+      return {text: row.textContent.trim(), href: row.getAttribute('href'), visible: !row.hidden && box.height > 0 && box.bottom <= innerHeight}; })()`);
+    assert.deepEqual(song, {text:'We Dem Boyz · Wiz Khalifa', href:'/sound/561481164338977', visible:true}, 'the reel names its song on phones');
+    assert.equal(await evaluate(`(() => { posts[current].song = {title:'Original audio', artist:'stheno15', original:true}; showSong(current);
+      return document.getElementById('song'+current).textContent.trim(); })()`), '@stheno15 · Original audio');
+    await evaluate("delete posts[current].song; document.getElementById('song'+current).outerHTML = songRow(posts[current], current)");
     fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
     // Removing a creator from the rail or the More menu asks first.
     const removal = await evaluate(`(async () => {

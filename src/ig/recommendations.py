@@ -598,7 +598,9 @@ def features(post):
     if post.get('audio_id'):
         result.add('audio:' + str(post['audio_id']))
     song = post.get('song') or {}
-    if song.get('title'):
+    # Original sounds are already covered by the audio id; a licensed track is
+    # one song across all its uploads.
+    if isinstance(song, dict) and song.get('title') and not song.get('original'):
         result.add('song:' + song['title'].casefold() + ':' + song.get('artist', '').casefold())
     return result
 

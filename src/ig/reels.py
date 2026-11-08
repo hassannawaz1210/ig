@@ -235,7 +235,7 @@ class ReelStore(instagram.ProfileStore):
             if not (data.get('video') or data.get('video_dash_manifest')):
                 continue
             item = {key: data.get(key) for key in (
-                'shortcode', 'owner', 'caption', 'audio_id', 'taken_at',
+                'shortcode', 'owner', 'caption', 'audio_id', 'song', 'taken_at',
                 'like_count', 'comment_count', 'coauthors', 'audio_creator', 'paid_partnership')}
             item.update(shortcode=code, owner=data.get('owner') or username,
                         is_video=True, image=data.get('poster') or listing.get('image'),
