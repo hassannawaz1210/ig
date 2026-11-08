@@ -86,18 +86,33 @@ def _compute_part(connection, part, days, now):
     # One grouped scan of the period (viewed index) supplies the overview,
     # creators, sources and hours.
     groups = connection.execute(
-        "SELECT w.owner, w.source, CAST(strftime('%H', w.viewed, 'unixepoch', 'localtime') AS INTEGER), "
-        "COUNT(*), SUM(w.seconds), SUM(f.action = 'like'), SUM(f.action = 'skip') "
-        "FROM watch_log w LEFT JOIN feedback f ON f.code = w.code WHERE w.viewed >= ? GROUP BY 1, 2, 3",
-        (start,)).fetchall()
+        "SELECT owner, source, CAST(strftime('%H', viewed, 'unixepoch', 'localtime') AS INTEGER), "
+        "COUNT(*), SUM(seconds) FROM watch_log WHERE viewed >= ? GROUP BY 1, 2, 3", (start,)).fetchall()
+    reactions = _reactions(connection, start)
     return {
         'days': days,
         'since': connection.execute('SELECT MIN(viewed) FROM watch_log').fetchone()[0],
-        'summary': _summary(connection, start, groups),
-        'creators': _creators(groups),
-        'sources': _sources(groups),
+        'summary': _summary(connection, start, groups, reactions),
+        'creators': _creators(groups, reactions),
+        'sources': _sources(groups, reactions),
         'hours': _hours(groups),
     }
+
+
+def _reactions(connection, start):
+    """Likes, "not interested" and quick skips on reels watched in the period,
+    as {(owner, source, action): reels}.
+
+    Each reel counts once, at its first view in the period, however often it
+    was watched. Reactions on reels with no view in the period (for example
+    from before the watch log began) are left out, so the numbers always
+    describe the reels the page counts as watched. Driven by the small
+    feedback table, with one index lookup per reaction."""
+    return {(owner, source, action): reels for owner, source, action, reels in connection.execute(
+        'SELECT w.owner, w.source, f.action, COUNT(*) FROM feedback f '
+        'JOIN watch_log w ON w.rowid = (SELECT rowid FROM watch_log '
+        'WHERE code = f.code AND viewed >= ? ORDER BY viewed, rowid LIMIT 1) '
+        'GROUP BY 1, 2, 3', (start,))}
 
 
 def compute(days=30, now=None, part=None):
@@ -131,41 +146,51 @@ def compute(days=30, now=None, part=None):
     return result
 
 
-def _summary(connection, start, groups):
+def _summary(connection, start, groups, reactions):
     owners, new_owners = set(), set()
     reels = seconds = 0
-    for owner, source, _, count, total, _, _ in groups:
+    for owner, source, _, count, total in groups:
         reels += count
         seconds += total or 0
         owners.add(owner)
         if source != 'feed':
             new_owners.add(owner)
-    actions = dict(connection.execute('SELECT action, COUNT(*) FROM feedback WHERE updated >= ? GROUP BY action',
-                                      (start,)))
+    actions = Counter()
+    for (_, _, action), count in reactions.items():
+        actions[action] += count
     saves = connection.execute('SELECT COUNT(*) FROM saved_reels WHERE saved_at >= ?', (start,)).fetchone()[0]
     return {'reels': reels, 'seconds': round(seconds), 'creators': len(owners), 'new_creators': len(new_owners),
-            'likes': actions.get('like', 0), 'skips': actions.get('skip', 0),
-            'not_interested': actions.get('dislike', 0), 'saves': saves}
+            'likes': actions['like'], 'skips': actions['skip'], 'not_interested': actions['dislike'], 'saves': saves}
 
 
-def _creators(groups):
+def _creators(groups, reactions):
     seconds, reels, likes, in_feed = Counter(), Counter(), Counter(), set()
-    for owner, source, _, count, total, liked, _ in groups:
+    for owner, source, _, count, total in groups:
         seconds[owner] += total or 0
         reels[owner] += count
-        likes[owner] += liked or 0
         if source == 'feed':
             in_feed.add(owner)
+    for (owner, _, action), count in reactions.items():
+        if action == 'like':
+            likes[owner] += count
     return [{'owner': owner, 'seconds': round(total), 'reels': reels[owner], 'likes': likes[owner],
              'source': 'feed' if owner in in_feed else 'new'} for owner, total in seconds.most_common(TOP_CREATORS)]
 
 
-def _sources(groups):
+def _sources(groups, reactions):
+    as_key = lambda source: source if source in SOURCE_LABELS else 'other'
     found = {}
-    for _, source, _, count, total, liked, skipped in groups:
-        key = source if source in SOURCE_LABELS else 'other'
-        entry = found.setdefault(key, [0, 0.0, 0, 0])
-        entry[0] += count; entry[1] += total or 0; entry[2] += liked or 0; entry[3] += skipped or 0
+    for _, source, _, count, total in groups:
+        entry = found.setdefault(as_key(source), [0, 0.0, 0, 0])
+        entry[0] += count; entry[1] += total or 0
+    for (_, source, action), count in reactions.items():
+        entry = found.get(as_key(source))
+        if entry is None:   # cannot happen: a reaction is matched to a view in the period
+            raise RuntimeError(f'Reaction on a reel from {source!r} without a view in the period')
+        if action == 'like':
+            entry[2] += count
+        elif action == 'skip':
+            entry[3] += count
     return [{'source': key, 'label': SOURCE_LABELS[key], 'reels': reels,
              'average_seconds': round(total / reels, 1), 'likes': likes,
              'like_rate': round(likes / reels, 4), 'skip_rate': round(skips / reels, 4)}
@@ -248,6 +273,6 @@ def _tags(connection, now):
 
 def _hours(groups):
     hours = [0.0] * 24
-    for _, _, hour, _, total, _, _ in groups:
+    for _, _, hour, _, total in groups:
         hours[hour] += total or 0
     return [round(value) for value in hours]

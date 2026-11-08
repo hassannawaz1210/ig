@@ -112,7 +112,14 @@ def _watch_log_schema(connection):
     connection.execute('CREATE INDEX IF NOT EXISTS watch_log_viewed ON watch_log(viewed)')
 
 
-MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema, _viewed_reels_schema, _watch_log_schema)
+def _watch_log_code_index(connection):
+    # Finds a reel's views quickly, so the stats page can match likes and
+    # skips to the view they belong to.
+    connection.execute('CREATE INDEX IF NOT EXISTS watch_log_code ON watch_log(code, viewed)')
+
+
+MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema, _viewed_reels_schema, _watch_log_schema,
+              _watch_log_code_index)
 
 
 @contextmanager

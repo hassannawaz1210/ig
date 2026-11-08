@@ -62,6 +62,47 @@ class StatsTests(ProjectTests):
         self.assertEqual([s['source'] for s in data['sources']], ['feed', 'suggested'], 'fixed source order')
         self.assertEqual(stats.compute(0, now=NOW)['summary']['reels'], 4)
 
+    def test_reactions_without_a_view_in_the_period_are_left_out(self):
+        # Quick skips recorded before the watch log began (no view logged) must
+        # not be counted, or skips can outnumber the reels watched.
+        rec.remember_reels([{'shortcode': f'GONE000000{i}', 'owner': 'ghost'} for i in range(3)])
+        for i in range(3):
+            rec.set_feedback(f'GONE000000{i}', 'skip')
+        rec.set_feedback('OLD00000001', 'like')    # watched 40 days ago, liked now
+        rec.set_feedback('EDIT0000001', 'skip')
+        week = stats.compute(7, now=NOW)['summary']
+        self.assertEqual((week['reels'], week['likes'], week['skips']), (3, 0, 1))
+        everything = stats.compute(0, now=NOW)
+        self.assertEqual((everything['summary']['reels'], everything['summary']['likes'],
+                          everything['summary']['skips']), (4, 1, 1))
+        self.assertNotIn('ghost', [c['owner'] for c in everything['creators']])
+        self.assertEqual({c['owner']: c['likes'] for c in everything['creators']}['editor'], 1)
+
+    def test_a_reel_watched_several_times_counts_its_reaction_once(self):
+        rec.set_feedback('NEW00000001', 'like')
+        rec.set_feedback('EDIT0000001', 'skip')
+        rec.set_feedback('MEME0000001', 'dislike')
+        for i, code, owner in [(5, 'NEW00000001', 'fresh'), (6, 'NEW00000001', 'fresh'),
+                               (7, 'EDIT0000001', 'editor'), (8, 'MEME0000001', 'saved_one')]:
+            self.log(f't{i}', code, owner, 5, NOW - DAY / 2 + i)
+        data = stats.compute(7, now=NOW)
+        summary = data['summary']
+        self.assertEqual(summary['reels'], 7, 'every view counts as watched')
+        self.assertEqual((summary['likes'], summary['skips'], summary['not_interested']), (1, 1, 1),
+                         'but each reel is liked or skipped once')
+        self.assertEqual({c['owner']: c['likes'] for c in data['creators']}['fresh'], 1)
+        sources = {s['source']: s for s in data['sources']}
+        self.assertEqual(sources['suggested']['like_rate'], round(1 / 3, 4))
+        self.assertEqual(sources['feed']['skip_rate'], 0.25)
+        self.assertLessEqual(summary['skips'] + summary['likes'] + summary['not_interested'], summary['reels'])
+
+    def test_a_reaction_changed_later_still_belongs_to_the_watched_reel(self):
+        rec.set_feedback('EDIT0000001', 'skip')
+        with patch('time.time', return_value=NOW + 30 * DAY):   # liked a month after it was watched
+            rec.set_feedback('EDIT0000001', 'like')
+        summary = stats.compute(7, now=NOW)['summary']
+        self.assertEqual((summary['likes'], summary['skips']), (1, 0))
+
     def test_today_starts_at_local_midnight(self):
         t = time.localtime(NOW)
         midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
