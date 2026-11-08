@@ -84,11 +84,12 @@ function renderFeed(name, accounts, open, topics = []) {
   const remove = element('button','delete-feed','Delete feed'); remove.type='button';
   remove.onclick = () => confirmSettingsAction(body,`Delete “${displayName(name)}”?`, 'Delete feed', async () => {
     const data = await settingsRequest('/feeds/delete',{name});
+    notifyFeedsChange();
     status.textContent=`Deleted ${displayName(name)}. `;
     const undo = element('button','','Undo'); undo.type='button';
     undo.onclick = async () => {
       undo.disabled=true;
-      try { await settingsRequest('/feeds/restore',{deletion_id:data.deletion_id});
+      try { await settingsRequest('/feeds/restore',{deletion_id:data.deletion_id}); notifyFeedsChange();
         status.textContent=`Restored ${displayName(name)}.`; await loadFeeds(name); }
       catch (error) {status.textContent=error.message;}
     };
@@ -113,6 +114,7 @@ function renderFeed(name, accounts, open, topics = []) {
       button.setAttribute('aria-label',`Remove @${account} from ${displayName(name)}`);
       button.onclick=()=>confirmSettingsAction(row,`Remove @${account} from ${displayName(name)}?`,'Remove from this feed',async()=>{
         await settingsRequest('/feeds/accounts/remove',{name,username:account});
+        notifyFeedsChange();   // the creator may still be in another feed
         status.textContent=`Removed @${account} from ${displayName(name)}.`; await loadFeeds(name);
       });
       row.append(link,button); list.append(row);
@@ -165,7 +167,8 @@ async function loadFeeds(preferredFeed) {
 feedSearch.oninput = filterFeeds;
 document.getElementById('create-feed').onclick = () => chooseFeed('', true);
 window.addEventListener('ig-feeds-changed', event => loadFeeds(event.detail?.name));
-window.addEventListener('storage', event => { if (event.key === 'ig-account-change') loadFeeds(); });
+// Accounts added or feeds edited on another page (common.js).
+accountsChanged = () => loadFeeds(); feedListsEdited = () => loadFeeds();
 // Back navigation can restore this page without fresh server data.
 window.addEventListener('pageshow', event => { if (event.persisted) loadFeeds(); });
 loadFeeds();

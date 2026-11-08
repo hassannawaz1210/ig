@@ -18,11 +18,46 @@ async function toggleAcc(u, el) {
     notifyAccountChange(u, false);
   } catch (error) { console.warn('Could not remove @' + u, error); el.textContent = 'retry'; }
 }
-accountChanged = (username, saved) => {
-  if (username !== boot.username) return;
+// "add" / "in feed" on this profile's button and on its suggested accounts.
+function showAccountState(username, saved) {
+  username = String(username).toLowerCase();
   const button = document.getElementById('addacc');
-  if (button) { button.dataset.state = saved ? 'in' : 'out';
+  if (button && username === boot.username) { button.dataset.state = saved ? 'in' : 'out';
     button.innerHTML = saved ? icon('check') + ' in feed' : icon('plus') + ' add to feed'; }
+  for (const related of document.querySelectorAll('.related-add')) {
+    if (related.dataset.user.toLowerCase() !== username) continue;
+    related.dataset.state = saved ? 'in' : 'out';
+    related.innerHTML = saved ? icon('check') + ' in feed' : icon('plus') + ' add';
+  }
+}
+accountChanged = showAccountState;
+// Re-read feeds when they were edited elsewhere or when you come back to
+// this page (it may have been frozen while you added a creator elsewhere).
+let accountStateVersion = 0;
+async function refreshAccountStates() {
+  if (!document.getElementById('addacc') && !document.querySelector('.related-add')) return;
+  const version = ++accountStateVersion;
+  try {
+    if (typeof loadFeedAccounts !== 'function') return;
+    const inFeeds = await loadFeedAccounts();
+    if (version !== accountStateVersion) return;
+    if (boot.username) showAccountState(boot.username, inFeeds.has(boot.username));
+    for (const related of document.querySelectorAll('.related-add'))
+      showAccountState(related.dataset.user, inFeeds.has(related.dataset.user.toLowerCase()));
+  } catch (error) { console.warn('Could not refresh which creators are in feeds', error); }
+}
+feedListsEdited = refreshAccountStates;
+window.addEventListener('ig-page-return', refreshAccountStates);
+// A reel saved or liked on another page (the player, another profile).
+reelChanged = (code, change) => {
+  let open = false;
+  for (const post of store) {
+    if (post.shortcode !== code) continue;
+    if (typeof change.saved === 'boolean') post.saved = change.saved;
+    if ('feedback' in change) post.feedback = change.feedback;
+    open = open || (!lbEl.hidden && store[cur] === post);
+  }
+  if (open) updateProfileActions(store[cur]);
 };
 const store = [];
 const grid = document.getElementById('grid');
@@ -495,6 +530,7 @@ async function likeProfilePost() {
     const data = await response.json();
     if (!response.ok || data.error) throw new Error('Could not save your like');
     post.feedback = data.feedback;
+    if (typeof notifyReelChange === 'function') notifyReelChange(post.shortcode, {feedback: post.feedback});
     if (store[cur] === post) updateProfileActions(post);
     profileActionMessage(post, post.feedback === 'like' ? 'Liked in ig' : 'Like removed');
   } catch (error) { profileActionMessage(post, error.message || 'Could not save your like'); }
@@ -511,6 +547,7 @@ async function saveProfilePost() {
     const data = await response.json();
     if (!response.ok || data.error) throw new Error('Could not update saved reels');
     post.saved = data.saved === true;
+    if (typeof notifyReelChange === 'function') notifyReelChange(post.shortcode, {saved: post.saved});
     profileActionMessage(post, post.saved ? 'Reel saved' : 'Reel unsaved');
   } catch (error) { profileActionMessage(post, error.message || 'Could not update saved reels'); }
   finally { post._saveBusy = false; if (store[cur] === post) updateProfileActions(post); }
@@ -664,8 +701,8 @@ function renderRelated(accounts) {
         <span class="related-names"><strong>${esc(account.username)}${account.is_verified ? ' ✓' : ''}</strong>
         <small>${esc(account.full_name)}</small></span>
       </a>
-      <button type="button" class="related-add" data-state="out"
-        onclick="toggleRelated(this.dataset.user, this)" data-user="${esc(account.username)}">${icon('plus')} add</button>
+      <button type="button" class="related-add" data-state="${account.in_feed ? 'in' : 'out'}"
+        onclick="toggleRelated(this.dataset.user, this)" data-user="${esc(account.username)}">${account.in_feed ? icon('check') + ' in feed' : icon('plus') + ' add'}</button>
     </div>`).join('');
 }
 async function toggleRelated(username, button) {

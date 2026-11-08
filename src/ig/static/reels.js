@@ -132,6 +132,18 @@ accountsChanged = (usernames, saved) => {
   if (current < 0) more(); else maybeMore();
 };
 accountChanged = (username, saved) => accountsChanged([username], saved);
+// Changes made on other pages (common.js): feeds edited, reels saved or liked.
+feedListsEdited = () => refreshFeedAccounts();
+reelChanged = (code, change) => {
+  if (typeof change.saved === 'boolean') showSavedState(code, change.saved);
+  if (!('feedback' in change)) return;
+  posts.forEach((post, index) => {
+    if (post.shortcode !== code) return;
+    post.feedback = change.feedback;
+    document.getElementById('s'+index)?.querySelector('.reel-like')?.setAttribute('aria-pressed', String(change.feedback === 'like'));
+  });
+  if (change.feedback === 'dislike') hideFilteredReels();
+};
 let blockedAccounts = new Set(boot.blocked);
 let sessionBlocked = new Set();
 try { sessionBlocked = new Set(JSON.parse(sessionStorage.getItem('ig-session-blocked') || '[]')); } catch (_) {}
@@ -1290,6 +1302,7 @@ async function rateReel(i, action) {
     if (!r.ok) throw new Error();
     const result = await r.json();
     posts.filter(post => post.shortcode === p.shortcode).forEach(post => post.feedback = result.feedback);
+    if (typeof notifyReelChange === 'function') notifyReelChange(p.shortcode, {feedback: result.feedback});
     posts.forEach((post,index) => {
       if (post.shortcode !== p.shortcode) return;
       document.getElementById('s'+index)?.querySelector('.reel-like')?.setAttribute('aria-pressed', String(result.feedback === 'like'));
@@ -1455,6 +1468,7 @@ async function toggleSavedReel(i) {
     if (!r.ok) throw new Error(message);
     const result = await r.json();
     showSavedState(p.shortcode, result.saved === true);
+    if (typeof notifyReelChange === 'function') notifyReelChange(p.shortcode, {saved: result.saved === true});
     actionStatus(result.saved ? 'Added to Saved reels' : 'Removed from Saved reels');
   } catch (_) { actionStatus(message); }
   finally { p._saveBusy = false; }

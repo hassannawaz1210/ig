@@ -17,3 +17,10 @@ class PreloadingTests(unittest.TestCase):
             path = Path(directory) / 'reels.js'
             path.write_text(script)
             subprocess.run(['node', str(Path(__file__).with_name('preloading.cjs')), str(path)], check=True)
+
+
+class PageSyncTests(unittest.TestCase):
+    def test_changes_reach_other_pages_and_frozen_pages_catch_up(self):
+        script = Path(__file__).with_name('page_sync.cjs')
+        common = Path(__file__).resolve().parents[1] / 'src/ig/static/common.js'
+        subprocess.run(['node', str(script), str(common)], check=True)

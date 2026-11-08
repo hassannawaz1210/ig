@@ -84,12 +84,13 @@ window.addEventListener('ig-playback-migrated',event=>{
   if(!autoScrollSaving){settingsData.auto_scroll=event.detail.auto_scroll;autoScrollInput.checked=event.detail.auto_scroll;}
 });
 window.addEventListener('ig-feeds-changed',()=>loadSettings());
+// Feeds changed on another page (common.js): show the new counts.
+accountsChanged=()=>loadSettings();feedListsEdited=()=>loadSettings();
 window.addEventListener('storage',event=>{
   if(event.key==='ig-playback-change'&&event.newValue&&!autoScrollSaving){
     try{const data=JSON.parse(event.newValue).changes;if(typeof data.auto_scroll==='boolean'){
       settingsData.auto_scroll=data.auto_scroll;autoScrollInput.checked=data.auto_scroll;}}catch(_){}
   }
-  if(event.key==='ig-account-change')loadSettings();
   if(event.key==='ig-scroll-animation'&&['smooth','snappy'].includes(event.newValue)&&!scrollSaving){
     scrollVersion++;settingsData.scroll_animation=event.newValue;scrollMode.querySelector(`input[value="${event.newValue}"]`).checked=true;
   }

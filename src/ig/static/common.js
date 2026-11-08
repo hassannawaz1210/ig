@@ -63,27 +63,70 @@ document.addEventListener('click', async event => {
     if (target) target.textContent = error.message + ' · try again before leaving';
   } finally { localNavigationPending = false; }
 });
+// Keeping every open page up to date. A change made on one page (a creator
+// added to or removed from feeds, feeds edited, a reel saved or liked)
+// reaches other open pages at once through the storage event. Pages the
+// browser froze when you navigated away (the back/forward cache) miss those
+// events, so changes are also kept in a short log that a page replays when
+// you come back to it. Each page sets the handlers it needs.
 let accountChanged = () => {};
 let accountsChanged = (usernames, saved) => { for (const username of usernames) accountChanged(username, saved); };
+let reelChanged = () => {};      // (code, {saved?, feedback?})
+let feedListsEdited = () => {};  // feeds were edited: re-read who is in them
+const CHANGE_LOG = 'ig-change-log';
+const CHANGE_LOG_AGE = 3600000;
+function recordChange(change) {
+  try {
+    const now = Date.now();
+    const log = JSON.parse(localStorage.getItem(CHANGE_LOG) || '[]')
+      .filter(entry => entry && now - entry.at < CHANGE_LOG_AGE).slice(-199);
+    log.push({...change, at: now});
+    localStorage.setItem(CHANGE_LOG, JSON.stringify(log));
+  } catch (error) { console.warn('Could not share a change with other pages', error); }
+}
+function applyChange(change) {
+  if (!change || typeof change !== 'object') return;
+  if (change.kind === 'accounts' && Array.isArray(change.usernames)) accountsChanged(change.usernames, change.saved === true);
+  else if (change.kind === 'reel' && typeof change.code === 'string') reelChanged(change.code, change);
+  else if (change.kind === 'feeds') feedListsEdited();
+}
 function notifyAccountsChange(usernames, saved) {
   if (!usernames.length) return;
   accountsChanged(usernames, saved);
-  try { localStorage.setItem('ig-account-change', JSON.stringify({usernames, saved, at:Date.now()})); } catch (_) {}
+  recordChange({kind:'accounts', usernames, saved});
 }
-function notifyAccountChange(username, saved) {
-  accountChanged(username, saved);
-  try { localStorage.setItem('ig-account-change', JSON.stringify({username, saved, at:Date.now()})); } catch (_) {}
+function notifyAccountChange(username, saved) { notifyAccountsChange([username], saved); }
+// The page making the change has already updated itself; other pages follow.
+function notifyReelChange(code, change) { recordChange({...change, kind:'reel', code}); }
+function notifyFeedsChange() { recordChange({kind:'feeds'}); }
+// Read who is in feeds from the server (for pages that show add / in feed).
+async function loadFeedAccounts() {
+  const response = await fetch('/settings/data', {cache:'no-store'});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'HTTP ' + response.status);
+  return new Set(Object.values(data.feeds || {}).flat().map(name => String(name).toLowerCase()));
+}
+let frozenAt = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => { frozenAt = Date.now(); });
+  window.addEventListener('pageshow', event => {
+    const since = frozenAt; frozenAt = null;
+    if (!event.persisted || since === null) return;
+    let log = [];
+    try { log = JSON.parse(localStorage.getItem(CHANGE_LOG) || '[]'); }
+    catch (error) { console.warn('Could not read changes made on other pages', error); }
+    for (const change of log) if (change && change.at >= since) applyChange(change);
+    window.dispatchEvent(new Event('ig-page-return'));
+  });
 }
 if (typeof window !== 'undefined') window.addEventListener('storage', event => {
   if (event.key === 'ig-feed-import' && event.newValue) {
     try { window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail:JSON.parse(event.newValue)})); } catch (_) {}
     return;
   }
-  if (event.key !== 'ig-account-change' || !event.newValue) return;
-  try { const change = JSON.parse(event.newValue);
-    if (Array.isArray(change.usernames)) accountsChanged(change.usernames, change.saved);
-    else accountChanged(change.username, change.saved);
-  } catch (_) {}
+  if (event.key !== CHANGE_LOG || !event.newValue) return;
+  try { applyChange(JSON.parse(event.newValue).at(-1)); }
+  catch (error) { console.warn('Could not apply a change from another page', error); }
 });
 function showShortcuts() {
   if (document.getElementById('shortcut-help')) return;

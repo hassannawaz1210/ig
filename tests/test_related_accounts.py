@@ -72,9 +72,12 @@ class RelatedRouteTests(unittest.TestCase):
         return send.call_args.args if send.called else None
 
     def test_route_returns_accounts_and_safe_errors(self):
-        with patch.object(instagram, 'related_accounts', return_value=[{'username': 'friend'}]):
+        with patch.object(instagram, 'related_accounts', return_value=[{'username': 'friend'}, {'username': 'Kept'}]), \
+             patch('ig.server.feed_accounts', return_value={'kept'}):
             status, body = self.get('/related/Star')[:2]
-        self.assertEqual((status, json.loads(body)), (200, {'accounts': [{'username': 'friend'}]}))
+        self.assertEqual((status, json.loads(body)), (200, {'accounts': [
+            {'username': 'friend', 'in_feed': False}, {'username': 'Kept', 'in_feed': True}]}),
+            'suggestions already in a feed say so from the start')
         with patch.object(instagram, 'related_accounts', side_effect=instagram.RateLimited('slow down')):
             status = self.get('/related/star')[0]
         self.assertGreaterEqual(status, 400)

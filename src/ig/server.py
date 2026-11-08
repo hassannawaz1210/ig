@@ -428,9 +428,10 @@ class Handler(BaseHTTPRequestHandler):
         if m and USER_RE.match(m.group(1)):
             username = m.group(1).lower()
             try:
-                return self._send(200, json.dumps(
-                    {"accounts": instagram.related_accounts(username)}).encode(),
-                    "application/json")
+                in_feeds = feed_accounts()
+                accounts = [{**account, "in_feed": account.get("username", "").lower() in in_feeds}
+                            for account in instagram.related_accounts(username)]
+                return self._send(200, json.dumps({"accounts": accounts}).encode(), "application/json")
             except Exception as error:
                 return self._fail(error, as_json=True, context=f"Loading suggestions for @{username}")
         m = re.fullmatch(r"/sound/(\d{10,32})", self.path)
