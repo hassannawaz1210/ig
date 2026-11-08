@@ -29,6 +29,12 @@ BROAD = page({'require': [{'data': {'ig_popular_search_category_hub': {'sections
 ]}}}]})
 
 
+def reel_details(owner='creator'):
+    """What REELS.media returns for a reel: a video address, no is_video flag."""
+    return {'shortcode': 'AAAAAAAAAAA', 'owner': owner, 'video': 'https://cdn.test/v.mp4',
+            'poster': 'https://cdn.test/poster.jpg', 'taken_at': '1700000000', 'slides': [], 'caption': ''}
+
+
 class TopicPageTests(ProjectTests):
     def test_topic_slugs(self):
         for word, slug in [('news_politics', 'news-politics'), ('News  politics', 'news-politics'),
@@ -249,10 +255,22 @@ class TopicSafetyTests(TempDirs):
     def test_topic_reel_owner_must_match(self):
         discovery = topics.TopicDiscovery()
         info = {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}
-        with patch.object(feeds.REELS, 'media', return_value={'is_video': True, 'owner': 'someone_else'}):
+        with patch.object(feeds.REELS, 'media', return_value=reel_details(owner='someone_else')):
             with self.assertRaises(instagram.UnexpectedResponse):
                 discovery.trial_state(info, network=True)
+        with patch.object(feeds.REELS, 'media', return_value={**reel_details(), 'video': None}):
+            with self.assertRaises(instagram.UnexpectedResponse, msg='photo posts are not reels'):
+                discovery.trial_state(info, network=True)
         self.assertIsNone(discovery.trial_state(info))
+
+    def test_topic_reel_from_real_reel_details(self):
+        # Reel details carry the video address, not is_video/image/url.
+        discovery = topics.TopicDiscovery()
+        with patch.object(feeds.REELS, 'media', return_value=reel_details(owner='Creator')):
+            state = discovery.trial_state({'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}, network=True)
+        post = state['posts'][0]
+        self.assertEqual((post['is_video'], post['owner'], post['image'], post['url'], post['taken_at']),
+                         (True, 'creator', 'https://cdn.test/poster.jpg', 'https://www.instagram.com/reel/AAAAAAAAAAA/', 1700000000))
 
     def test_empty_feed_trials_exact_topic_reel_without_profile_requests(self):
         from ig.refill import Refill
@@ -261,7 +279,7 @@ class TopicSafetyTests(TempDirs):
         discovery._store('edits', {'creator': 'AAAAAAAAAAA'}, [])
         refill = Refill()
         self.addCleanup(refill.executor.shutdown, wait=True)
-        post = {'shortcode': 'AAAAAAAAAAA', 'owner': 'creator', 'is_video': True, 'caption': 'film edit'}
+        post = {**reel_details(), 'caption': 'film edit'}
         with patch.object(feeds, 'TOPICS', discovery), patch('ig.refill.TOPICS', discovery), \
              patch.object(feeds, 'REFILL', refill), \
              patch.object(feeds, 'STATE', {'creator': {'posts': [{'shortcode': 'UNRELATED01', 'owner': 'creator', 'is_video': True}], 'has_more': True}}), \
@@ -294,8 +312,7 @@ class TopicSafetyTests(TempDirs):
         refill.next_discovery_at = time.monotonic() + 30
         info = {'username': 'creator', 'shortcode': 'AAAAAAAAAAA'}
         pool = {'served': set(), 'topic_trials': {'creator': info}}
-        with patch('ig.refill.TOPICS', discovery), patch.object(feeds.REELS, 'media', return_value={
-                'shortcode': 'AAAAAAAAAAA', 'owner': 'creator', 'is_video': True}) as media:
+        with patch('ig.refill.TOPICS', discovery), patch.object(feeds.REELS, 'media', return_value=reel_details()) as media:
             refill.schedule(pool, ['creator'], set(), states={})
             self.assertIn('creator', refill.pending)
             for future, _ in list(refill.pending.values()):

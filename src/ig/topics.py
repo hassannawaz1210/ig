@@ -124,9 +124,19 @@ class TopicDiscovery:
                 return cached[1]
         if not network:
             return None
-        post = REELS.media(code)
-        if not post.get('is_video') or (post.get('owner') or '').lower() != info.get('username'):
-            raise instagram.UnexpectedResponse('Topic reel does not match its listed creator')
+        post = dict(REELS.media(code))
+        # Reel details have the video address but not the grid's is_video,
+        # image and url fields, which the rest of the feed relies on.
+        if not post.get('video'):
+            raise instagram.UnexpectedResponse(f'Topic post {code} is not a video')
+        owner = (post.get('owner') or '').lower()
+        if owner != info.get('username'):
+            raise instagram.UnexpectedResponse(f'Topic reel {code} is by @{owner or "unknown"}, not @{info.get("username")}')
+        taken_at = post.get('taken_at')
+        post.update(shortcode=code, owner=owner, is_video=True,
+                    image=post.get('image') or post.get('poster') or '',
+                    url=post.get('url') or f'https://www.instagram.com/reel/{code}/',
+                    taken_at=int(taken_at) if str(taken_at or '').isdigit() else taken_at)
         state = {'posts': [post], 'has_more': False}
         with self._lock:
             self._clips[code] = (time.time(), state)
