@@ -188,7 +188,6 @@ def reels_html(code: str | None = None) -> str:
     return render("reels.html", feed_choices=choices, boot=_page_data({
         "post_code": code,
         "android": config.ANDROID,
-        "song_recognition": not config.ANDROID,
         "scroll_animation": config.scroll_animation(),
         **config.playback_preferences(include_missing=True),
         "feeds": list(load_feeds()),

@@ -567,30 +567,6 @@ async function viewingTests() {
 })().catch(error => { console.error(error); process.exitCode=1; });
 
 (async () => {
-  let finish;
-  const pending = new Promise(resolve => {finish = resolve;});
-  const {ctx, element, timers, calls} = createPage(async url =>
-    url.startsWith('/recognize/') ? pending : {ok:true,json:async()=>({posts:[],has_more:false})});
-  const labels = [{textContent:''},{textContent:''}];
-  element('song0').querySelector = () => labels[0];
-  element('song1').querySelector = () => labels[1];
-  vm.runInContext("posts.push({shortcode:'music01',owner:'one'},{shortcode:'music02',owner:'two'}); current=0; queueSong(0);",ctx);
-  const firstTimer = vm.runInContext('songTimer',ctx);
-  vm.runInContext('queueSong(0); queueSong(0)',ctx);
-  assert.equal(vm.runInContext('songTimer',ctx),firstTimer,'playing/loop events do not postpone recognition');
-  timers[firstTimer-1].run();
-  assert.equal(calls.filter(c=>c.url.startsWith('/recognize/')).length,1);
-  vm.runInContext('current=1; queueSong(1)',ctx);
-  assert.equal(element('song1').hidden,false,'current reel shows queued recognition');
-  assert.equal(labels[1].textContent,'Waiting to identify song…');
-  finish({ok:true,json:async()=>({status:'no_match'})});
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(vm.runInContext('songTimerFor',ctx),1,'old result schedules current reel');
-  assert.equal(labels[0].textContent,'Song not identified');
-  assert.equal(labels[1].textContent,'Waiting to identify song…','old result cannot overwrite current song');
-})().catch(error=>{console.error(error);process.exitCode=1;});
-
-(async () => {
   const {ctx} = createPage(async () => ({ok:true,json:async()=>({posts:[],has_more:false})}));
   let now = 0;
   ctx.performance.now = () => now;

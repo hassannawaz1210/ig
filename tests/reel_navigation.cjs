@@ -453,16 +453,6 @@ const KEYS = {
     // Exercise actual media events, not just mocked progress callbacks.
     await evaluate(`(async () => {
       closeFeedMenu(); closeComments();
-      window.songRequests = [];
-      const oldFetch = window.fetch;
-      window.fetch = (url, options) => {
-        if (String(url).startsWith('/recognize/')) {
-          songRequests.push(String(url));
-          return Promise.resolve(new Response(JSON.stringify({status:'matched',title:'Test song',artist:'Test artist'}),
-            {status:200,headers:{'Content-Type':'application/json'}}));
-        }
-        return oldFetch(url, options);
-      };
       const canvas = document.createElement('canvas'); canvas.width=90; canvas.height=160;
       const paint = canvas.getContext('2d');
       const stream = canvas.captureStream(10);
@@ -485,9 +475,7 @@ const KEYS = {
     assert.ok(viewing.recorded, 'visible video playback reports its first actual view');
     assert.ok(viewing.seconds > .2 && viewing.seconds < 1.5, 'looping a one-second video does not accumulate seconds indefinitely');
     assert.ok(viewing.looped, 'test video completed a loop: ' + JSON.stringify(viewing));
-    assert.equal(await evaluate('songRequests.length'), 1, 'short looping video still starts automatic recognition');
-    assert.equal(await evaluate("document.getElementById('song'+current).hidden"), false);
-    assert.equal(await evaluate("document.getElementById('song'+current).textContent.trim()"), 'Test song · Test artist');
+    assert.equal(await evaluate("document.getElementById('song'+current).hidden"), true, 'no song row when Instagram names none');
     const originalSlot = await evaluate('({index:current,code:posts[current].shortcode})');
     await evaluate(`(() => {
       const previousFetch = window.fetch;

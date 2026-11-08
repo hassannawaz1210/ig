@@ -166,13 +166,11 @@ Logged-out post pages only serve one progressive video rendition (720p), but the
 
 When a reel has no manifest — carousels, some older posts, or if Instagram changes the manifest format — playback falls back to the progressive URL and nothing changes for the user. Seeking uses HTTP range requests on the assembled file.
 
-## Automatic song recognition
+## Songs and sounds
 
-After a reel starts playing and stays visible for three seconds, the app identifies its music automatically and displays the song and artist beneath the caption. Recognition also works while playback is muted. Quickly skipped reels and preloaded videos do not trigger recognition.
+Each reel shows its music beneath the caption the way Instagram labels it: **Track · Artist** for licensed music, or **@creator · Original audio** for a creator's own sound. The name comes from Instagram's own data for the reel, so nothing is downloaded or fingerprinted. Reels with no audio information show no song.
 
-This uses the free, open-source [ShazamIO client](https://github.com/shazamio/ShazamIO), which contacts Shazam's unofficial recognition service. No paid API key or microphone access is required. The server downloads the reel temporarily (up to 40 MB), extracts 12 seconds of audio using the bundled FFmpeg binary and creates its fingerprint locally, and sends that fingerprint to Shazam. Temporary video files are deleted after recognition. It is not an offline service, and upstream changes can interrupt it.
-
-Matches are cached for 30 days and no-match results for one day in `~/.cache/ig/songs.sqlite3`, capped at 5,000 entries. Failures are shown separately from genuine no-match results and never block video playback. No-match results are possible for speech, remixes, and obscure music.
+Tap the song (or choose **More reels on this sound** in the **…** menu) to open the sound's page: the track, artist and Instagram's reel count, with a grid of other public reels using it.
 
 ## Why am I seeing this?
 
@@ -182,7 +180,7 @@ Each reel has a **why** button (or press **W**). It says where the creator came 
 
 The heart is now a **local reel like**, not an Instagram action. Its displayed count still comes from Instagram. Use the heart or **L** to ask for more similar content; use the minus-circle button or **N** for less. Neither action follows, saves, or blocks the creator. Account saving (**A**) and the two blocklists remain separate.
 
-Likes and “not interested” train a small, transparent ranking model using caption words, hashtags, and audio IDs or recognized song metadata when available. A quick skip after 0.3–2.5 seconds of playback is a much weaker signal. Skips do not overwrite explicit likes/dislikes, and each reel contributes only its latest feedback. This is metadata matching; it does not understand the visuals or jokes inside a video.
+Likes and “not interested” train a small, transparent ranking model using caption words, hashtags, and audio IDs and song names when available. A quick skip after 0.3–2.5 seconds of playback is a much weaker signal. Skips do not overwrite explicit likes/dislikes, and each reel contributes only its latest feedback. This is metadata matching; it does not understand the visuals or jokes inside a video.
 
 New creator candidates come from tags, collaborations, mentions, explicit credits, liked creators, shared hashtags, and weak commenter leads. Source tags do not assign a topic to the candidate. Explicit credits are stronger leads; sponsor mentions are weaker, but neither is an automatic endorsement or exclusion. Stored leads come from selected saved accounts; All also includes tags from liked reels. Candidate profiles are checked against selected topics using their own bio and recent video captions. For movie edits that means edit words (edit, editor, fan edit, velocity, After Effects or AE, CapCut, AMV, scene pack); words like "movie", "film" or "cinema" alone are not enough, so studio and clip accounts don't qualify. Saved memberships bypass this heuristic.
 

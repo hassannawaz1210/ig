@@ -56,7 +56,7 @@ function songLabel(song) {
 }
 function songRow(p, i) {
   const label = songLabel(p.song);
-  if (!label) return `<div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>`;
+  if (!label) return `<div class="song" id="song${i}" hidden></div>`;
   const inner = `${icon('music')}<span>${esc(label)}</span>`;
   return /^\d{10,32}$/.test(String(p.audio_id || ''))
     ? `<a class="song" id="song${i}" href="/sound/${p.audio_id}" title="More reels on this sound: ${esc(label)}">${inner}</a>`
@@ -1013,7 +1013,6 @@ function onReelPlaying(i) {
   const video = document.getElementById('s'+i)?.querySelector('video');
   if (video && posts[i]._lastSample && video.currentTime < posts[i]._lastSample.time) posts[i]._looped = true;
   posts[i]._lastSample = !document.hidden && video ? {time:video.currentTime, wall:performance.now()} : null;
-  queueSong(i);
 }
 function updateSeekBar(i, video) {
   const input = document.getElementById('seek'+i);
@@ -1304,71 +1303,6 @@ async function rateReel(i, action) {
     }
   } catch (_) { actionStatus('Could not save feedback · try again'); }
   finally { p._feedbackBusy = false; }
-}
-let songTimer = null;
-let songTimerFor = null;
-let songBusy = false;
-function renderSong(i, result) {
-  const row = document.getElementById('song'+i);
-  if (!row || isHidden(posts[i])) return;
-  row.hidden = false;
-  const label = row.querySelector('span');
-  label.textContent = '';
-  if (result.status === 'matched') {
-    const text = result.title + (result.artist ? ' · ' + result.artist : '');
-    row.title = text;
-    if (result.url?.startsWith('https://')) {
-      const link = document.createElement('a');
-      link.href = result.url; link.target = '_blank'; link.rel = 'noopener';
-      link.textContent = text; label.append(link);
-    } else label.textContent = text;
-  } else label.textContent = result.status === 'no_match' ? 'Song not identified'
-    : result.status === 'loading' ? 'Identifying song…'
-    : result.status === 'queued' ? 'Waiting to identify song…' : 'Song recognition unavailable';
-}
-function queueSong(i) {
-  if (boot.song_recognition === false) return;
-  const p = posts[i];
-  if (songLabel(p?.song)) return;   // Instagram already named it
-  if (!p || current !== i || isHidden(p)) return;
-  if (p._song) { renderSong(i, p._song); return; }
-  if (songTimer && songTimerFor === i) return; // buffering/loops must not restart the delay
-  clearTimeout(songTimer);
-  songTimer = null;
-  songTimerFor = null;
-  if (songBusy) {
-    if (!p._recognizing) renderSong(i, {status:'queued'});
-    return; // completion of the active request schedules the current reel
-  }
-  songTimerFor = i;
-  songTimer = setTimeout(() => {
-    songTimer = null;
-    songTimerFor = null;
-    if (current === i && !p._paused && !isHidden(p)) recognizeSong(i);
-  }, Math.max(3000, (p._songRetryAt || 0) - Date.now()));
-}
-async function recognizeSong(i) {
-  const p = posts[i];
-  if (songBusy || !p || p._song || isHidden(p) || current !== i) return;
-  songBusy = true;
-  p._recognizing = true;
-  try {
-    renderSong(i, {status:'loading'});
-    const r = await fetch('/recognize/' + encodeURIComponent(p.shortcode),
-      {method:'POST', signal:AbortSignal.timeout(110000)});
-    if (!r.ok) throw new Error();
-    const result = await r.json();
-    if (result.status === 'matched' || result.status === 'no_match') p._song = result;
-    else p._songRetryAt = Date.now() + (result.status === 'busy' ? 5000 : 60000);
-    if (posts[i] === p) renderSong(i, result);
-  } catch (_) {
-    p._songRetryAt = Date.now() + 60000;
-    if (posts[i] === p) renderSong(i, {status:'unavailable'});
-  } finally {
-    songBusy = false;
-    p._recognizing = false;
-    queueSong(current);
-  }
 }
 function showSearch() {
   const dialog = androidSheet('reel-search', 'Search');
@@ -1690,7 +1624,6 @@ function toggleWhy(i = current) {
 function replaceCreatorSlide(post, play = true) {
   const i = current;
   recordQuickSkip(i);
-  clearTimeout(songTimer); songTimer = null; songTimerFor = null;
   const old = document.getElementById('s'+i);
   if (old) { io.unobserve(old); releaseVideo(old); }
   posts[i] = post;

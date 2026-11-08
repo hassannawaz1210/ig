@@ -65,7 +65,7 @@ class RecommendationTests(unittest.TestCase):
         rec.remember_reels([{'shortcode':'clip01','owner':'one','caption':'Squats'}])
         rec.set_feedback('clip01','like')
         rec.remember_reels([{'shortcode':'clip01','tagged_users':['trainer'],'audio_id':'42'}])
-        rec.remember_song('clip01',{'status':'matched','title':'Song','artist':'Artist'})
+        rec.remember_reels([{'shortcode':'clip01','song':{'title':'Song','artist':'Artist','original':False}}])
         liked = rec.liked_reels()[0]
         self.assertEqual(liked['caption'],'Squats')
         self.assertNotIn('trainer',rec.discovery_accounts())

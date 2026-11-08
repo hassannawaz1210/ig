@@ -5,7 +5,7 @@ find new creators as you watch. No Instagram account needed.
 
 Like individual reels to shape recommendations, save favorites, or block
 accounts you don't want to see. There's keyboard navigation, comments, video
-downloads, automatic song recognition, and phone access over Wi-Fi.
+downloads, the song each reel uses, and phone access over Wi-Fi.
 
 The standalone [Android app](https://github.com/hassannawaz1210/ig/releases/download/android-updates/ig-android.apk)
 runs on your phone without a desktop server. It checks GitHub for updates and
@@ -134,8 +134,7 @@ History and caches live under `~/.cache/ig/`. Each OS user gets their own data;
 browsers and phones connected to the same server share that server's profile.
 You can use `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` to keep separate profiles.
 
-Browsing contacts Instagram. Song recognition sends an audio fingerprint to
-Shazam; it doesn't use your microphone. Neither needs a paid API key.
+Browsing contacts Instagram only; it needs no paid API key.
 
 Instagram sometimes rate-limits requests or changes its public endpoints, so
 loading can fail. The app backs off automatically; `ig logs` shows details.

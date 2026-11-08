@@ -22,7 +22,6 @@ from .feeds import MIX, feed_pool, pool_more, feed_accounts, creator_more
 from .instagram import (load_profile, more_posts, InstagramError, RateLimited,
                         ProfileUnavailable, NetworkError, PROFILES, STATE)
 from .reels import REELS, media_info
-from .recognition import recognize_song
 from . import dash
 from .topics import TOPICS
 from .suggestions import SUGGESTIONS
@@ -703,16 +702,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(500, b'could not save feedback', 'text/plain')
         if self.path == "/saved-reels":
             return self._set_reel_saved()
-        if self.path.startswith("/recognize/"):
-            code = self.path.removeprefix("/recognize/")
-            if not re.fullmatch(r"[A-Za-z0-9_-]{5,30}", code):
-                return self._send(400, b"invalid post code", "text/plain")
-            result = recognize_song(code)
-            try:
-                recommendations.remember_song(code, result)
-            except Exception:
-                log.exception("Could not store the song for %s", code)  # The result is still useful.
-            return self._send(200, json.dumps(result).encode(), "application/json")
         if self.path in ("/block", "/unblock"):
             try:
                 length = int(self.headers.get("Content-Length") or 0)

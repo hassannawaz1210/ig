@@ -172,11 +172,6 @@ def _prune_reels(connection):
     connection.executemany('DELETE FROM tag_index WHERE code = ?', old)
 
 
-def remember_song(code, song):
-    if song.get('status') == 'matched':
-        remember_reels([{'shortcode': code, 'song': song}])
-
-
 def set_feedback(code, action):
     if action not in {'like', 'dislike', 'skip', 'clear'}:
         raise ValueError('Unknown feedback action')

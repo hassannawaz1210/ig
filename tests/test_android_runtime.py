@@ -4,18 +4,15 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
-from ig import config, dash, recognition, views
+from ig import config, dash, views
 
 BOOTSTRAP = Path(__file__).resolve().parents[1] / 'android/app/src/main/python/ig_android.py'
 
 
 class AndroidRuntimeTests(unittest.TestCase):
     def test_disabled_features_do_not_fetch_media(self):
-        with patch.object(config, 'ANDROID', True), patch('ig.recognition.media_info') as media, \
-                patch('ig.dash.plan') as plan:
-            self.assertEqual(recognition.recognize_song('abcde'), {'status':'unavailable'})
+        with patch.object(config, 'ANDROID', True), patch('ig.dash.plan') as plan:
             self.assertIsNone(dash.assemble('abcde', '<MPD/>'))
-            media.assert_not_called()
             plan.assert_not_called()
 
     def test_android_flags_are_explicit_in_boot_data(self):
@@ -24,7 +21,7 @@ class AndroidRuntimeTests(unittest.TestCase):
                 patch('ig.views.selected_feeds', return_value=None):
             html = views.reels_html()
             self.assertIn('"android": true', html)
-            self.assertIn('"song_recognition": false', html)
+            self.assertNotIn('song_recognition', html)
 
     @unittest.skipUnless(BOOTSTRAP.exists(), 'Android source is not in this distribution')
     def test_private_backend_requires_cookie_and_matching_origin(self):
