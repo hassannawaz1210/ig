@@ -33,6 +33,8 @@ const countEl = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmt = n => (n??0).toLocaleString();
+// @usernames in captions and comments link to their profiles (common.js).
+const mentions = text => typeof linkifyMentions === 'function' ? linkifyMentions(text) : esc(text);
 // How old a post is: "5 minutes ago", "3 days ago", "2 years ago".
 const AGE_UNITS = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]];
 function postAge(t, now = Date.now()) {
@@ -516,7 +518,9 @@ function slideHtml(p, i) {
     <div class="info">
       <a class="user" href="/u/${esc(p.owner)}" title="View profile (P)">@${esc(p.owner)}</a>
       ${postDate(p.taken_at)}
-      ${p.caption ? `<button type="button" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption" onclick="toggleCaption(${i})">${esc(p.caption)}</button>` : ''}
+      ${p.caption ? `<div role="button" tabindex="0" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption"
+        onclick="if(!event.target.closest('a'))toggleCaption(${i})"
+        onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();toggleCaption(${i})}">${mentions(p.caption)}</div>` : ''}
       <div class="song" id="song${i}" hidden>${icon('music')}<span></span></div>
       <div class="why" id="why${i}" hidden></div>
     </div>
@@ -2190,7 +2194,7 @@ function commentRow(comment) {
   return `<article class="comment-row">
     <a href="/u/${encodeURIComponent(comment.username)}" target="_blank" rel="noopener">@${esc(comment.username)}</a>
     ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-    <p>${esc(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`;
+    <p>${mentions(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`;
 }
 function commentKey(comment) {
   return comment.id ? 'id:' + comment.id : JSON.stringify([comment.username, comment.text, comment.created_at]);

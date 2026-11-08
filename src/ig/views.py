@@ -13,6 +13,22 @@ from . import config
 from .config import blocked_accounts, load_feeds, selected_feeds
 from .feeds import feed_accounts
 
+
+MENTION_RE = re.compile(r'(^|[^\w.@])@([A-Za-z0-9._]{1,30})')
+
+
+def link_mentions(text: str) -> str:
+    """Escaped text with each @username linked to that profile in ig (same
+    rules as linkifyMentions in common.js)."""
+    def link(match):
+        before, name = match.groups()
+        username = name.rstrip('.')
+        if not username:
+            return match.group(0)
+        return (f'{before}<a class="mention" href="/u/{escape(username.lower(), quote=True)}">'
+                f'@{username}</a>{name[len(username):]}')
+    return MENTION_RE.sub(link, escape(text or ''))
+
 STATIC_DIR = Path(__file__).with_name("static")
 STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 STATIC_NAME = re.compile(r"[a-z][a-z0-9_-]{0,40}\.(?:js|css)")
@@ -129,7 +145,7 @@ def _profile_summary(username: str, profile: dict, add_button: str) -> str:
             f'<strong>{escape(profile.get("full_name") or username)}</strong>'
             + ('<span class="verified" role="img" aria-label="Verified">' + icon('check') + '</span>'
                if profile.get('verified') else '')
-            + (f'<p>{escape(biography)}</p>' if biography else '')
+            + (f'<p>{link_mentions(biography)}</p>' if biography else '')
             + links_html + '</div>'
             f'<div class="profile-actions">{add_button}</div></section>')
 

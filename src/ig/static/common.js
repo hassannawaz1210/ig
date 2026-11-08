@@ -640,3 +640,24 @@ if (typeof document !== 'undefined') document.addEventListener('pointerdown', ev
   }
   selection.removeAllRanges();
 }, true);
+
+// ---- @mentions ----
+// Escaped text with each @username turned into a link to that profile in ig,
+// like Instagram does in captions, comments and bios.
+const MENTION_RE = /(^|[^\w.@])@([A-Za-z0-9._]{1,30})/g;
+function escapeText(text) {
+  return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function linkifyMentions(text) {
+  return escapeText(text).replace(MENTION_RE, (match, before, name) => {
+    const username = name.replace(/\.+$/, '');   // "see @nasa." ends the sentence
+    const trailing = name.slice(username.length);
+    if (!username) return match;
+    return `${before}<a class="mention" href="/u/${encodeURIComponent(username.toLowerCase())}">@${username}</a>${trailing}`;
+  });
+}
+if (typeof document !== 'undefined' && document.head && !document.getElementById('ig-mention-styles')) {
+  const style = document.createElement('style'); style.id = 'ig-mention-styles';
+  style.textContent = 'a.mention{color:#b9d4ff;font-weight:600;text-decoration:none}a.mention:hover{text-decoration:underline}';
+  document.head.append(style);
+}

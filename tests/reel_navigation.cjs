@@ -673,6 +673,25 @@ const KEYS = {
       browseCreator=real; return calls;
     })()`);
     assert.deepEqual(swipes,[1,-1],'swipe left shows more from the creator, right goes back, small moves do nothing');
+    // @usernames in captions link to profiles; tapping one doesn't expand the caption.
+    const mention = await evaluate(`(async () => {
+      const caption = document.createElement('div'); caption.id = 'caption-test'; caption.className = 'cap';
+      caption.innerHTML = mentions('funny one by @Some_Creator. ping a@b.com');
+      caption.onclick = event => { if (!event.target.closest('a')) caption.classList.toggle('full'); };
+      document.querySelector('#s' + current + ' .info').append(caption);
+      const visited = [], real = routeLocalPage; routeLocalPage = url => { visited.push(url.pathname); return true; };
+      const link = caption.querySelector('a.mention');
+      link.click(); await new Promise(r => setTimeout(r, 200));  // the app saves pending changes first
+      const result = {href: link.getAttribute('href'), text: link.textContent, links: caption.querySelectorAll('a').length,
+        expandedByLink: caption.classList.contains('full')};
+      caption.click(); result.expandedByText = caption.classList.contains('full');
+      routeLocalPage = real; caption.remove();
+      return {...result, visited};
+    })()`);
+    await sleep(100);
+    assert.deepEqual(mention, {href: '/u/some_creator', text: '@Some_Creator', links: 1, expandedByLink: false,
+      expandedByText: true, visited: ['/u/some_creator']}, 'caption mentions open profiles');
+    assert.equal(await evaluate(`document.querySelector('.cap')?.tagName ?? 'DIV'`), 'DIV', 'captions are not buttons, so links inside work');
     // A caption selection (Copy / Select all menu) clears when you press elsewhere.
     const selecting = await evaluate(`(() => {
       const info = document.querySelector('#s' + current + ' .info');
