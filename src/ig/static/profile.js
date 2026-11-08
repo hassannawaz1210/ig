@@ -31,6 +31,8 @@ const count = document.getElementById('count');
 const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
                          .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmt = n => (n??0).toLocaleString();
+// @usernames link to their profiles (common.js); plain escaped text without it.
+const mentions = text => typeof linkifyMentions === 'function' ? linkifyMentions(text) : esc(text);
 const short = n => n == null ? '' : Intl.NumberFormat(undefined, {notation:'compact', maximumFractionDigits:1}).format(n);
 const fdate = t => t ? new Date(t*1000).toLocaleDateString(
     undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
@@ -256,7 +258,7 @@ function lb(i) {
   document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
   document.getElementById('lbstats').innerHTML =
     `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
-  document.getElementById('lbcap').innerHTML = linkifyMentions(p.caption || '');  // @usernames link to profiles
+  document.getElementById('lbcap').innerHTML = mentions(p.caption || '');  // @usernames link to profiles
   const box = document.getElementById('lbcontent');
   if (p._rich) {
     box.innerHTML = richHtml(p);
@@ -595,7 +597,7 @@ function renderProfileComments(post) {
   body.innerHTML = (post._profileComments || []).map(comment => `<article class="comment-row">
     <a href="/u/${encodeURIComponent(comment.username)}">@${esc(comment.username)}</a>
     ${comment.is_owner ? '<span class="comment-creator">Creator</span>' : ''}
-    <p>${linkifyMentions(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('');
+    <p>${mentions(comment.text)}</p><small>${fmt(comment.like_count)} likes</small></article>`).join('');
   if (post._profileCommentsBusy) body.insertAdjacentHTML('beforeend', '<p class="comments-status" role="status">Loading…</p>');
   else if (post._profileCommentsError || post._profileCommentCursor) {
     const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'comments-more';
