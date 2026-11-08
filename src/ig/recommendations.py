@@ -102,7 +102,17 @@ def _viewed_reels_schema(connection):
     connection.execute('CREATE TABLE IF NOT EXISTS viewed_reels (event TEXT PRIMARY KEY, code TEXT NOT NULL, owner TEXT NOT NULL, viewed REAL NOT NULL)')
 
 
-MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema, _viewed_reels_schema)
+def _watch_log_schema(connection):
+    # Permanent, compact record of what you watched, for the stats page. Unlike
+    # viewed_reels (last 200) and the viewing history (last 5000), it is never
+    # trimmed; one small row per reel watched.
+    connection.execute('CREATE TABLE IF NOT EXISTS watch_log (token TEXT PRIMARY KEY, code TEXT NOT NULL, '
+                       'owner TEXT NOT NULL, viewed REAL NOT NULL, seconds REAL NOT NULL, '
+                       'source TEXT NOT NULL, feed TEXT, tags TEXT NOT NULL)')
+    connection.execute('CREATE INDEX IF NOT EXISTS watch_log_viewed ON watch_log(viewed)')
+
+
+MIGRATIONS = (_initial_schema, _tag_index_schema, _saved_reels_schema, _viewed_reels_schema, _watch_log_schema)
 
 
 @contextmanager
@@ -712,6 +722,27 @@ def record_deliveries(posts):
                                [(post['shortcode'], post.get('owner') or '', time.time()) for post in posts])
         connection.execute('DELETE FROM deliveries WHERE id NOT IN '
                            '(SELECT id FROM deliveries ORDER BY id DESC LIMIT 200)')
+
+
+def log_watch(token, code, owner, seconds, viewed=None):
+    """Add or update one reel in the permanent watch log (stats page).
+
+    Where the reel came from and its creator's feed are fixed when it is first
+    logged, so later feed changes don't rewrite your history."""
+    with database() as connection:
+        row = connection.execute('SELECT seconds FROM watch_log WHERE token=?', (token,)).fetchone()
+        if row:
+            if seconds > row[0]:
+                connection.execute('UPDATE watch_log SET seconds=? WHERE token=?', (seconds, token))
+            return
+        data = connection.execute('SELECT data FROM reels WHERE code=?', (code,)).fetchone()
+        post = json.loads(data[0]) if data else {}
+        feeds = config.load_feeds()
+        feed = next((name for name, accounts in feeds.items() if owner in config.accounts_from_feed(accounts)), None)
+        source = 'feed' if feed else (post.get('discovery_source') or 'other')
+        connection.execute('INSERT INTO watch_log VALUES (?,?,?,?,?,?,?,?)',
+                           (token, code, owner, viewed or time.time(), seconds, source, feed,
+                            json.dumps(sorted(caption_tags(post.get('caption') or ''))[:12])))
 
 
 def record_view(code, owner, event):

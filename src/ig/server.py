@@ -25,7 +25,8 @@ from .recognition import recognize_song
 from . import dash
 from .topics import TOPICS
 from .suggestions import SUGGESTIONS
-from .views import viewer_html, reels_html, settings_html, feeds_html, static_file, status_html
+from .views import viewer_html, reels_html, settings_html, feeds_html, stats_html, static_file, status_html
+from . import stats
 
 log = logging.getLogger(__name__)
 
@@ -299,6 +300,18 @@ class Handler(BaseHTTPRequestHandler):
             html = status_html('Check for updates',
                 'This version cannot check for updates here. Download the latest Android app to enable in-app updates.', retry=False)
             return self._send(200, html.encode(), 'text/html; charset=utf-8')
+        if self.path == '/stats' or self.path.startswith('/stats/data'):
+            try:
+                if self.path == '/stats':
+                    return self._send(200, stats_html().encode(), 'text/html; charset=utf-8')
+                query = parse_qs(urlsplit(self.path).query)
+                days = (query.get('days') or ['30'])[0]
+                if days not in ('7', '30', '0'):
+                    return self._send(400, b'{"error":"Choose 7, 30 or 0 days"}', 'application/json')
+                stats.backfill()
+                return self._send(200, json.dumps(stats.compute(int(days))).encode(), 'application/json')
+            except Exception as error:
+                return self._fail(error, as_json=self.path != '/stats', context='Loading your stats')
         if self.path in ('/settings', '/settings/feeds', '/settings/data'):
             try:
                 if self.path == '/settings':
@@ -603,6 +616,11 @@ class Handler(BaseHTTPRequestHandler):
                     if owner is None:
                         return self._send(409, b'{"accepted":false}', 'application/json')
                     recommendations.record_view(code, owner, token)
+                    try:
+                        recommendations.log_watch(token, code, owner, seconds)
+                    except Exception:
+                        # Stats are a convenience; never fail playback over them.
+                        log.exception('Could not add %s to the watch log', code)
                 else:
                     tokens = body.get('tokens')
                     if tokens is not None and (not isinstance(tokens, list) or len(tokens) > 1000 or any(

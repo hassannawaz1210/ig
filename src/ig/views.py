@@ -172,6 +172,11 @@ def reels_html(code: str | None = None) -> str:
     }))
 
 
+def stats_html() -> str:
+    """Settings → Your stats. The page loads its numbers itself."""
+    return render('stats.html', boot=_page_data({'android': config.ANDROID}))
+
+
 def feeds_html() -> str:
     """Settings → Feeds: every feed and its accounts. The page loads them itself."""
     return render('feeds.html', boot=_page_data({'android': config.ANDROID}))
