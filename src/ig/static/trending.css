@@ -23,7 +23,8 @@ main, .page-header { max-width:960px; }
 .trend-card.placeholder i:nth-child(2) { height:13px; width:60%; margin:2px 12px 0; border-radius:6px; }
 .trend-card.placeholder i:nth-child(3) { height:10px; width:35%; margin:0 12px; border-radius:6px; }
 /* Profiles to look out for. */
-.trend-creators { display:flex; gap:14px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; padding:2px 0 24px; }
+.trend-creators { display:flex; gap:14px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; padding:2px 0 18px; }
+#trending-creators .group-title { margin-top:0; }
 .trend-creators::-webkit-scrollbar { display:none; }
 .trend-creator { flex:none; display:flex; flex-direction:column; align-items:center; gap:4px; width:84px; color:inherit; text-decoration:none; }
 .trend-creator-picture { position:relative; display:grid; place-items:center; width:72px; height:72px; border-radius:50%;
@@ -35,3 +36,16 @@ main, .page-header { max-width:960px; }
   .trend-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
 }
 @media (prefers-reduced-motion:reduce) { .trend-card.placeholder i { animation:none; } }
+
+/* List tabs: compact pills with room above them. On phones they sit in a bar
+   at the bottom of the screen, where the thumb is, instead of the top. */
+.trending-page .group-note { margin:0 0 14px; }
+.trending-page .trending-tab, .android-app.trending-page .trending-tab {
+  min-height:34px; padding:5px 14px; font-size:13.5px; line-height:1.2; }
+@media (max-width:640px) {
+  .trending-page main { padding-bottom:calc(72px + env(safe-area-inset-bottom)); }
+  .trending-page .trending-tabs { position:fixed; left:0; right:0; bottom:0; z-index:5; margin:0;
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom)); gap:8px;
+    background:color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); }
+}
