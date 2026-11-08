@@ -18,6 +18,10 @@ class ProjectTests(unittest.TestCase):
             p = patch(target, value)
             p.start()
             self.addCleanup(p.stop)
+        # Never fetch Instagram topic pages in the background during tests.
+        offline = patch.object(feeds.TOPICS, 'enabled', False)
+        offline.start()
+        self.addCleanup(offline.stop)
         feeds.POOLS.clear()
 
     def run_cli(self, *args):

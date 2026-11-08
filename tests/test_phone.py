@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from ig import cli, config, logs, phone
 from ig.instagram import RateLimited
+from ig import topics
 from ig.server import make_server
 
 
@@ -31,6 +32,9 @@ class LiveServer(TempConfig):
     def setUp(self):
         super().setUp()
         self.server = make_server('127.0.0.1', 0, self.access)
+        # make_server turns on background topic fetching; tests stay offline and
+        # must not leave it on for later tests (it would write into their folders).
+        topics.TOPICS.enabled = False
         thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.02}, daemon=True)
         thread.start()
         self.addCleanup(self.server.server_close)
