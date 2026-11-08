@@ -626,7 +626,6 @@ def post(url_or_code: str) -> dict:
     return _post_media(url_or_code.rstrip("/").rsplit("/", 1)[-1])
 
 
-class ProfileCache:
 _AYML_CACHE = OrderedDict()
 _AYML_LOCK = threading.Lock()
 AYML_TTL = 30 * 60  # Instagram's own rail changes slowly
@@ -706,6 +705,7 @@ def related_accounts(username: str) -> list[dict]:
     return suggestions
 
 
+class ProfileCache:
     """Profiles saved on disk, so restarts do not refetch every account.
 
     Only public metadata is stored: bio, slim posts and the pagination cursor.
