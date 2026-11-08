@@ -105,6 +105,12 @@ class StatsRouteTests(ProjectTests):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)['days'], 7)
         self.assertEqual(self.get('/stats/data?days=5')[0], 400)
+        # Each section can load on its own, so the page shows whichever is ready first.
+        self.assertEqual(set(json.loads(self.get('/stats/data?days=7&part=overview')[1])),
+                         {'days', 'since', 'summary', 'creators', 'sources', 'hours'})
+        self.assertEqual(set(json.loads(self.get('/stats/data?days=7&part=weeks')[1])), {'weeks'})
+        self.assertEqual(set(json.loads(self.get('/stats/data?days=7&part=tags')[1])), {'tags'})
+        self.assertEqual(self.get('/stats/data?days=7&part=secrets')[0], 400)
 
     def test_failures_return_a_safe_error(self):
         with patch.object(stats, 'compute', side_effect=RuntimeError('database is locked /home/x')):

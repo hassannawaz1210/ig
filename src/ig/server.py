@@ -333,8 +333,11 @@ class Handler(BaseHTTPRequestHandler):
                 days = (query.get('days') or ['30'])[0]
                 if days not in ('7', '30', '0'):
                     return self._send(400, b'{"error":"Choose 7, 30 or 0 days"}', 'application/json')
+                part = (query.get('part') or [None])[0]
+                if part is not None and part not in stats.PARTS:
+                    return self._send(400, b'{"error":"Unknown stats section"}', 'application/json')
                 stats.backfill()
-                return self._send(200, json.dumps(stats.compute(int(days))).encode(), 'application/json')
+                return self._send(200, json.dumps(stats.compute(int(days), part=part)).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=self.path != '/stats', context='Loading your stats')
         if self.path in ('/settings', '/settings/feeds', '/settings/data'):

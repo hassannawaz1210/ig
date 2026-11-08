@@ -226,45 +226,72 @@ function renderHours(hours) {
   box.replaceChildren(svg);
 }
 
-function render(data) {
-  current = data;
+// Three requests run side by side and each section appears as soon as its
+// own answer arrives: the overview (tiles, creators, sources, hours; follows
+// the chosen period), the weekly chart and the hashtags (their own windows,
+// so switching period doesn't reload them).
+function renderOverview(data) {
+  current = {...current, ...data};
   document.getElementById('since').textContent = data.since
     ? `Recorded on this device since ${new Date(data.since * 1000).toLocaleDateString(undefined, {month: 'long', day: 'numeric', year: 'numeric'})}.`
     : 'Nothing recorded on this device yet.';
   renderTiles(data.summary);
   renderCreators(data.creators);
   renderSources(data.sources);
-  renderWeeks(data.weeks);
-  renderTags(data.tags);
   renderHours(data.hours);
-  for (const id of ['weeks', 'tags', 'hours']) document.getElementById(id).setAttribute('aria-busy', 'false');
+  document.getElementById('hours').setAttribute('aria-busy', 'false');
 }
+const PART_VIEWS = {
+  weeks: data => { current = {...current, weeks: data.weeks}; renderWeeks(data.weeks);
+    document.getElementById('weeks').setAttribute('aria-busy', 'false'); },
+  tags: data => { renderTags(data.tags); document.getElementById('tags').setAttribute('aria-busy', 'false'); },
+};
+const failed = new Set();
 
-// First load: the page starts with grey placeholders (stats.html). Switching
-// period: the sections that depend on it fade and shimmer until the answer
-// arrives; older answers that come back late are ignored.
+function showFailures() {
+  if (!failed.size) { status.replaceChildren(); return; }
+  const retry = node('button', {type: 'button', class: 'link-button'}, 'Retry');
+  retry.addEventListener('click', () => {
+    const parts = [...failed]; failed.clear(); showFailures();
+    for (const part of parts) part === 'overview' ? load(selectedDays()) : loadPart(part);
+  });
+  status.replaceChildren(node('span', {}, 'Some stats could not load.'), ' ', retry);
+}
+const selectedDays = () => document.querySelector('#period input:checked').value;
+
 function setRefreshing(on) {
   document.querySelector('.viz-root').classList.toggle('refreshing', on);
   for (const part of document.querySelectorAll('.period-part')) part.setAttribute('aria-busy', String(on));
-  const note = document.getElementById('since');
-  if (on && current) note.textContent = 'Updating…';
+  if (on && current?.summary) document.getElementById('since').textContent = 'Updating…';
 }
 
+async function loadPart(part) {
+  try {
+    PART_VIEWS[part](await settingsRequest('/stats/data?days=0&part=' + part));
+  } catch (error) {
+    console.error('Loading stats failed: ' + part, error);
+    failed.add(part); showFailures();
+    const box = document.getElementById(part);
+    box.setAttribute('aria-busy', 'false');
+    if (!current?.[part]) box.replaceChildren(node('p', {class: 'empty-note'}, 'Could not load this section.'));
+  }
+}
+
+// Switching period fades the sections that depend on it until the answer
+// arrives; older answers that come back late are ignored.
 async function load(days) {
   const version = ++loadVersion;
-  status.replaceChildren();
+  failed.delete('overview'); showFailures();
   setRefreshing(true);
   try {
-    const data = await settingsRequest('/stats/data?days=' + encodeURIComponent(days));
+    const data = await settingsRequest('/stats/data?part=overview&days=' + encodeURIComponent(days));
     if (version !== loadVersion) return;
-    render(data);
+    renderOverview(data);
   } catch (error) {
     if (version !== loadVersion) return;
-    console.error('Loading stats failed', error);
-    const retry = node('button', {type: 'button', class: 'link-button'}, 'Retry');
-    retry.addEventListener('click', () => load(document.querySelector('#period input:checked').value));
-    status.replaceChildren(node('span', {}, (error && error.message) || 'Could not load your stats.'), ' ', retry);
-    if (current) render(current);   // keep showing the last good numbers
+    console.error('Loading stats failed: overview', error);
+    failed.add('overview'); showFailures();
+    if (current?.summary) renderOverview(current);   // keep showing the last good numbers
     else document.getElementById('since').textContent = '';
   } finally {
     if (version === loadVersion) setRefreshing(false);
@@ -275,6 +302,8 @@ document.getElementById('weeks-table-toggle').addEventListener('click', event =>
   showWeeksTable = !showWeeksTable;
   event.currentTarget.setAttribute('aria-pressed', String(showWeeksTable));
   event.currentTarget.textContent = showWeeksTable ? 'Show as chart' : 'Show as table';
-  if (current) renderWeeks(current.weeks);
+  if (current?.weeks) renderWeeks(current.weeks);
 });
-load(document.querySelector('#period input:checked').value);
+load(selectedDays());
+loadPart('weeks');
+loadPart('tags');

@@ -34,6 +34,15 @@ function initialPlaybackPreferences(data) {
   return {...data,...legacy};
 }
 let beforeLocalNavigation = async () => { await playbackWrite; };
+// Inside the player's page layer: say so as soon as the page is parsed, so
+// the layer's placeholder goes and images fill in as they arrive (the
+// frame's load event would wait for every image).
+if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
+  const ready = () => { try { window.parent.postMessage({type:'ig-local-page-ready'}, location.origin); }
+    catch (error) { console.warn('Could not tell the player this page is ready', error); } };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, {once:true});
+  else ready();
+}
 window.flushLocalChanges = () => beforeLocalNavigation();
 let routeLocalPage = null;
 async function visitLocalPage(value) {

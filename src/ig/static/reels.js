@@ -1193,12 +1193,9 @@ function showLocalPage(destination, push = true) {
     const frame = document.createElement('iframe'); frame.title = 'ig';
     const loading = localPagePlaceholder();
     const page = localPage = {layer,frame,back,video,loading,resume:!!posts[current] && !posts[current]._paused};
-    frame.addEventListener('load', () => {
-      localPageLoading(page, false);
-      // Links followed inside the page (a sound from a profile post) load too.
-      try { frame.contentWindow.addEventListener('pagehide', () => localPageLoading(page, true)); }
-      catch (error) { console.warn('Cannot watch the page for navigation', error); }
-    });
+    // Normally the page says it's ready once parsed (common.js); the load
+    // event is the fallback for pages without common.js, such as errors.
+    frame.addEventListener('load', () => localPageLoading(page, false));
     video?.pause();
     layer.append(back,frame,loading); document.body.append(layer);
     localPageLoading(page, true);
@@ -1245,8 +1242,15 @@ routeLocalPage = destination => {
   showLocalPage(destination); return true;
 };
 window.addEventListener('message', event => {
-  if (!localPage || event.source !== localPage.frame.contentWindow || event.origin !== location.origin ||
-      event.data?.type !== 'ig-local-navigation') return;
+  if (!localPage || event.source !== localPage.frame.contentWindow || event.origin !== location.origin) return;
+  if (event.data?.type === 'ig-local-page-ready') {
+    localPageLoading(localPage, false);
+    // Links followed inside the page (a sound from a profile post) load too.
+    try { event.source.addEventListener('pagehide', () => { if (localPage) localPageLoading(localPage, true); }, {once:true}); }
+    catch (error) { console.warn('Cannot watch the page for navigation', error); }
+    return;
+  }
+  if (event.data?.type !== 'ig-local-navigation') return;
   try {
     const destination = new URL(event.data.href);
     if (destination.origin === location.origin) routeLocalPage(destination);

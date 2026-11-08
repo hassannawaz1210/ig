@@ -21,7 +21,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise(resolve => { socket.onopen = resolve; });
   let id = 0; const pending = new Map(); const errors = [];
+  const held = [];   // requests paused by the test (Fetch.requestPaused)
   socket.onmessage = event => { const m = JSON.parse(event.data);
+    if (m.method === 'Fetch.requestPaused') held.push(m.params.requestId);
     if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description);
     pending.get(m.id)?.(m); pending.delete(m.id); };
   const send = (method, params = {}) => new Promise(resolve => { pending.set(++id, resolve); socket.send(JSON.stringify({id, method, params})); });
@@ -32,8 +34,16 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   try {
     await send('Runtime.enable');
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
+    // Hold the hashtags answer back: the rest of the page must not wait for it.
+    await send('Fetch.enable', {patterns: [{urlPattern: '*part=tags*'}]});
     await send('Page.navigate', {url});
     await waitFor("document.getElementById('tiles')?.getAttribute('aria-busy') === 'false'", 'stats loaded');
+    await waitFor("!!document.querySelector('#weeks svg')", 'weekly chart shown while hashtags still load');
+    assert.ok(await evaluate("!!document.querySelector('#tags .skeleton-row')"), 'hashtags still loading');
+    assert.ok(held.length >= 1, 'the hashtags request was held');
+    for (const requestId of held.splice(0)) await send('Fetch.continueRequest', {requestId});
+    await send('Fetch.disable');
+    await waitFor("document.getElementById('tags').getAttribute('aria-busy') === 'false'", 'hashtags shown when they arrive');
     assert.equal(await evaluate("document.querySelector('#tiles .tile b').textContent"), '3', '30 days: three reels');
     assert.equal(await evaluate("document.querySelectorAll('#creators .list-row').length"), 3);
     assert.equal(await evaluate("document.querySelector('#creators .list-row a').getAttribute('href')"), '/u/fresh');
@@ -58,6 +68,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await evaluate(`window.realFetch = window.fetch; window.fetch = () => Promise.reject(new Error('offline'))`);
     await evaluate("document.querySelector('#period input[value=\"7\"]').click()");
     await waitFor("[...document.querySelectorAll('#settings-status button')].some(b => b.textContent === 'Retry')", 'retry offered');
+    assert.ok(await evaluate("!!document.querySelector('#weeks svg, #weeks table')"), 'other sections stay when one fails');
     assert.equal(await evaluate("document.querySelector('#tiles .tile b').textContent"), '4', 'last numbers kept');
     assert.equal(await evaluate("document.querySelector('.viz-root').classList.contains('refreshing')"), false);
     await evaluate("window.fetch = window.realFetch; document.querySelector('#settings-status button').click()");

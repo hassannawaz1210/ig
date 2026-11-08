@@ -59,8 +59,9 @@ def _period_start(days, now):
 
 
 CACHE_SECONDS = 30
-_cache = {}            # days -> (version, computed_at, result)
+_cache = {}            # (days, part) -> (version, computed_at, result)
 _cache_lock = threading.Lock()
+PARTS = ('overview', 'weeks', 'tags')
 
 
 def _version(connection):
@@ -71,40 +72,57 @@ def _version(connection):
             connection.execute('SELECT MAX(saved_at), COUNT(*) FROM saved_reels').fetchone())
 
 
-def compute(days=30, now=None):
-    """All stats for the last `days` days (0 = all time).
+def _compute_part(connection, part, days, now):
+    if part == 'weeks':          # the last WEEKS_SHOWN weeks, whatever the period
+        return {'weeks': _weeks(connection, now)}
+    if part == 'tags':           # the last TAG_WINDOW_DAYS against the time before
+        return {'tags': _tags(connection, now)}
+    start = _period_start(days, now)
+    # One grouped scan of the period (viewed index) supplies the overview,
+    # creators, sources and hours.
+    groups = connection.execute(
+        "SELECT w.owner, w.source, CAST(strftime('%H', w.viewed, 'unixepoch', 'localtime') AS INTEGER), "
+        "COUNT(*), SUM(w.seconds), SUM(f.action = 'like'), SUM(f.action = 'skip') "
+        "FROM watch_log w LEFT JOIN feedback f ON f.code = w.code WHERE w.viewed >= ? GROUP BY 1, 2, 3",
+        (start,)).fetchall()
+    return {
+        'days': days,
+        'since': connection.execute('SELECT MIN(viewed) FROM watch_log').fetchone()[0],
+        'summary': _summary(connection, start, groups),
+        'creators': _creators(groups),
+        'sources': _sources(groups),
+        'hours': _hours(groups),
+    }
 
-    One grouped scan of the period (viewed index) supplies the overview,
-    creators, sources and hours; weeks and hashtags read only their own
-    windows. Results are reused until something new is recorded (at most
-    CACHE_SECONDS), so switching periods back and forth is instant."""
+
+def compute(days=30, now=None, part=None):
+    """Stats for the last `days` days (0 = all time).
+
+    `part` is one of PARTS, so the page can show each section as soon as its
+    own data is ready: 'overview' (tiles, creators, sources, hours; depends
+    on the period), 'weeks' and 'tags' (their own fixed windows). None
+    returns everything. Results are reused until something new is recorded
+    (at most CACHE_SECONDS), so switching periods back and forth is instant."""
+    if part is None:
+        result = {}
+        for name in PARTS:
+            result.update(compute(days, now, name))
+        return result
+    if part not in PARTS:
+        raise ValueError(f'Unknown stats part: {part}')
     fixed_now = now is not None
     now = now or time.time()
-    start = _period_start(days, now)
+    key = (days if part == 'overview' else None, part)
     with recommendations.database() as connection:
         version = _version(connection)
         with _cache_lock:
-            cached = _cache.get(days)
+            cached = _cache.get(key)
         if not fixed_now and cached and cached[0] == version and now - cached[1] < CACHE_SECONDS:
             return cached[2]
-        groups = connection.execute(
-            "SELECT w.owner, w.source, CAST(strftime('%H', w.viewed, 'unixepoch', 'localtime') AS INTEGER), "
-            "COUNT(*), SUM(w.seconds), SUM(f.action = 'like'), SUM(f.action = 'skip') "
-            "FROM watch_log w LEFT JOIN feedback f ON f.code = w.code WHERE w.viewed >= ? GROUP BY 1, 2, 3",
-            (start,)).fetchall()
-        result = {
-            'days': days,
-            'since': connection.execute('SELECT MIN(viewed) FROM watch_log').fetchone()[0],
-            'summary': _summary(connection, start, groups),
-            'creators': _creators(groups),
-            'sources': _sources(groups),
-            'weeks': _weeks(connection, now),
-            'tags': _tags(connection, now),
-            'hours': _hours(groups),
-        }
+        result = _compute_part(connection, part, days, now)
     if not fixed_now:
         with _cache_lock:
-            _cache[days] = (version, now, result)
+            _cache[key] = (version, now, result)
     return result
 
 
