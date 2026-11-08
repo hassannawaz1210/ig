@@ -241,6 +241,7 @@ def slim(n: dict) -> dict:
         "carousel_count": n.get("carousel_media_count"),
         "like_count": n.get("like_count"),
         "comment_count": n.get("comment_count"),
+        "play_count": n.get("play_count"),
         "caption": (n.get("caption") or {}).get("text"),
         "image": img,
     }

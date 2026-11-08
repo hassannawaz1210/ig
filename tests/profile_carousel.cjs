@@ -35,7 +35,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await send('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
     await send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 5});
     await send('Page.navigate', {url});
-    await waitFor("typeof store !== 'undefined' && store.length === 2", 'profile page');
+    await waitFor("typeof store !== 'undefined' && store.length === 3", 'profile page');
     await evaluate("document.body.classList.add('android-app')");
     // A multi-image post without a preview gets its first item's image.
     await waitFor("store[0].image && !!document.querySelector('#grid .card img')", 'filled preview');
@@ -58,6 +58,13 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.ok(await evaluate("!!document.querySelector('#lbcontent img')"), 'photo shows at once');
     await waitFor("!document.querySelector('#lbcontent .preview-wait')", 'loading finished');
     assert.ok(await evaluate("!!document.querySelector('#lbcontent > img')"), 'preview kept when the full photo fails');
+    // Views fill in after the grid shows; photos get none.
+    await evaluate('closeLb()');
+    await waitFor("!document.querySelector('[data-views=\"2\"]').hidden", 'reel views filled in');
+    assert.match(await evaluate("document.querySelector('[data-views=\"2\"]').textContent.trim()"), /^2\.8M$/);
+    assert.equal(await evaluate("document.querySelector('[data-views=\"1\"]').hidden"), true, 'no views on a photo');
+    await evaluate('lb(2)');
+    assert.ok(await evaluate("document.getElementById('lbstats').textContent.includes('2.8M')"), 'the viewer shows views');
     // A sound page mixes creators: each post names who posted it.
     await send('Page.navigate', {url: url.replace('/test-profile', '/test-sound')});
     await waitFor("document.querySelectorAll('.tile-owner').length === 2", 'creators on the sound page');

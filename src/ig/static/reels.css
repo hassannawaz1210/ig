@@ -85,6 +85,8 @@
            text-shadow:0 1px 5px #000; }
   .info .user { font-weight:700; font-size:15px; color:#fff; text-decoration:none; }
   .info .date { font-size:12px; color:#cfcfd6; margin-left:8px; }
+  .info .views { display:inline-flex;align-items:center;gap:3px;margin-left:8px;font-size:12px;color:#cfcfd6;white-space:nowrap;vertical-align:middle; }
+  .info .views .icon { width:14px;height:14px; }
   .cap { display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
     overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere;width:100%;box-sizing:border-box;
     font:inherit;font-size:12px;color:#e4e4ea;margin-top:8px;line-height:1.5;text-align:left;
@@ -316,6 +318,7 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .android-app #shortcuts, .android-app .feed-key-hints,
 .android-app .feed-panel kbd { display:none; }
 .android-app .info .date { display:inline;margin:0 0 0 8px;font-size:12px;color:#ddd;white-space:nowrap; }
+.android-app .info .views { color:#ddd; }
 .android-app .feed-menu summary { min-height:28px;padding:8px 0;background:none;border:0;font-size:16px; }
 .android-app .feed-menu { max-width:calc(100vw - 104px); }
 .android-app #mute { width:44px;height:44px;background:#0006; }

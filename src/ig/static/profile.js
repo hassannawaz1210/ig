@@ -114,20 +114,62 @@ function showMissingImage(img) {
 // (a profile's own posts don't need it).
 const showOwner = !boot.username;
 const ownerName = p => showOwner && typeof p.owner === 'string' && /^[A-Za-z0-9._]{1,30}$/.test(p.owner) ? p.owner : '';
+// Views (Instagram's play count) exist for reels only; photos show none.
+const viewCount = p => Number.isInteger(p.play_count) && p.play_count >= 0 ? p.play_count : null;
+function showViews(i) {
+  const p = store[i], views = viewCount(p);
+  if (views == null) return;
+  for (const el of document.querySelectorAll(`[data-views="${i}"]`)) { el.hidden = false; el.innerHTML = `${icon('eye')} ${short(views)}`; }
+  if (!lbEl.hidden && cur === i) document.getElementById('lbstats').innerHTML = statsHtml(p);
+}
+function statsHtml(p) {
+  const owner = ownerName(p), views = viewCount(p);
+  return (owner ? `<a class="lb-owner" href="/u/${encodeURIComponent(owner.toLowerCase())}">@${esc(owner)}</a>` : '') +
+    `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span>` +
+    (views == null ? '' : `<span title="${fmt(views)} views">${icon('eye')} ${short(views)}</span>`) +
+    `<span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
+}
+// A profile's grid carries no views, so they come from the creator's reels
+// tab (/u/<name>/views) after the grid has shown, and fill in as they arrive.
+// Further pages load only while reels on screen still lack a count, and at
+// most about as many reels as the grid holds videos.
+const viewPages = {cursor: null, hasMore: true, busy: false, seen: 0};
+async function loadViews() {
+  if (!boot.username || viewPages.busy || !viewPages.hasMore) return;
+  const waiting = store.filter(p => p.is_video && viewCount(p) == null).length;
+  if (!waiting || viewPages.seen > store.filter(p => p.is_video).length + 24) return;
+  viewPages.busy = true;
+  try {
+    const response = await fetch('/u/' + encodeURIComponent(boot.username) + '/views' +
+      (viewPages.cursor ? '?after=' + encodeURIComponent(viewPages.cursor) : ''));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) throw new Error(data.error || 'HTTP ' + response.status);
+    viewPages.cursor = data.cursor; viewPages.hasMore = data.has_more === true && Boolean(data.cursor);
+    viewPages.seen += data.count || 0;
+    store.forEach((p, i) => {
+      if (viewCount(p) == null && Number.isInteger(data.views?.[p.shortcode])) { p.play_count = data.views[p.shortcode]; showViews(i); }
+    });
+  } catch (error) {
+    console.warn('Could not load view counts', error);
+    viewPages.hasMore = false;   // views are extra; never keep retrying Instagram for them
+    return;
+  } finally { viewPages.busy = false; }
+  loadViews();
+}
 function card(p, i) {
   const owner = ownerName(p);
   const badge = p.is_video ? '▶'
               : p.is_carousel ? `⧉ ${p.carousel_count || ''}` : '';
-  const plays = p.play_count ? `<span class="plays">${icon('play') || '▶'} ${short(p.play_count)}</span>` : '';
+  const plays = `<span class="plays" data-views="${i}" title="Views"${viewCount(p) == null ? ' hidden' : ''}>${icon('eye')} ${short(viewCount(p))}</span>`;
   return `<div class="card" role="button" tabindex="0" onclick="lb(${i})" onkeydown="if(event.key==='Enter')lb(${i})">
     <div class="imgwrap">${p.image ? `<img loading="lazy" src="${esc(p.image)}" alt=""
       onerror="showMissingImage(this)">` : `<div class="missing" data-fill="${i}">${p.is_carousel ? '' : 'no preview'}</div>`}
       ${badge ? `<div class="badge">${badge}</div>` : ''}
       ${owner ? `<div class="tile-owner">@${esc(owner)}</div>` : ''}
-      <div class="overlay"><span>${icon('heart')} ${short(p.like_count)}</span>${plays}
+      <div class="overlay"><span class="likes">${icon('heart')} ${short(p.like_count)}</span>${plays}
         ${p.taken_at ? `<span class="age" title="${esc(fdate(p.taken_at))}">${postAge(p.taken_at, {short:true})}</span>` : ''}</div></div>
     <div class="meta">${owner ? `<a class="owner" href="/u/${encodeURIComponent(owner.toLowerCase())}" onclick="event.stopPropagation()">@${esc(owner)}</a>` : ''}<div class="stats"><span>${icon('heart')} ${fmt(p.like_count)}</span>
-      <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
+      <span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="plays" data-views="${i}" title="Views"${viewCount(p) == null ? ' hidden' : ''}>${icon('eye')} ${short(viewCount(p))}</span><span class="date" title="${esc(fdate(p.taken_at))}">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span></div>
     <div class="cap">${esc((p.caption||'').slice(0,240))}</div></div></div>`;
 }
 // Some older multi-image posts arrive without a preview image. When such a
@@ -162,6 +204,7 @@ function render() {
   grid.insertAdjacentHTML('beforeend', chunk.map((p,k)=>card(p, rendered+k)).join(''));
   rendered += chunk.length;
   fillMissingPreviews();
+  if (chunk.length) loadViews();
   count.textContent = fmt(rendered) + ' posts';
   if (!rendered && boot.empty_message && !grid.querySelector('.empty')) {
     const empty = document.createElement('div');
@@ -297,10 +340,7 @@ function lb(i) {
   document.getElementById('lbpos').textContent = `${i + 1} / ${store.length}`;
   document.querySelector('#lb .prev').disabled = i === 0;
   document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
-  const owner = ownerName(p);
-  document.getElementById('lbstats').innerHTML =
-    (owner ? `<a class="lb-owner" href="/u/${encodeURIComponent(owner.toLowerCase())}">@${esc(owner)}</a>` : '') +
-    `<span>${icon('heart')} ${fmt(p.like_count)}</span><span>${icon('comment')} ${fmt(p.comment_count)}</span><span class="date">${p.taken_at ? postAge(p.taken_at) + ' · ' + fdate(p.taken_at) : ''}</span>`;
+  document.getElementById('lbstats').innerHTML = statsHtml(p);
   document.getElementById('lbcap').innerHTML = mentions(p.caption || '');  // @usernames link to profiles
   const box = document.getElementById('lbcontent');
   if (p._rich) {

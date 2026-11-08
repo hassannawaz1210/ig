@@ -61,6 +61,29 @@ def sound_more(audio_id: str) -> dict:
             "total": data["total"]}
 
 
+VIEW_CONTEXTS = OrderedDict()   # username -> reels tab session, reused while paging
+VIEW_LOCK = threading.Lock()
+MAX_VIEW_CONTEXTS = 32
+
+
+def profile_views(username: str, after: str | None = None) -> dict:
+    """View counts for a creator's reels, a page at a time from their reels tab
+    (the profile grid itself carries none). The page fills them in after the
+    grid has shown, so it never waits for them."""
+    with VIEW_LOCK:
+        context = VIEW_CONTEXTS.pop(username, None)
+    if context is None:
+        context = {}
+    data = instagram.reels_tab(username, first=24, after=after, context=context)
+    with VIEW_LOCK:
+        VIEW_CONTEXTS[username] = context
+        while len(VIEW_CONTEXTS) > MAX_VIEW_CONTEXTS:
+            VIEW_CONTEXTS.popitem(last=False)
+    views = {reel["shortcode"]: reel["play_count"] for reel in data["reels"]
+             if isinstance(reel.get("play_count"), int) and reel["play_count"] >= 0}
+    return {"views": views, "count": len(data["reels"]), "cursor": data["cursor"], "has_more": data["has_more"]}
+
+
 def saved_reel_details(code: str) -> dict:
     """Display metadata for a loaded reel, from profiles already in memory or
     on disk. Never contacts Instagram; returns {} when nothing is known."""
@@ -417,6 +440,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             except Exception as error:
                 return self._fail(error, context="Opening the reels page")
+        views_match = re.fullmatch(r"/u/([A-Za-z0-9._]+)/views(?:\?after=([A-Za-z0-9_=%-]{1,512}))?", self.path)
+        if views_match and USER_RE.fullmatch(views_match.group(1)):
+            username = views_match.group(1).lower()
+            try:
+                after = unquote(views_match.group(2)) if views_match.group(2) else None
+                return self._send(200, json.dumps(profile_views(username, after)).encode(), "application/json")
+            except Exception as error:
+                return self._fail(error, as_json=True, context=f"Loading view counts for @{username}")
         m = re.fullmatch(r"/u/([A-Za-z0-9._]+)", self.path)
         if m and USER_RE.match(m.group(1)):
             username = m.group(1).lower()

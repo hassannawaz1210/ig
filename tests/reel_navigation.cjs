@@ -772,6 +772,8 @@ const KEYS = {
     assert.equal(await evaluate(`(() => { posts[current].song = {title:'Original audio', artist:'stheno15', original:true}; showSong(current);
       return document.getElementById('song'+current).textContent.trim(); })()`), '@stheno15 · Original audio');
     await evaluate("delete posts[current].song; document.getElementById('song'+current).outerHTML = songRow(posts[current], current)");
+    assert.equal(await evaluate("viewsLabel({play_count:2816256}).replace(/<svg.*<\\/svg>/,'')"), '<span class="views" title="2,816,256 views">2.8M</span>', 'reels show views with an eye icon');
+    assert.equal(await evaluate("viewsLabel({})"), '', 'no views, no label');
     fs.writeFileSync('/tmp/ig-android-actions.png',Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));
     // Removing a creator from the rail or the More menu asks first.
     const removal = await evaluate(`(async () => {

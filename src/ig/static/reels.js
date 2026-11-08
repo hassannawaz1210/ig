@@ -75,6 +75,14 @@ function postDate(t) {
   return `<time class="date" datetime="${date.toISOString()}" title="Posted ${esc(date.toLocaleString())}">${postAge(t)} · ${day}</time>`;
 }
 
+// Instagram's view count for a reel (from the creator's reels tab).
+function viewsLabel(p) {
+  const n = p.play_count;
+  if (!Number.isInteger(n) || n < 0) return '';
+  const compact = Intl.NumberFormat(undefined, {notation:'compact', maximumFractionDigits:1}).format(n);
+  return `<span class="views" title="${esc(n.toLocaleString())} views">${icon('eye')}${compact}</span>`;
+}
+
 const posts = [];
 let autoScroll = playbackBoot.auto_scroll === true;
 let creatorTrail = null;
@@ -549,7 +557,7 @@ function slideHtml(p, i) {
     </div>
     <div class="info">
       <a class="user" href="/u/${esc(p.owner)}" title="View profile (P)">@${esc(p.owner)}</a>
-      ${postDate(p.taken_at)}
+      ${postDate(p.taken_at)}${viewsLabel(p)}
       ${p.caption ? `<div role="button" tabindex="0" id="caption${i}" class="cap" aria-expanded="false" title="Expand caption"
         onclick="if(!event.target.closest('a'))toggleCaption(${i})"
         onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();toggleCaption(${i})}">${mentions(p.caption)}</div>` : ''}

@@ -29,12 +29,18 @@ POSTS = [
      'is_video': False, 'is_carousel': False, 'like_count': 2, 'comment_count': 0,
      'taken_at': 1760000000, 'caption': 'one picture', 'owner': 'someone'},
 ]
+POSTS.append({'shortcode': 'REEL000001', 'url': 'https://www.instagram.com/reel/REEL000001/', 'image': picture('purple'),
+              'is_video': True, 'is_carousel': False, 'like_count': 9, 'comment_count': 0,
+              'taken_at': 1760000000, 'caption': 'a reel', 'owner': 'someone'})
 MEDIA = {'CAROUSEL01': {'slides': [{'image': picture('red')}, {'image': picture('green')}, {'image': picture('blue')}],
                         'video': None, 'poster': picture('red')}}
 
 
 class CarouselHandler(Handler):
     def do_GET(self):
+        if self.path == '/u/someone/views':   # views arrive after the grid, from the reels tab
+            body = {'views': {'REEL000001': 2816256, 'NOTONPAGE1': 5}, 'count': 2, 'cursor': None, 'has_more': False}
+            return self._send(200, json.dumps(body).encode(), 'application/json')
         if self.path == '/test-profile':
             html = views.viewer_html('@someone', 'posts', POSTS, username='someone')
             return self._send(200, html.encode(), 'text/html; charset=utf-8')

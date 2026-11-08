@@ -118,8 +118,8 @@ a { color:inherit; }
   .grid { padding:0 12px 28px; }
   .grid[data-layout="grid"] { grid-template-columns:repeat(3,1fr); gap:2px; padding:0 0 28px; }
   .grid[data-layout="grid"] .card { border-radius:0; }
-  /* Small tiles fit likes and age; views stay in Cards, List and the viewer. */
-  .grid[data-layout="grid"] .overlay .plays { display:none; }
+  /* Small tiles fit two numbers: views (like Instagram) when known, else likes, and the age. */
+  .grid[data-layout="grid"] .overlay:has(.plays:not([hidden])) .likes { display:none; }
   .grid[data-layout="cards"] { grid-template-columns:1fr; gap:12px; }
   .grid[data-layout="list"] .imgwrap { width:96px; }
   .lb .nav { display:none; }  /* swipe instead */
@@ -281,3 +281,6 @@ a { color:inherit; }
   text-overflow:ellipsis; white-space:nowrap; }
 .lbstats .lb-owner { flex-basis:100%; color:#fff; font-weight:650; font-size:15px; text-decoration:none; }
 .lbstats .lb-owner:hover, .meta .owner:hover { text-decoration:underline; }
+
+/* Views arrive after the grid; until then their slot stays out of the way. */
+.plays[hidden] { display:none !important; }
