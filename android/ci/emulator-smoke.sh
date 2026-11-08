@@ -6,8 +6,10 @@ app_id=io.github.hassannawaz1210.ig
 runner="$app_id.test/androidx.test.runner.AndroidJUnitRunner"
 test_class="$app_id.StandaloneSmokeTest"
 collect_logs() {
-  adb logcat -d > build/smoke/logcat.txt || true
-  adb exec-out screencap -p > build/smoke/screen.png || true
+  # Time-limited: if the emulator itself died, adb would wait for the device
+  # forever and hold the job until GitHub's 35-minute limit cancels it.
+  timeout 30 adb logcat -d > build/smoke/logcat.txt || echo "Emulator log unavailable (device gone?)" >&2
+  timeout 30 adb exec-out screencap -p > build/smoke/screen.png || true
 }
 trap collect_logs EXIT
 adb logcat -c

@@ -103,6 +103,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run ARM64 APK on Android with native translation
+        # Normally ~3 minutes; a dead emulator must fail, not hold the job.
+        timeout-minutes: 20
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
