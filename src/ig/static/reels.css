@@ -457,3 +457,12 @@ body:has(#comments-panel:not([hidden])) .feed-status { left:calc((100% - var(--c
 .clean-view.clean-seek-visible .reel-seek { visibility:visible;pointer-events:auto; }
 
 .clean-view #action-status,.clean-view #preference-status { visibility:visible;pointer-events:auto; }
+
+/* Pull to refresh: a spinner that follows the pull at the top of the first reel. */
+#pull-refresh { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 56px); z-index:9; display:grid; place-items:center;
+  width:40px; height:40px; margin-left:-20px; border-radius:50%; background:#1c1c1fe6; box-shadow:0 4px 16px #0008;
+  opacity:0; pointer-events:none; transform:translateY(calc(var(--pull, 0px) - 60px)); transition:opacity .15s; }
+#pull-refresh.visible { opacity:1; }
+#pull-refresh .spinner { width:20px; height:20px; border-width:2px; animation-play-state:paused; transform:rotate(calc(var(--pull, 0px) * 4)); }
+#pull-refresh.ready .spinner, #pull-refresh.loading .spinner { animation-play-state:running; }
+#pull-refresh.loading { transform:translateY(30px); transition:opacity .15s, transform .2s; }

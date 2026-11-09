@@ -214,6 +214,15 @@ async function launch() {
     await waitFor("!!document.querySelector('[data-name=new_feed]')");
     await send('Page.navigate',{url:new URL('/settings/feeds/large',url).href});
     await waitFor("document.querySelectorAll('[data-name=large] .account-row').length===100");
+    // A swipe that starts on an account scrolls the page (the list must not swallow it).
+    await send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
+    await evaluate('scrollTo(0,0)');
+    const startX = await evaluate("(r => Math.round(r.left + r.width/3))(document.querySelector('[data-name=large] .account-row a').getBoundingClientRect())");
+    await send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:startX,y:600}]});
+    for (let y=590; y>=300; y-=15) { await send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:startX,y}]}); await sleep(16); }
+    await send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]}); await sleep(500);
+    assert.ok(await evaluate('scrollY') > 100, 'swiping on an account scrolls the feed page');
+    await send('Emulation.setTouchEmulationEnabled',{enabled:false});
     await evaluate("document.querySelector('[data-name=large] .load-accounts').click()");
     assert.equal(await evaluate("document.querySelectorAll('[data-name=large] .account-row').length"),160);
     await evaluate("document.querySelector('[data-name=large] .account-search').value='creator159'; document.querySelector('[data-name=large] .account-search').dispatchEvent(new Event('input'))");

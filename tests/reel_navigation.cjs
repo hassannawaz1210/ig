@@ -1184,6 +1184,17 @@ const KEYS = {
     await evaluate(`document.activeElement.blur()`);
     await sleep(1200);
     assert.equal(await evaluate(`document.getElementById('action-status').textContent`),'','then hides once focus leaves');
+    // Refresh: queued reels are dropped, a new batch loads and the player moves to it.
+    await evaluate("closeLocalPage?.()"); await sleep(300);
+    const refreshed = await evaluate(`(async () => { const before = posts.length, from = current;
+      await refreshReels(); return {before, from, after: posts.length, current,
+        skipped: posts.slice(from + 1, before).every(p => p._dropped)}; })()`);
+    assert.ok(refreshed.after > refreshed.before, 'refresh loads new reels: ' + JSON.stringify(refreshed));
+    assert.ok(refreshed.current >= refreshed.before, 'the player moves to the first new reel');
+    assert.ok(refreshed.skipped, 'reels queued before the refresh are dropped');
+    // Tapping Watch in the bottom bar while watching refreshes too.
+    await evaluate("window.refreshTaps = 0; refreshReels = async () => { refreshTaps++; }; document.querySelector('.android-nav a[href=\"/\"]').click()");
+    assert.equal(await evaluate('refreshTaps'), 1, 'tapping Watch in the player refreshes');
     await send('Page.navigate',{url:new URL('/u/test_profile',url).href});
     for(let n=0;!(await evaluate(`typeof lb==='function' && document.querySelector('.card')`));n++) {
       assert.ok(n<50,'profile did not load');await sleep(100);

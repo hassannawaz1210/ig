@@ -344,6 +344,20 @@ function ensureProfileMedia(post) {
   return post._mediaRequest;
 }
 
+// The caption starts collapsed to two lines, like Instagram; "more" opens it.
+function showCaption(text) {
+  const box = document.getElementById('lbcap');
+  box.classList.remove('expanded');
+  box.innerHTML = mentions(text);  // @usernames link to profiles
+  box.parentElement.querySelectorAll('.cap-more').forEach(button => button.remove());
+  requestAnimationFrame(() => {
+    if (box.scrollHeight <= box.clientHeight + 2 || box.nextElementSibling?.classList.contains('cap-more')) return;   // short captions need no "more"
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'cap-more'; more.textContent = 'more';
+    more.onclick = event => { event.stopPropagation(); box.classList.add('expanded'); more.remove(); };
+    box.after(more);
+  });
+}
 function lb(i) {
   if (!store[i]) return;
   profileZoom?.reset();
@@ -353,12 +367,11 @@ function lb(i) {
   const version = ++profileMediaVersion;
   profileNotice('');
   updateProfileActions(p);
-  document.getElementById('lbopen').href = p.url;
   document.getElementById('lbpos').textContent = `${i + 1} / ${store.length}`;
   document.querySelector('#lb .prev').disabled = i === 0;
   document.querySelector('#lb .next').disabled = i === store.length - 1 && !hasMorePosts;
   document.getElementById('lbstats').innerHTML = statsHtml(p);
-  document.getElementById('lbcap').innerHTML = mentions(p.caption || '');  // @usernames link to profiles
+  showCaption(p.caption || '');
   const box = document.getElementById('lbcontent');
   if (p._rich) {
     box.innerHTML = richHtml(p);

@@ -474,6 +474,70 @@ function releaseVideo(slide) {
   const v = slide.querySelector('video');
   if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
 }
+// ---- Refresh: a new shuffle of reels, like Instagram ----
+// Pull down on the first reel, or tap Watch in the bottom bar while already
+// watching. Queued reels are dropped, a new batch is asked for, and the player
+// moves to its first reel.
+let refreshing = false;
+let pullIndicator = null;   // created on first use
+function showPull(distance, loading = false) {
+  if (!pullIndicator) {
+    if (!distance && !loading) return;
+    pullIndicator = document.createElement('div');
+    pullIndicator.id = 'pull-refresh'; pullIndicator.setAttribute('aria-hidden', 'true');
+    pullIndicator.innerHTML = '<span class="spinner"></span>';
+    document.body.append(pullIndicator);
+  }
+  pullIndicator.classList.toggle('visible', distance > 0 || loading);
+  pullIndicator.classList.toggle('ready', distance >= PULL_TO_REFRESH || loading);
+  pullIndicator.classList.toggle('loading', loading);
+  pullIndicator.style.setProperty('--pull', Math.min(distance, PULL_TO_REFRESH * 1.4) + 'px');
+}
+const PULL_TO_REFRESH = 90;   // px of downward pull that refreshes
+async function refreshReels() {
+  if (refreshing || boot.post_code) return;
+  refreshing = true;
+  showPull(PULL_TO_REFRESH, true);
+  actionStatus('Refreshing…');
+  try {
+    dropQueuedReels();
+    selectionVersion += 1;   // an older batch still on its way is ignored
+    fetching = false; exhausted = false; emptySince = null;
+    clearTimeout(retryTimer); retryTimer = null;
+    const before = posts.length;
+    await more();
+    const next = visibleIndices().find(i => i >= before);
+    if (next === undefined) actionStatus('No new reels right now · try again in a moment');
+    else { showSlide(next); actionStatus('New reels'); }
+  } catch (error) {
+    console.error('Refreshing reels failed', error);
+    actionStatus('Could not refresh · try again');
+  } finally { refreshing = false; showPull(0); }
+}
+let pull = null;
+feed.addEventListener('touchstart', event => {
+  const first = visibleIndices()[0];
+  pull = event.touches.length === 1 && current === first && !localPage && feed.scrollTop <= 2
+    && !event.target.closest('#comments-panel, .cap.full, input, button, a') ? {y:event.touches[0].clientY, distance:0} : null;
+}, {passive:true});
+feed.addEventListener('touchmove', event => {
+  if (!pull || event.touches.length !== 1) return;
+  pull.distance = Math.max(0, event.touches[0].clientY - pull.y) * 0.6;
+  if (feed.scrollTop > 2) { pull = null; showPull(0); return; }
+  showPull(pull.distance);
+}, {passive:true});
+feed.addEventListener('touchend', () => {
+  if (!pull) return;
+  const ready = pull.distance >= PULL_TO_REFRESH;
+  pull = null;
+  if (ready) refreshReels(); else showPull(0);
+}, {passive:true});
+feed.addEventListener('touchcancel', () => { pull = null; showPull(0); }, {passive:true});
+document.querySelector('.android-nav a[href="/"]')?.addEventListener('click', event => {
+  if (localPage) return;   // from another page, Watch just returns to the player
+  event.preventDefault(); event.stopPropagation();
+  refreshReels();
+});
 function dropQueuedReels() {
   leaveCreatorBrowse();
   const released = [];

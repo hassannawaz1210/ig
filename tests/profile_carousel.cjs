@@ -61,6 +61,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     // Instagram's grid has no likes or comments now: unknown counts show nothing, not 0.
     assert.equal(await evaluate("statsHtml({shortcode:'X', like_count:null, comment_count:undefined}).includes('heart')"), false);
     assert.ok(await evaluate("statsHtml({shortcode:'X', like_count:3, comment_count:5}).includes('>heart<') || statsHtml({shortcode:'X', like_count:3, comment_count:5}).includes(' 3<')"));
+    // The viewer has no Instagram link, and a long caption starts collapsed with "more".
+    await evaluate('lb(1)');
+    assert.equal(await evaluate("document.getElementById('lbopen')"), null, 'no Open on Instagram in the viewer');
+    await evaluate("store[1].caption = 'line\\n'.repeat(12) + 'end'; lb(0); lb(1)");
+    await waitFor("!!document.querySelector('.cap-more')", 'long caption gets a more button');
+    assert.equal(await evaluate("document.querySelectorAll('.cap-more').length"), 1, 'one more button, not one per post viewed');
+    await evaluate("document.querySelector('.cap-more').click()");
+    assert.ok(await evaluate("document.getElementById('lbcap').classList.contains('expanded') && !document.querySelector('.cap-more')"));
     // Views fill in after the grid shows; photos get none.
     await evaluate('closeLb()');
     await waitFor("!document.querySelector('[data-views=\"2\"]').hidden", 'reel views filled in');

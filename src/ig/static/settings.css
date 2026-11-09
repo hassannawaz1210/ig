@@ -170,4 +170,5 @@ label.row {cursor:pointer;}
 .feed-tabs label {flex:1;text-align:center;}
 .feed-detail .feed-body {padding:14px 16px 16px;}
 .feed-detail .feed-pane[hidden] {display:none;}
-.feed-detail .account-list {max-height:none;}
+/* The page scrolls; the list is not its own scroll area here (it would swallow swipes that start on it). */
+.feed-detail .account-list {max-height:none;overflow:visible;overscroll-behavior:auto;}

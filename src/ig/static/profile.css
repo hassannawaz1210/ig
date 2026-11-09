@@ -282,3 +282,8 @@ a { color:inherit; }
 
 /* Views arrive after the grid; until then their slot stays out of the way. */
 .plays[hidden] { display:none !important; }
+
+/* Viewer caption: two lines until "more" is tapped. */
+#lbcap:not(.expanded) { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; max-height:none; }
+#lbcap.expanded { max-height:40vh; overflow-y:auto; }
+.cap-more { display:block; margin:2px 0 0; padding:2px 0; border:0; background:none; color:var(--soft); font:600 13px system-ui; cursor:pointer; }
