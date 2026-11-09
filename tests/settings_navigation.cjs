@@ -228,6 +228,25 @@ async function launch() {
     await evaluate("document.querySelector('[data-name=large] .account-search').value='creator159'; document.querySelector('[data-name=large] .account-search').dispatchEvent(new Event('input'))");
     assert.equal(await evaluate("document.querySelectorAll('[data-name=large] .account-row').length"),1);
     assert.equal(await evaluate("document.querySelector('[data-name=large] .account-row a').textContent"),'@creator159');
+    // Going back to a page returns to where you had scrolled, after its content loads again.
+    await evaluate("document.querySelector('[data-name=large] .account-search').value=''; document.querySelector('[data-name=large] .account-search').dispatchEvent(new Event('input'))");
+    await evaluate('scrollTo(0, 1500)'); await sleep(400);
+    const savedY = await evaluate('Math.round(scrollY)');
+    assert.ok(savedY > 1000, 'the feed page is long enough to scroll: ' + savedY);
+    await send('Page.navigate',{url:new URL('/settings',url).href});
+    await waitFor("location.pathname==='/settings'");
+    await evaluate('history.back()');
+    await waitFor("location.pathname==='/settings/feeds/large' && document.querySelectorAll('[data-name=large] .account-row').length===100");
+    await waitFor(`Math.abs(scrollY - ${savedY}) < 5`, 'Back returns to the same scroll position');
+    await send('Page.navigate',{url:new URL('/settings/feeds/large',url).href});
+    await waitFor("document.querySelectorAll('[data-name=large] .account-row').length===100");
+    await sleep(500);
+    assert.equal(await evaluate('scrollY'), 0, 'following a link to a page starts at the top');
+    // The open tab is remembered too.
+    await evaluate("document.querySelector('.feed-tabs input[value=topics]').click()");
+    await send('Page.reload'); await waitFor("!!document.querySelector('[data-name=large]')");
+    assert.equal(await evaluate("document.querySelector('[data-tab=accounts]').hidden"), true, 'the Topics tab stays open');
+    await evaluate("document.querySelector('.feed-tabs input[value=accounts]').click()");
     for(const android of [false,true]) {
       await send('Emulation.setDeviceMetricsOverride',{width:android?390:1000,height:844,deviceScaleFactor:1,mobile:android});
       await evaluate(`document.body.classList.toggle('android-app',${android}); window.scrollTo(0,0)`);

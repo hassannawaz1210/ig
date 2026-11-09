@@ -9,7 +9,7 @@ const tabs = document.getElementById('trending-tabs');
 const creatorsSection = document.getElementById('trending-creators');
 const creatorsList = document.getElementById('trending-creators-list');
 const displayName = name => name.replaceAll('_', ' ');
-let lists = [], selected = 0, loadVersion = 0;
+let lists = [], selected = Number(rememberedChoice('list', 0)) || 0, loadVersion = 0;
 // Your feeds and their topic words, for the sheet's "Add to feed" list.
 let feeds = null, feedTopics = {}, feedsRequest = null;
 
@@ -52,7 +52,7 @@ function render() {
   lists.forEach((item, index) => {
     const tab = element('button', 'trending-tab', item.title); tab.type = 'button';
     tab.setAttribute('aria-pressed', String(index === selected));
-    tab.onclick = () => { selected = index; render(); };
+    tab.onclick = () => { selected = index; rememberChoice('list', index); render(); window.scrollTo(0, 0); };
     tabs.append(tab);
   });
   grid.setAttribute('aria-label', lists[selected].title);

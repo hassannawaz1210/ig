@@ -336,8 +336,11 @@ function renderFeedPage(name, accounts, topics = []) {
     accountsPane.hidden = tab !== 'accounts'; topicsPane.hidden = tab !== 'topics';
     if (tab === 'topics') topicEditor.opened();
   };
-  const choice = document.querySelector('.feed-tabs input:checked')?.value || 'accounts';
-  for (const input of document.querySelectorAll('.feed-tabs input')) input.onchange = () => show(input.value);
+  const choice = rememberedChoice('tab', 'accounts') === 'topics' ? 'topics' : 'accounts';
+  for (const input of document.querySelectorAll('.feed-tabs input')) {
+    input.checked = input.value === choice;
+    input.onchange = () => { rememberChoice('tab', input.value); show(input.value); };
+  }
   show(choice);
   return box;
 }

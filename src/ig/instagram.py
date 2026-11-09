@@ -572,6 +572,11 @@ def parse_profile(html: str, username: str = ""):
             break
     if not conn:
         name = f"@{username}" if username else "This profile"
+        if "Restricted profile" in html:
+            # Instagram age-gates some profiles; without a logged-in age it
+            # serves no posts at all, so this is not a rate limit.
+            raise ProfileUnavailable(f"{name} is age-restricted by Instagram and only "
+                                     "visible to logged-in viewers of a certain age")
         for payload in sjs_payloads(html, "xig_user_by_username"):
             found = nested_find(payload, "xig_user_by_username")
             if isinstance(found, dict) and found.get("is_private"):

@@ -753,3 +753,81 @@ if (typeof document !== 'undefined' && document.head && !document.getElementById
   style.textContent = 'a.mention{color:#b9d4ff;font-weight:600;text-decoration:none}a.mention:hover{text-decoration:underline}';
   document.head.append(style);
 }
+
+// ---- Remember where you were on a page ----
+// Pages reload their content when you come back to them, and most of it
+// (profile posts, feeds, trending) arrives after the page opens, so the
+// browser's own scroll restoring finds nothing to scroll to. Each page's
+// scroll position is kept for the session; coming back with Back (or a
+// reload) scrolls there again as the content loads in, and stops as soon
+// as you scroll yourself. Following a link to a page starts at the top.
+const SCROLL_RESTORE_MS = 8000;
+const SCROLL_ANCHOR = '[data-index],[data-name],[data-user],article[id],section[id]';
+// The item at the top of the screen (a post, a feed, an account) and how far
+// down it sits, so coming back shows the same item even if content above it
+// (a header, suggestions) arrives later and changes the page's length.
+function scrollAnchor() {
+  for (const y of [72, 140, 220]) {
+    const item = document.elementFromPoint(Math.round(window.innerWidth / 2), y)?.closest?.(SCROLL_ANCHOR);
+    if (!item) continue;
+    const name = ['data-index', 'data-name', 'data-user', 'id'].find(attribute => item.hasAttribute(attribute));
+    return {selector: `[${name}="${CSS.escape(item.getAttribute(name))}"]`, top: Math.round(item.getBoundingClientRect().top)};
+  }
+  return null;
+}
+function rememberScroll() {
+  const key = 'ig-scroll:' + location.pathname + location.search;
+  let timer = null;
+  const save = () => {
+    try { sessionStorage.setItem(key, JSON.stringify({y: Math.round(window.scrollY), anchor: window.scrollY > 0 ? scrollAnchor() : null})); }
+    catch (error) { console.warn('Could not remember the scroll position', error); }
+  };
+  window.addEventListener('scroll', () => { clearTimeout(timer); timer = setTimeout(save, 150); }, {passive:true});
+  window.addEventListener('pagehide', save);
+  const how = performance.getEntriesByType?.('navigation')?.[0]?.type;
+  if (how !== 'back_forward' && how !== 'reload') return;
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (_) { return; }
+  if (!saved || !(saved.y > 0)) return;
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const until = Date.now() + SCROLL_RESTORE_MS;
+  let finished = false, observer = null, interval = null, settledAt = 0;
+  const finish = () => {
+    if (finished) return;
+    finished = true; observer?.disconnect(); clearInterval(interval);
+    for (const type of ['touchstart', 'wheel', 'keydown']) window.removeEventListener(type, finish);
+  };
+  // Where to scroll now: the remembered item back at its old spot, or the old offset.
+  const target = () => {
+    const item = saved.anchor && document.querySelector(saved.anchor.selector);
+    return item ? Math.max(0, Math.round(window.scrollY + item.getBoundingClientRect().top - saved.anchor.top)) : saved.y;
+  };
+  const attempt = () => {
+    if (finished) return;
+    if (Date.now() > until) return finish();
+    const y = target();
+    if (Math.abs(window.scrollY - y) >= 2) { window.scrollTo(0, y); settledAt = 0; }
+    // Keep the item in place a little longer while late content settles.
+    else if (!settledAt) settledAt = Date.now();
+    else if (Date.now() - settledAt > 1500) finish();
+  };
+  for (const type of ['touchstart', 'wheel', 'keydown']) window.addEventListener(type, finish, {passive:true});
+  if (typeof ResizeObserver === 'function') {
+    observer = new ResizeObserver(attempt);
+    const watch = () => observer?.observe(document.body || document.documentElement);
+    if (document.body) watch(); else document.addEventListener('DOMContentLoaded', watch, {once:true});
+  }
+  interval = setInterval(attempt, 150);
+  attempt();
+}
+// Remembered choices on a page, such as which tab was open (this session only).
+function rememberedChoice(name, fallback) {
+  try { return sessionStorage.getItem('ig-choice:' + location.pathname + ':' + name) ?? fallback; }
+  catch (_) { return fallback; }
+}
+function rememberChoice(name, value) {
+  try { sessionStorage.setItem('ig-choice:' + location.pathname + ':' + name, String(value)); }
+  catch (error) { console.warn('Could not remember a choice on this page', error); }
+}
+if (typeof window !== 'undefined' && typeof performance !== 'undefined' && typeof sessionStorage !== 'undefined'
+    && typeof history !== 'undefined') rememberScroll();
