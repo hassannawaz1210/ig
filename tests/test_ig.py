@@ -112,5 +112,20 @@ class ProjectTests(unittest.TestCase):
         self.assertEqual(connection['edges'], [])
 
 
+    def test_age_restricted_profile_says_so_instead_of_blaming_rate_limits(self):
+        restricted = '<title>Restricted profile</title><h2>Restricted profile</h2>'
+        with self.assertRaises(instagram.ProfileUnavailable) as caught:
+            instagram.parse_profile(restricted, 'adult_account')
+        self.assertIn('@adult_account is age-restricted', str(caught.exception))
+        # Without the age gate, an empty page is still treated as a possible rate limit.
+        with self.assertRaises(instagram.UnexpectedResponse) as caught:
+            instagram.parse_profile('<html></html>', 'someone')
+        self.assertIn('rate limiting', str(caught.exception))
+        # A profile with posts is unaffected, even if the words appear on the page.
+        data = {'xig_user_by_username': {'id': '1'},
+                'polaris_ordered_timeline_connection': {'edges': [{'node': {}}], 'page_info': {}}}
+        html = ('<p>Restricted profile</p><script type="application/json" data-sjs>' + json.dumps(data) + '</script>')
+        self.assertEqual(instagram.parse_profile(html, 'fine')[0]['id'], '1')
+
 if __name__ == '__main__':
     unittest.main()
