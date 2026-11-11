@@ -19,11 +19,38 @@ class BackupTests(ProjectTests):
         handler.headers = {'Content-Length': str(len(data) if size is None else size)}
         handler.rfile = io.BytesIO(data)
         with patch.object(handler, '_send') as send, patch.object(handler, '_allowed', return_value=allowed):
-            if path == '/feeds/export':
+            if path.split('?')[0] == '/feeds/export':
                 handler.do_GET()
             else:
                 handler.do_POST()
         return send.call_args.args if send.called else None
+
+    def test_selective_export_and_import_preserves_topics_and_selection(self):
+        config.save_feeds({'edits': ['one'], 'memes': ['two']})
+        config.set_selected_feeds(['memes'])
+        document = json.loads(backup.export())
+        document['feed_topics'] = {'edits': ['movie edits'], 'memes': ['funny memes']}
+        selected = backup.select_feeds(document, ['edits'])
+        self.assertEqual(selected['feeds'], {'edits': ['one']})
+        self.assertEqual(selected['feed_topics'], {'edits': ['movie edits']})
+        self.assertNotIn('selected_feeds', selected['settings'])
+        self.assertEqual(document['settings']['selected_feeds'], ['memes'])
+        response = self.request(path='/feeds/export?feeds=%5B%22edits%22%5D')
+        self.assertEqual(response[0], 200)
+        self.assertEqual(json.loads(response[1])['feeds'], {'edits': ['one']})
+        config.save_feeds({'existing': ['local']})
+        config.set_selected_feeds(['existing'])
+        response = self.request(document, '/feeds/import?feeds=%5B%22edits%22%5D')
+        self.assertEqual(response[0], 200)
+        self.assertEqual(config.load_feeds(), {'existing': ['local'], 'edits': ['one']})
+        self.assertEqual(config.selected_feeds(), ['existing'])
+        self.assertEqual(config.feed_topic_words().get('edits'), ['movie edits'])
+
+    def test_selection_rejects_unknown_feeds_and_supports_no_feeds(self):
+        config.save_feeds({'edits': ['one']})
+        for value in ['%5B%22missing%22%5D', '%22edits%22', 'bad']:
+            self.assertEqual(self.request(path='/feeds/export?feeds=' + value)[0], 400)
+        self.assertEqual(json.loads(self.request(path='/feeds/export?feeds=%5B%5D')[1])['feeds'], {})
 
     def test_export_round_trip_includes_portable_data_only(self):
         config.save_feeds({'edits': ['one', 'two'], 'empty': []})

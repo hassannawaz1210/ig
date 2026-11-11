@@ -75,6 +75,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     private boolean paused;
     private ValueCallback<Uri[]> fileSelection;
     private boolean choosingBackup;
+    private String backupQuery;
     private Uri pendingBackupDestination;
     private AppUpdater updater;
     // Latest update notice as JSON for the page; re-sent after each page load.
@@ -101,6 +102,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         });
         if (savedInstanceState != null) {
             choosingBackup = savedInstanceState.getBoolean("choosingBackup", false);
+            backupQuery = savedInstanceState.getString("backupQuery");
             String destination = savedInstanceState.getString("backupDestination");
             if (destination != null && "content".equals(Uri.parse(destination).getScheme()))
                 pendingBackupDestination = Uri.parse(destination);
@@ -392,7 +394,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
                 return true;
             }
             if ("/feeds/export".equals(uri.getPath())) {
-                chooseBackupDestination();
+                chooseBackupDestination(uri);
                 return true;
             }
             if (uri.getPath() != null && uri.getPath().matches("/download/[A-Za-z0-9_-]{5,30}")) {
@@ -414,7 +416,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     private void saveDownload(Uri uri) {
         String path = uri.getPath();
         if (isLocal(uri) && "/feeds/export".equals(path)) {
-            chooseBackupDestination();
+            chooseBackupDestination(uri);
             return;
         }
         if (!isLocal(uri) || path == null || !path.matches("/download/[A-Za-z0-9_-]{5,30}")) return;
@@ -438,9 +440,10 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         }
     }
 
-    private void chooseBackupDestination() {
+    private void chooseBackupDestination(Uri source) {
         if (choosingBackup) return;
         choosingBackup = true;
+        backupQuery = source.getEncodedQuery();
         Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("application/json")
@@ -454,7 +457,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
     }
 
     private void writeFeedsBackup(Uri destination) {
-        final String address = origin + "/feeds/export";
+        final String address = origin + "/feeds/export" + (backupQuery == null ? "" : "?" + backupQuery);
         final String accessToken = token;
         BACKEND.execute(() -> {
             HttpURLConnection connection = null;
@@ -604,6 +607,7 @@ public final class MainActivity extends Activity implements AppUpdater.Listener 
         }
         state.putString("path", pendingPath);
         state.putBoolean("choosingBackup", choosingBackup);
+        state.putString("backupQuery", backupQuery);
         if (pendingBackupDestination != null) state.putString("backupDestination", pendingBackupDestination.toString());
         super.onSaveInstanceState(state);
     }

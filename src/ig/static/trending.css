@@ -57,3 +57,7 @@ main, .page-header { max-width:960px; }
   border:0; border-radius:50%; background:#000000a6; color:#fff; backdrop-filter:blur(6px); cursor:pointer; }
 .trend-add .icon { width:18px; height:18px; }
 .trend-add:hover { background:#000000d0; }
+
+#trending-search {display:flex;gap:8px;margin:0 0 16px;}
+#trending-query {min-width:0;flex:1;box-sizing:border-box;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:inherit;font:inherit;}
+#trending-search button {padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;font:inherit;}

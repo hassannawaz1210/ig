@@ -155,6 +155,13 @@ async function launch() {
     // Settings only links to the feed list; feeds are managed on their own page.
     assert.equal(await evaluate("document.querySelectorAll('.feed-setting').length"),0,'Settings does not list every feed');
     assert.equal(await evaluate("document.querySelector('a[href=\"/feeds/export\"]').textContent.includes('Export backup')"),true);
+    await evaluate("document.querySelector('a[href=\"/feeds/export\"]').click()");
+    await waitFor("document.querySelectorAll('#feed-picker .fp-feed-choices input').length===3");
+    assert.equal(await evaluate("document.querySelectorAll('#feed-picker .fp-feed-choices input:checked').length"),3);
+    await evaluate("document.querySelector('#feed-picker .fp-feed-choices input').click()");
+    assert.equal(await evaluate("document.querySelectorAll('#feed-picker .fp-feed-choices input:checked').length"),2);
+    assert.equal(await evaluate("backupSelectionURL('/feeds/export', ['edits'], 3)"),'/feeds/export?feeds=%5B%22edits%22%5D');
+    await evaluate("document.querySelector('#feed-picker .fp-actions button[type=button]').click()");
     await evaluate("document.querySelector('a[href=\"/settings/feeds\"]').click()");
     await waitFor("location.pathname==='/settings/feeds' && document.querySelectorAll('.feed-row').length===3");
     assert.equal(await evaluate("document.getElementById('feeds-total').textContent"),'3 feeds · 162 accounts');

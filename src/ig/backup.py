@@ -123,7 +123,21 @@ def _attach_saved_reels(db):
                (str(config.CONFIG_DIR / 'recommendations.sqlite3'),))
 
 
-def export():
+def select_feeds(document, names=None):
+    """Keep chosen feeds and their topics without changing global data."""
+    if names is None:
+        return document
+    if not isinstance(names, list) or any(not isinstance(name, str) or name not in document['feeds'] for name in names):
+        raise ValueError('Choose feeds present in this backup.')
+    chosen = set(names)
+    result = {**document, 'feeds': {name: accounts for name, accounts in document['feeds'].items() if name in chosen},
+              'feed_topics': {name: words for name, words in document.get('feed_topics', {}).items() if name in chosen}}
+    if chosen != set(document['feeds']) and 'settings' in document:
+        result['settings'] = {key: value for key, value in document['settings'].items() if key != 'selected_feeds'}
+    return result
+
+
+def export(names=None):
     # Complete schema upgrades before attaching; the snapshot itself uses one
     # connection and reads only explicitly portable fields from both databases.
     with recommendations.database():
@@ -148,6 +162,7 @@ def export():
         document = {'format': 'ig-feeds', 'version': 2, 'feeds': feeds,
                     'blocked': [row[0] for row in db.execute('SELECT username FROM blocked_accounts ORDER BY username')],
                     'saved_reels': saved, 'settings': settings, 'feed_topics': topics}
+    document = select_feeds(document, names)
     data = json.dumps(document, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode() + b'\n'
     if len(data) > MAX_BYTES:
         raise TooLarge('Your data exceeds the 5 MB backup limit. No backup was created.')

@@ -9,6 +9,8 @@ const tabs = document.getElementById('trending-tabs');
 const creatorsSection = document.getElementById('trending-creators');
 const creatorsList = document.getElementById('trending-creators-list');
 const displayName = name => name.replaceAll('_', ' ');
+const searchInput = document.getElementById('trending-query');
+let searchVersion = 0, searchController = null, searchTimer = null;
 let lists = [], selected = Number(rememberedChoice('list', 0)) || 0, loadVersion = 0;
 // Your feeds and their topic words, for the sheet's "Add to feed" list.
 let feeds = null, feedTopics = {}, feedsRequest = null;
@@ -35,11 +37,12 @@ async function load() {
                      topics: cleanTopics(item?.topics, 60)}))
       .filter(item => item.topics.length);
     selected = Math.min(selected, Math.max(lists.length - 1, 0));
+    if (searchInput.value.trim()) return;
     if (!lists.length) grid.replaceChildren(element('p', 'trend-empty', 'Instagram isn’t showing anything trending right now.'));
     else render();
     renderCreators(Array.isArray(data.creators) ? data.creators : []);
   } catch (error) {
-    if (version !== loadVersion) return;
+    if (version !== loadVersion || searchInput.value.trim()) return;
     console.warn('Could not load trending topics', error);
     tabs.hidden = true;
     grid.replaceChildren(noteWithRetry('trend-empty', `Couldn’t load trending topics. ${error.message}`, load));
@@ -55,9 +58,43 @@ function render() {
     tab.onclick = () => { selected = index; rememberChoice('list', index); render(); window.scrollTo(0, 0); };
     tabs.append(tab);
   });
+  if (!lists.length) {
+    grid.replaceChildren(element('p', 'trend-empty', 'Instagram isn’t showing anything trending right now.'));
+    return;
+  }
   grid.setAttribute('aria-label', lists[selected].title);
   grid.replaceChildren(...lists[selected].topics.map(topicCard));
 }
+
+async function searchTrending() {
+  clearTimeout(searchTimer);
+  searchController?.abort();
+  const version = ++searchVersion;
+  const query = searchInput.value.trim();
+  if (!query) { grid.setAttribute('aria-busy', 'false'); load(); return; }
+  const controller = searchController = new AbortController();
+  tabs.hidden = true; creatorsSection.hidden = true;
+  grid.setAttribute('aria-label', 'Search results');
+  grid.setAttribute('aria-busy', 'true');
+  grid.replaceChildren(element('p', 'trend-empty', 'Searching…'));
+  try {
+    const data = await loadTopicJSON('/topics/search?q=' + encodeURIComponent(query), controller.signal);
+    if (version !== searchVersion) return;
+    const topics = cleanTopics(data.topics, 60);
+    grid.replaceChildren(...(topics.length ? topics.map(topicCard) :
+      [element('p', 'trend-empty', 'No topics found. Try another search.')]));
+  } catch (error) {
+    if (version !== searchVersion) return;
+    grid.replaceChildren(noteWithRetry('trend-empty', `Couldn’t search topics. ${error.message}`, searchTrending));
+  } finally { if (version === searchVersion) grid.setAttribute('aria-busy', 'false'); }
+}
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer); searchController?.abort(); ++searchVersion;
+  searchTimer = setTimeout(searchTrending, 350);
+});
+document.getElementById('trending-search').addEventListener('submit', event => {
+  event.preventDefault(); searchTrending();
+});
 
 // Tapping a card opens the topic's popular reels; the + in its corner adds
 // the topic to a feed.
@@ -169,5 +206,5 @@ function feedButton(name, topic, sheetError) {
 
 // Feeds edited on another page: re-read them before the next sheet opens.
 feedListsEdited = () => { if (feedsRequest) loadFeeds(true).catch(() => {}); };
-window.addEventListener('ig-page-return', () => { load(); if (feedsRequest) loadFeeds(true).catch(() => {}); });
+window.addEventListener('ig-page-return', () => { if (searchInput.value.trim()) searchTrending(); else load(); if (feedsRequest) loadFeeds(true).catch(() => {}); });
 load();

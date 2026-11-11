@@ -186,6 +186,26 @@ async function launch() {
     await evaluate("document.querySelectorAll('.trending-tab')[0].click()");
     assert.ok(await fitsWidth(), 'the trending page fits at 390px');
 
+    // Trending search uses the existing topic directory and restores lists on clear.
+    await evaluate("document.getElementById('trending-query').value='edit'; document.getElementById('trending-search').requestSubmit()");
+    await waitFor("document.querySelectorAll('#trending .trend-card').length===2", 'trending search results');
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('#trending .trend-name')].map(n=>n.textContent)"), ['Edit', 'Movie']);
+    assert.equal(await evaluate("document.getElementById('trending-tabs').hidden"), true);
+    await evaluate("document.getElementById('trending-query').value='nothing'; document.getElementById('trending-search').requestSubmit()");
+    await waitFor("document.querySelector('#trending .trend-empty')?.textContent.includes('No topics found')", 'empty search');
+    await evaluate("document.getElementById('trending-query').value=''; document.getElementById('trending-query').dispatchEvent(new Event('input'))");
+    await waitFor("document.querySelectorAll('#trending .trend-card').length===3", 'clear restores trending');
+
+    await evaluate("document.getElementById('trending-query').value='ed'; document.getElementById('trending-search').requestSubmit()");
+    await sleep(100);
+    await evaluate("document.getElementById('trending-query').value='edit'; document.getElementById('trending-search').requestSubmit()");
+    await sleep(800);
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('#trending .trend-name')].map(n=>n.textContent)"), ['Edit', 'Movie'], 'stale search cannot overwrite current query');
+    await evaluate("document.getElementById('trending-query').value='fail'; document.getElementById('trending-search').requestSubmit()");
+    await waitFor("document.querySelector('#trending .trend-empty')?.textContent.includes('Couldn’t search')", 'search failure');
+    await evaluate("document.getElementById('trending-query').value=''; document.getElementById('trending-search').requestSubmit()");
+    await waitFor("document.querySelectorAll('#trending .trend-card').length===3", 'restore after error');
+
     // Topic sheet: add to a feed (feeds that have it are disabled), failures, then watch.
     await evaluate("document.querySelector('#trending .trend-add').click()");
     await waitFor("document.querySelectorAll('#topic-sheet .topic-sheet-feed').length===2", 'feeds listed in the sheet');

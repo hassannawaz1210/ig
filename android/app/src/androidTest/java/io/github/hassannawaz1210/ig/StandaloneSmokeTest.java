@@ -390,6 +390,12 @@ public class StandaloneSmokeTest {
                                 .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)), true);
         try {
             evaluate(scenario, "document.querySelector('a[href=\"/feeds/export\"]').click()");
+            long selectionDeadline = SystemClock.elapsedRealtime() + 10000;
+            while (!"true".equals(evaluate(scenario, "!!document.querySelector('#feed-picker button[type=submit]:enabled')"))
+                    && SystemClock.elapsedRealtime() < selectionDeadline) SystemClock.sleep(100);
+            assertEquals("Feed selector did not load", "true",
+                    evaluate(scenario, "!!document.querySelector('#feed-picker button[type=submit]:enabled')"));
+            evaluate(scenario, "document.querySelector('#feed-picker form').requestSubmit()");
             long deadline = SystemClock.elapsedRealtime() + 15000;
             String backup;
             do {

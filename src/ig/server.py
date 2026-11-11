@@ -388,13 +388,15 @@ class Handler(BaseHTTPRequestHandler):
                     **config.playback_preferences(include_missing=True)}).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=True, context='Loading settings')
-        if self.path == '/feeds/export':
+        if urlsplit(self.path).path == '/feeds/export':
             try:
                 filename = 'ig-feeds-' + time.strftime('%Y-%m-%d') + '.json'
-                return self._send(200, backup.export(), 'application/json',
+                names = parse_qs(urlsplit(self.path).query).get('feeds')
+                names = json.loads(names[0]) if names else None
+                return self._send(200, backup.export(names), 'application/json',
                                   {'Content-Disposition': f'attachment; filename="{filename}"'})
-            except backup.TooLarge as error:
-                return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
+            except (ValueError, TypeError) as error:
+                return self._send(413 if isinstance(error, backup.TooLarge) else 400, json.dumps({'error': str(error)}).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=True, context='Exporting feeds')
         if urlsplit(self.path).path in ('/topics/trending', '/topics/search', '/feeds/topics/suggest'):
@@ -629,7 +631,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(data) != length:
                 raise ValueError('The upload was incomplete. Please try again.')
             document = backup.parse(data)
-            result = backup.summary(document) if self.path.endswith('/preview') else backup.merge(document)
+            names = parse_qs(urlsplit(self.path).query).get('feeds')
+            document = backup.select_feeds(document, json.loads(names[0]) if names else None)
+            result = backup.summary(document) if urlsplit(self.path).path.endswith('/preview') else backup.merge(document)
             return self._send(200, json.dumps(result).encode(), 'application/json')
         except backup.TooLarge as error:
             return self._send(413, json.dumps({'error': str(error)}).encode(), 'application/json')
@@ -730,7 +734,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, json.dumps({'error': str(error)}).encode(), 'application/json')
             except Exception as error:
                 return self._fail(error, as_json=True, context='Saving settings')
-        if self.path in ('/feeds/import/preview', '/feeds/import'):
+        if urlsplit(self.path).path in ('/feeds/import/preview', '/feeds/import'):
             return self._import_feeds()
         if self.path in ('/following/preview', '/following/import'):
             return self._following()

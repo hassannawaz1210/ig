@@ -195,6 +195,50 @@ function notifyFeedImport(data) {
   window.dispatchEvent(new CustomEvent('ig-feeds-changed', {detail}));
   try { localStorage.setItem('ig-feed-import', JSON.stringify(detail)); } catch (_) {}
 }
+// Shared feed selection for portable backups. Names are always rendered as text.
+function backupFeedChoices(container, names) {
+  container.replaceChildren();
+  container.classList.add('fp-feed-choices');
+  for (const name of names) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'checkbox'; input.value = name; input.checked = true;
+    label.append(input, document.createTextNode(name.replaceAll('_', ' ')));
+    container.append(label);
+  }
+  return () => [...container.querySelectorAll('input:checked')].map(input => input.value);
+}
+function backupSelectionURL(path, names, count) {
+  return names.length === count ? path : path + '?feeds=' + encodeURIComponent(JSON.stringify(names));
+}
+async function exportFeeds() {
+  if (document.getElementById('feed-picker')) return;
+  const dialog = document.createElement('dialog'); dialog.id = 'feed-picker';
+  dialog.setAttribute('aria-labelledby', 'feed-picker-title');
+  dialog.innerHTML = feedPickerStyles() + `<form><h2 id="feed-picker-title">Export backup</h2>
+    <div class="fp-names"></div><p class="fp-note">Saved reels, blocks, and app settings are also included.</p>
+    <p class="fp-status" role="status">Loading feeds…</p>
+    <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Export</button></div></form>`;
+  const form = dialog.querySelector('form'), status = form.querySelector('.fp-status');
+  const submit = form.querySelector('[type=submit]');
+  dialog.addEventListener('close', () => dialog.remove(), {once:true});
+  form.querySelector('[type=button]').onclick = () => dialog.close();
+  document.body.append(dialog); dialog.showModal();
+  try {
+    const response = await fetch('/settings/data');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load feeds.');
+    if (!dialog.isConnected) return;
+    const names = Object.keys(data.feeds || {});
+    const selection = backupFeedChoices(form.querySelector('.fp-names'), names);
+    status.textContent = ''; submit.disabled = false;
+    form.onsubmit = event => {
+      event.preventDefault();
+      window.location.href = backupSelectionURL('/feeds/export', selection(), names.length);
+      dialog.close();
+    };
+  } catch (error) { status.textContent = error.message; }
+}
 function importFeeds() {
   if (document.getElementById('feed-picker')) return;
   const menu = document.getElementById('feed-menu');
@@ -208,7 +252,7 @@ function importFeeds() {
     <label>ig export<input type="file" name="backup"></label>
     <p class="fp-note">Choose an ig backup. Feeds and saved reels are merged; permanent blocks are kept.</p>
     <p class="fp-preview" hidden></p>
-    <p class="fp-names" hidden style="max-height:140px;overflow:auto;overflow-wrap:anywhere"></p>
+    <div class="fp-names" hidden></div>
     <p class="fp-settings" hidden></p>
     <p class="fp-status" role="status"></p>
     <div class="fp-actions"><button type="button">Cancel</button><button type="submit" disabled>Import backup</button></div>
@@ -219,7 +263,7 @@ function importFeeds() {
   const names = form.querySelector('.fp-names');
   const settings = form.querySelector('.fp-settings');
   const controller = new AbortController();
-  let selected = null, saving = false, completed = false;
+  let selected = null, saving = false, completed = false, feedSelection = () => [], feedCount = 0;
   dialog.addEventListener('close', () => {controller.abort(); dialog.remove();}, {once:true});
   dialog.addEventListener('cancel', event => {if (saving) event.preventDefault();});
   cancel.onclick = () => dialog.close();
@@ -240,11 +284,18 @@ function importFeeds() {
       preview.textContent = `${data.feeds} feed${data.feeds === 1 ? '' : 's'} · ${data.accounts} account${data.accounts === 1 ? '' : 's'} · ${data.blocked} permanent block${data.blocked === 1 ? '' : 's'}`;
       const saved = data.saved_reels ?? 0;
       preview.textContent += ` · ${saved} saved reel${saved === 1 ? '' : 's'}`;
-      names.textContent = data.names.map(name => name.replaceAll('_', ' ')).join(' · ');
+      feedCount = data.names.length;
+      feedSelection = backupFeedChoices(names, data.names);
       const labels = {sound:'sound',auto_scroll:'auto-scroll',scroll_animation:'reel transitions',selected_feeds:'selected feeds'};
       const applied = Array.isArray(data.settings) ? data.settings : [];
       settings.textContent = applied.length ? 'Replace current settings: ' + applied.map(key => labels[key] || key).join(', ') + '.' : '';
       settings.hidden = !applied.length;
+      names.onchange = () => {
+        const partial = feedSelection().length !== feedCount;
+        const active = applied.filter(key => !partial || key !== 'selected_feeds');
+        settings.textContent = active.length ? 'Replace current settings: ' + active.map(key => labels[key] || key).join(', ') + '.' : '';
+        settings.hidden = !active.length;
+      };
       preview.hidden = false; names.hidden = !data.feeds; selected = chosen;
       status.textContent = ''; submit.disabled = false;
     } catch (error) { if (error.name !== 'AbortError') status.textContent = error.message; }
@@ -254,10 +305,11 @@ function importFeeds() {
     event.preventDefault();
     if (!selected || saving || completed || submit.disabled) return;
     saving = true; submit.disabled = true; cancel.disabled = true; file.disabled = true;
+    names.querySelectorAll('input').forEach(input => { input.disabled = true; });
     status.textContent = 'Importing backup…';
     try {
       await beforeLocalNavigation();
-      const data = await postFile('/feeds/import', selected);
+      const data = await postFile(backupSelectionURL('/feeds/import', feedSelection(), feedCount), selected);
       if (data.settings_values) {
         window.dispatchEvent(new CustomEvent('ig-playback-restored',{detail:data.settings_values}));
         try {
@@ -274,7 +326,7 @@ function importFeeds() {
       if (data.settings_applied?.length) status.textContent += ' · Settings applied';
       submit.hidden = true; cancel.textContent = 'Done';
     } catch (error) { status.textContent = error.message; }
-    finally {saving = false; cancel.disabled = false; file.disabled = completed; submit.disabled = completed;}
+    finally {saving = false; cancel.disabled = false; file.disabled = completed; submit.disabled = completed; names.querySelectorAll('input').forEach(input => { input.disabled = completed; });}
   };
   document.body.append(dialog); dialog.showModal();
 }
@@ -287,6 +339,9 @@ function feedPickerStyles() {
     #feed-picker label {display:block;margin-top:10px;color:#ccc;}
     #feed-picker input,#feed-picker select,#feed-picker textarea {box-sizing:border-box;display:block;width:100%;
       margin-top:5px;padding:9px;background:#111;border:1px solid #444;border-radius:3px;color:#eee;font:inherit;}
+    #feed-picker .fp-feed-choices {max-height:240px;overflow:auto;}
+    #feed-picker .fp-feed-choices label {display:flex;align-items:center;gap:10px;min-height:44px;margin:0;overflow-wrap:anywhere;}
+    #feed-picker .fp-feed-choices input {width:18px;height:18px;margin:0;flex:none;accent-color:#eee;}
     #feed-picker textarea {resize:vertical;min-height:48px;}
     #feed-picker [hidden] {display:none;}
     #feed-picker .fp-feed {margin-top:10px;}
